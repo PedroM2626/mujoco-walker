@@ -1,0 +1,9 @@
+gymnasium[mujoco]==0.29.1
+torch>=2.0.0
+numpy<2.0.0
+tensorboard
+tqdm
+wandb
+
+# Optional — required for real-time window display in play.py
+opencv-python

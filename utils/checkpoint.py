@@ -16,8 +16,8 @@ def get_run_dir(run_id, base_dir="runs"):
     return os.path.join(base_dir, run_id)
 
 
-def save_checkpoint(agent, optimizer, global_step, run_id, base_dir="checkpoints", keep_last_n=3):
-    """Save a training checkpoint with metadata."""
+def save_checkpoint(agent, optimizer, global_step, run_id, envs=None, base_dir="checkpoints", keep_last_n=3):
+    """Save a training checkpoint with metadata and environment stats."""
     ckpt_dir = get_checkpoint_dir(run_id, base_dir)
     os.makedirs(ckpt_dir, exist_ok=True)
 
@@ -29,6 +29,17 @@ def save_checkpoint(agent, optimizer, global_step, run_id, base_dir="checkpoints
         "optimizer_state_dict": optimizer.state_dict(),
         "global_step": global_step,
     }
+
+    # Save environment normalization statistics if available
+    if envs is not None:
+        # For Gymnasium VectorEnv with NormalizeObservation wrapper
+        if hasattr(envs, "obs_rms"):
+            checkpoint["obs_rms"] = envs.obs_rms
+        # For single environment with NormalizeObservation wrapper
+        elif hasattr(envs, "get_wrapper_attr") and hasattr(envs, "obs_rms"):
+             checkpoint["obs_rms"] = envs.obs_rms
+        elif hasattr(envs, "unwrapped") and hasattr(envs, "obs_rms"):
+             checkpoint["obs_rms"] = envs.obs_rms
 
     metadata = {
         "global_step": global_step,
@@ -44,7 +55,7 @@ def save_checkpoint(agent, optimizer, global_step, run_id, base_dir="checkpoints
     return checkpoint_path
 
 
-def load_checkpoint(agent, optimizer, run_id, global_step=None, base_dir="checkpoints"):
+def load_checkpoint(agent, optimizer, run_id, envs=None, global_step=None, base_dir="checkpoints"):
     """Load a training checkpoint. If global_step is None, loads the latest."""
     ckpt_dir = get_checkpoint_dir(run_id, base_dir)
 
@@ -66,7 +77,18 @@ def load_checkpoint(agent, optimizer, run_id, global_step=None, base_dir="checkp
     checkpoint = torch.load(checkpoint_path, map_location="cpu")
 
     agent.load_state_dict(checkpoint["agent_state_dict"])
-    optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+    if optimizer is not None and "optimizer_state_dict" in checkpoint:
+        optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+    
+    # Load environment normalization statistics if available and envs provided
+    if envs is not None and "obs_rms" in checkpoint:
+        if hasattr(envs, "obs_rms"):
+            envs.obs_rms = checkpoint["obs_rms"]
+            print("[CHECKPOINT] Loaded observation normalization statistics.")
+        elif hasattr(envs, "unwrapped") and hasattr(envs, "obs_rms"):
+             envs.obs_rms = checkpoint["obs_rms"]
+             print("[CHECKPOINT] Loaded observation normalization statistics.")
+
     loaded_step = checkpoint.get("global_step", 0)
 
     return checkpoint, loaded_step

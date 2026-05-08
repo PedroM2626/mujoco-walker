@@ -27,7 +27,7 @@ class WalkerRagdollEnv(MujocoEnv, gym.utils.EzPickle):
       left_shoulder1/2,  left_elbow             (3)
 
     Root joint: free (nq=24, nv=23)
-    Observation: qpos[2:] (22) + qvel (23) = 45
+    Observation: qpos[2:] (22) + qvel (23) + target_rel_xy (2) = 47
     """
 
     metadata = {
@@ -40,9 +40,14 @@ class WalkerRagdollEnv(MujocoEnv, gym.utils.EzPickle):
         xml_file=None,
         frame_skip: int = 5,
         default_camera_config: dict = DEFAULT_CAMERA_CONFIG,
-        forward_reward_weight: float = 1.25,
+        progress_reward_weight: float = 8.0,
+        distance_penalty_weight: float = 0.0,
         ctrl_cost_weight: float = 0.1,
-        healthy_reward: float = 5.0,
+        healthy_reward: float = 1.0,
+        target_reached_bonus: float = 10.0,
+        target_reach_threshold: float = 0.5,
+        target_min_distance: float = 2.0,
+        target_max_distance: float = 6.0,
         terminate_when_unhealthy: bool = True,
         healthy_z_range: tuple = (1.0, 2.0),
         reset_noise_scale: float = 1e-2,
@@ -53,17 +58,23 @@ class WalkerRagdollEnv(MujocoEnv, gym.utils.EzPickle):
                 os.path.dirname(os.path.dirname(__file__)), "walker_ragdoll.xml"
             )
 
-        self._forward_reward_weight = forward_reward_weight
+        self._progress_reward_weight = progress_reward_weight
+        self._distance_penalty_weight = distance_penalty_weight
         self._ctrl_cost_weight = ctrl_cost_weight
         self._healthy_reward = healthy_reward
+        self._target_reached_bonus = target_reached_bonus
+        self._target_reach_threshold = target_reach_threshold
+        self._target_min_distance = target_min_distance
+        self._target_max_distance = target_max_distance
         self._terminate_when_unhealthy = terminate_when_unhealthy
         self._healthy_z_range = healthy_z_range
         self._reset_noise_scale = reset_noise_scale
+        self._target_xy = np.zeros(2, dtype=np.float64)
 
         # nq=24 (free joint: 3 pos + 4 quat + 17 joint angles)
-        # obs = qpos[2:] + qvel = 22 + 23 = 45
+        # obs = qpos[2:] + qvel + target_rel_xy = 22 + 23 + 2 = 47
         observation_space = Box(
-            low=-np.inf, high=np.inf, shape=(45,), dtype=np.float64
+            low=-np.inf, high=np.inf, shape=(47,), dtype=np.float64
         )
 
         MujocoEnv.__init__(
@@ -80,13 +91,22 @@ class WalkerRagdollEnv(MujocoEnv, gym.utils.EzPickle):
             xml_file,
             frame_skip,
             default_camera_config,
-            forward_reward_weight,
+            progress_reward_weight,
+            distance_penalty_weight,
             ctrl_cost_weight,
             healthy_reward,
+            target_reached_bonus,
+            target_reach_threshold,
+            target_min_distance,
+            target_max_distance,
             terminate_when_unhealthy,
             healthy_z_range,
             reset_noise_scale,
             **kwargs,
+        )
+
+        self._target_body_id = mujoco.mj_name2id(
+            self.model, mujoco.mjtObj.mjOBJ_BODY, "target_marker"
         )
 
     @property
@@ -114,32 +134,58 @@ class WalkerRagdollEnv(MujocoEnv, gym.utils.EzPickle):
         # Free joint: qpos = [x, y, z, qw, qx, qy, qz, joint_angles...]
         # Skip x (index 0) and y (index 1) — keep z + quaternion + joints
         position = self.data.qpos[2:].copy()   # 22 elements
-        velocity = self.data.qvel.copy()        # 23 elements
-        return np.concatenate([position, velocity])
+        velocity = self.data.qvel.copy()       # 23 elements
+        target_rel_xy = self._target_xy - self.data.qpos[:2]
+        return np.concatenate([position, velocity, target_rel_xy])
+
+    def _sample_target(self, base_xy):
+        angle = self.np_random.uniform(0.0, 2.0 * np.pi)
+        radius = self.np_random.uniform(
+            self._target_min_distance, self._target_max_distance
+        )
+        offset = np.array([np.cos(angle), np.sin(angle)]) * radius
+        return base_xy + offset
+
+    def _set_target(self, target_xy):
+        self._target_xy = np.array(target_xy, dtype=np.float64)
+        self.model.body_pos[self._target_body_id] = np.array(
+            [self._target_xy[0], self._target_xy[1], 0.05],
+            dtype=np.float64,
+        )
+        mujoco.mj_forward(self.model, self.data)
 
     def step(self, action):
-        # Track x-position before and after for forward reward
+        # Reward progress to the target and penalize remaining distance.
         xy_before = self.data.qpos[:2].copy()
+        dist_before = np.linalg.norm(self._target_xy - xy_before)
         self.do_simulation(action, self.frame_skip)
         xy_after = self.data.qpos[:2].copy()
+        dist_after = np.linalg.norm(self._target_xy - xy_after)
 
-        x_velocity = (xy_after[0] - xy_before[0]) / self.dt
+        progress_reward = self._progress_reward_weight * (dist_before - dist_after)
+        distance_penalty = self._distance_penalty_weight * dist_after
+        reached_target = bool(dist_after <= self._target_reach_threshold)
+        reached_bonus = self._target_reached_bonus if reached_target else 0.0
 
         ctrl_cost = self.control_cost(action)
-        forward_reward = self._forward_reward_weight * x_velocity
         healthy_reward = self.healthy_reward
 
-        reward = forward_reward + healthy_reward - ctrl_cost
+        reward = progress_reward + reached_bonus + healthy_reward - ctrl_cost - distance_penalty
         terminated = self.terminated
         observation = self._get_obs()
 
         info = {
-            "reward_forward": forward_reward,
+            "reward_progress": progress_reward,
+            "reward_distance": -distance_penalty,
+            "reward_target_bonus": reached_bonus,
             "reward_ctrl": -ctrl_cost,
             "reward_survive": healthy_reward,
             "x_position": xy_after[0],
             "y_position": xy_after[1],
-            "x_velocity": x_velocity,
+            "distance_to_target": dist_after,
+            "target_x": self._target_xy[0],
+            "target_y": self._target_xy[1],
+            "target_reached": reached_target,
         }
 
         if self.render_mode == "human":
@@ -159,6 +205,7 @@ class WalkerRagdollEnv(MujocoEnv, gym.utils.EzPickle):
         )
 
         self.set_state(qpos, qvel)
+        self._set_target(self._sample_target(self.data.qpos[:2]))
         return self._get_obs()
 
     def _get_reset_info(self):
@@ -166,6 +213,8 @@ class WalkerRagdollEnv(MujocoEnv, gym.utils.EzPickle):
             "x_position": self.data.qpos[0],
             "y_position": self.data.qpos[1],
             "z_position": self.data.qpos[2],
+            "target_x": self._target_xy[0],
+            "target_y": self._target_xy[1],
         }
 
 

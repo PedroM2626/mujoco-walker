@@ -68,7 +68,7 @@ def parse_args():
     parser.add_argument(
         "--fps",
         type=int,
-        default=30,
+        default=120,
         help="Playback FPS when rendering to a window",
     )
     return parser.parse_args()
@@ -138,21 +138,8 @@ def play():
         print(f"[ERROR] No checkpoint found for run-id '{args.run_id}' in {ckpt_dir}")
         sys.exit(1)
 
-    print(f"[LOAD] Loading checkpoint: {ckpt_path}")
-    checkpoint = torch.load(ckpt_path, map_location=device)
-    try:
-        agent.load_state_dict(checkpoint["agent_state_dict"])
-    except RuntimeError as e:
-        if "size mismatch" in str(e):
-            print(
-                "\n[ERROR] Checkpoint is incompatible with the current model.\n"
-                "This usually happens when the MuJoCo XML (and thus observation space)\n"
-                "changed after the checkpoint was created.\n\n"
-                f"Solution: train a new run-id with the current body, e.g.:\n"
-                f"  python ppo_walker.py --run-id walker_v2 --force --total-timesteps 1000000\n"
-            )
-            sys.exit(1)
-        raise
+    # Load the checkpoint and the environment statistics (obs_rms)
+    _, _ = load_checkpoint(agent, None, args.run_id, envs=env, global_step=args.checkpoint_step)
     agent.eval()
 
     total_reward = 0.0

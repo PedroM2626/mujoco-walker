@@ -26,12 +26,28 @@ Walker ragdoll training project using PPO (Proximal Policy Optimization) with Mu
 
 1. Install dependencies:
 ```bash
+python -m venv .venv
+.\.venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
 2. Verify MuJoCo is installed correctly:
 ```bash
 python -c "import mujoco; print(mujoco.__version__)"
+```
+
+## Docker
+
+You can also run the project using Docker:
+
+### Build
+```bash
+docker build -t walker-marl .
+```
+
+### Run Training
+```bash
+docker run -v ${PWD}/checkpoints:/app/checkpoints -v ${PWD}/runs:/app/runs walker-marl
 ```
 
 ## Usage

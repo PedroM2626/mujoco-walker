@@ -1,0 +1,12 @@
+.git
+.venv
+__pycache__
+runs
+checkpoints
+test_checkpoints
+.env
+.env.example
+*.pyc
+*.mp4
+*.png
+*.jpg

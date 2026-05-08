@@ -23,21 +23,32 @@ class TestWalkerRagdollEnv(unittest.TestCase):
 
     def test_env_creation(self):
         self.assertIsNotNone(self.env)
-        self.assertEqual(self.env.observation_space.shape, (27,))
+        self.assertEqual(self.env.observation_space.shape, (47,))
 
     def test_reset(self):
         obs, info = self.env.reset(seed=42)
-        self.assertEqual(obs.shape, (27,))
+        self.assertEqual(obs.shape, self.env.observation_space.shape)
         self.assertTrue(np.isfinite(obs).all())
+        self.assertIn("target_x", info)
+        self.assertIn("target_y", info)
 
     def test_step(self):
         obs, info = self.env.reset(seed=42)
         action = self.env.action_space.sample()
         obs, reward, terminated, truncated, info = self.env.step(action)
-        self.assertEqual(obs.shape, (27,))
+        self.assertEqual(obs.shape, self.env.observation_space.shape)
         self.assertIsInstance(reward, float)
         self.assertIsInstance(terminated, bool)
         self.assertIsInstance(truncated, bool)
+        self.assertIn("distance_to_target", info)
+        self.assertIn("target_reached", info)
+
+    def test_target_changes_between_resets(self):
+        _, info_a = self.env.reset(seed=42)
+        _, info_b = self.env.reset(seed=43)
+        target_a = np.array([info_a["target_x"], info_a["target_y"]])
+        target_b = np.array([info_b["target_x"], info_b["target_y"]])
+        self.assertFalse(np.allclose(target_a, target_b))
 
     def test_episode(self):
         obs, _ = self.env.reset(seed=42)
@@ -53,15 +64,17 @@ class TestAgent(unittest.TestCase):
     def setUp(self):
         env = gym.make("WalkerRagdoll-v0")
         self.agent = Agent(env)
+        self.obs_dim = int(np.prod(env.observation_space.shape))
+        self.act_dim = int(np.prod(env.action_space.shape))
         env.close()
 
     def test_forward(self):
-        obs = torch.randn(1, 27)
+        obs = torch.randn(1, self.obs_dim)
         value = self.agent.get_value(obs)
         self.assertEqual(value.shape, (1, 1))
 
         action, logprob, entropy, value2 = self.agent.get_action_and_value(obs)
-        self.assertEqual(action.shape, (1, 6))
+        self.assertEqual(action.shape, (1, self.act_dim))
         self.assertEqual(logprob.shape, (1,))
         self.assertEqual(entropy.shape, (1,))
         self.assertEqual(value2.shape, (1, 1))
@@ -110,7 +123,7 @@ class TestMakeEnv(unittest.TestCase):
         env = make_env("WalkerRagdoll-v0", 0, False, "test_run", 0.99)()
         self.assertIsNotNone(env)
         obs, _ = env.reset(seed=42)
-        self.assertEqual(obs.shape, (27,))
+        self.assertEqual(obs.shape, env.observation_space.shape)
         env.close()
 
 

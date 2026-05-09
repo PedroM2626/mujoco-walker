@@ -1,4 +1,4 @@
-"""Unit and integration tests for the Walker Ragdoll environment and PPO training."""
+"""Unit and integration tests for the Walker Ragdoll environment and SAC training."""
 
 import os
 import sys
@@ -10,7 +10,7 @@ import torch
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 import envs.walker_ragdoll_env
-from ppo_walker import Agent, make_env
+from sac_walker import SACAgent, make_env
 from utils.checkpoint import save_checkpoint, load_checkpoint, force_delete_run, find_latest_checkpoint
 
 
@@ -23,14 +23,14 @@ class TestWalkerRagdollEnv(unittest.TestCase):
 
     def test_env_creation(self):
         self.assertIsNotNone(self.env)
-        self.assertEqual(self.env.observation_space.shape, (47,))
+        self.assertEqual(self.env.observation_space.shape, (46,))
 
     def test_reset(self):
         obs, info = self.env.reset(seed=42)
         self.assertEqual(obs.shape, self.env.observation_space.shape)
         self.assertTrue(np.isfinite(obs).all())
-        self.assertIn("target_x", info)
-        self.assertIn("target_y", info)
+        self.assertIn("z_position", info)
+        self.assertIn("upright", info)
 
     def test_step(self):
         obs, info = self.env.reset(seed=42)
@@ -40,15 +40,8 @@ class TestWalkerRagdollEnv(unittest.TestCase):
         self.assertIsInstance(reward, float)
         self.assertIsInstance(terminated, bool)
         self.assertIsInstance(truncated, bool)
-        self.assertIn("distance_to_target", info)
-        self.assertIn("target_reached", info)
-
-    def test_target_changes_between_resets(self):
-        _, info_a = self.env.reset(seed=42)
-        _, info_b = self.env.reset(seed=43)
-        target_a = np.array([info_a["target_x"], info_a["target_y"]])
-        target_b = np.array([info_b["target_x"], info_b["target_y"]])
-        self.assertFalse(np.allclose(target_a, target_b))
+        self.assertIn("reward_linup", info)
+        self.assertIn("reward_ctrl", info)
 
     def test_episode(self):
         obs, _ = self.env.reset(seed=42)
@@ -63,21 +56,19 @@ class TestWalkerRagdollEnv(unittest.TestCase):
 class TestAgent(unittest.TestCase):
     def setUp(self):
         env = gym.make("WalkerRagdoll-v0")
-        self.agent = Agent(env)
         self.obs_dim = int(np.prod(env.observation_space.shape))
         self.act_dim = int(np.prod(env.action_space.shape))
+        self.agent = SACAgent(self.obs_dim, env.action_space)
         env.close()
 
     def test_forward(self):
         obs = torch.randn(1, self.obs_dim)
-        value = self.agent.get_value(obs)
-        self.assertEqual(value.shape, (1, 1))
-
-        action, logprob, entropy, value2 = self.agent.get_action_and_value(obs)
+        mean, log_std = self.agent(obs)
+        self.assertEqual(mean.shape, (1, self.act_dim))
+        self.assertEqual(log_std.shape, (1, self.act_dim))
+        action, logprob, _ = self.agent.get_action(obs)
         self.assertEqual(action.shape, (1, self.act_dim))
-        self.assertEqual(logprob.shape, (1,))
-        self.assertEqual(entropy.shape, (1,))
-        self.assertEqual(value2.shape, (1, 1))
+        self.assertEqual(logprob.shape, (1, 1))
 
 
 class TestCheckpoint(unittest.TestCase):
@@ -91,14 +82,14 @@ class TestCheckpoint(unittest.TestCase):
 
     def test_save_and_load(self):
         env = gym.make("WalkerRagdoll-v0")
-        agent = Agent(env)
+        agent = SACAgent(int(np.prod(env.observation_space.shape)), env.action_space)
         optimizer = torch.optim.Adam(agent.parameters(), lr=3e-4)
         env.close()
 
         save_checkpoint(agent, optimizer, 1000, self.run_id, base_dir=self.base_dir)
 
         env2 = gym.make("WalkerRagdoll-v0")
-        agent2 = Agent(env2)
+        agent2 = SACAgent(int(np.prod(env2.observation_space.shape)), env2.action_space)
         optimizer2 = torch.optim.Adam(agent2.parameters(), lr=3e-4)
         env2.close()
 
@@ -107,7 +98,7 @@ class TestCheckpoint(unittest.TestCase):
 
     def test_latest_checkpoint(self):
         env = gym.make("WalkerRagdoll-v0")
-        agent = Agent(env)
+        agent = SACAgent(int(np.prod(env.observation_space.shape)), env.action_space)
         optimizer = torch.optim.Adam(agent.parameters(), lr=3e-4)
         env.close()
 
@@ -120,7 +111,7 @@ class TestCheckpoint(unittest.TestCase):
 
 class TestMakeEnv(unittest.TestCase):
     def test_make_env(self):
-        env = make_env("WalkerRagdoll-v0", 0, False, "test_run", 0.99)()
+        env = make_env("WalkerRagdoll-v0", 0, False, "test_run")()
         self.assertIsNotNone(env)
         obs, _ = env.reset(seed=42)
         self.assertEqual(obs.shape, env.observation_space.shape)

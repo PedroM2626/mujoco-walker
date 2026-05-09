@@ -1,12 +1,12 @@
-# Walker Ragdoll - PPO with CleanRL and MuJoCo
+# Walker Ragdoll - SAC with CleanRL and MuJoCo
 
-Walker ragdoll training project using PPO (Proximal Policy Optimization) with MuJoCo and a CleanRL-style environment.
+Walker ragdoll training project using SAC (Soft Actor-Critic) with MuJoCo and a CleanRL-style environment.
 
 ## Project Structure
 
 ```
 .
-├── ppo_walker.py              # Main PPO training script
+├── sac_walker.py              # Main SAC training script
 ├── play.py                    # Real-time visualization of a trained agent
 ├── walker_ragdoll.xml         # MuJoCo model for the walker ragdoll
 ├── envs/
@@ -54,7 +54,7 @@ docker run -v ${PWD}/checkpoints:/app/checkpoints -v ${PWD}/runs:/app/runs walke
 
 ### Basic training
 ```bash
-python ppo_walker.py --run-id walker_experiment_1 --seed 1 --total-timesteps 1000000
+python sac_walker.py --run-id walker_experiment_1 --seed 1 --total-timesteps 1000000
 ```
 
 ### With environment variables
@@ -62,12 +62,12 @@ python ppo_walker.py --run-id walker_experiment_1 --seed 1 --total-timesteps 100
 # Linux/Mac
 export RUN_ID=walker_experiment_1
 export TOTAL_TIMESTEPS=1000000
-python ppo_walker.py
+python sac_walker.py
 
 # Windows PowerShell
 $env:RUN_ID = "walker_experiment_1"
 $env:TOTAL_TIMESTEPS = "1000000"
-python ppo_walker.py
+python sac_walker.py
 ```
 
 ### Unity ML-Agents-style features
@@ -81,27 +81,22 @@ python ppo_walker.py
 
 **Start a new training run:**
 ```bash
-python ppo_walker.py --run-id walker_v1 --seed 1 --total-timesteps 1000000
+python sac_walker.py --run-id walker_v1 --seed 1 --total-timesteps 1000000
 ```
 
 **Resume training:**
 ```bash
-python ppo_walker.py --run-id walker_v1 --resume
+python sac_walker.py --run-id walker_v1 --resume
 ```
 
 **Force restart (deletes previous checkpoints/logs):**
 ```bash
-python ppo_walker.py --run-id walker_v1 --force --seed 2
+python sac_walker.py --run-id walker_v1 --force --seed 2
 ```
 
 **Capture video:**
 ```bash
-python ppo_walker.py --run-id walker_v1 --capture-video --total-timesteps 100000
-```
-
-**Track with Weights & Biases:**
-```bash
-python ppo_walker.py --run-id walker_v1 --track --wandb-project walker-ragdoll
+python sac_walker.py --run-id walker_v1 --capture-video --total-timesteps 100000
 ```
 
 ## Hyperparameters
@@ -110,30 +105,22 @@ All hyperparameters can be configured via command line or environment variables.
 
 | CLI Parameter | Environment Variable | Default | Description |
 |---|---|---|---|
-| `--run-id` | `RUN_ID` | `walker_ppo` | Experiment ID |
+| `--run-id` | `RUN_ID` | `walker_sac` | Experiment ID |
 | `--seed` | `SEED` | `1` | Random seed |
-| `--checkpoint-interval` | `CHECKPOINT_INTERVAL` | `800000` | Checkpoint interval in timesteps |
-| `--total-timesteps` | `TOTAL_TIMESTEPS` | `50000000` | Total timesteps (20M+ recommended for Humanoid) |
+| `--checkpoint-interval` | `CHECKPOINT_INTERVAL` | `1000000` | Checkpoint interval in timesteps |
+| `--total-timesteps` | `TOTAL_TIMESTEPS` | `1000000` | Total timesteps |
 | `--learning-rate` | `LEARNING_RATE` | `3e-4` | Learning rate |
-| `--num-envs` | `NUM_ENVS` | `32` | Number of parallel environments |
-| `--num-steps` | `NUM_STEPS` | `2048` | Steps per rollout |
+| `--num-envs` | `NUM_ENVS` | `16` | Number of parallel environments |
+| `--buffer-size` | `BUFFER_SIZE` | `1000000` | Replay buffer size |
+| `--batch-size` | `BATCH_SIZE` | `256` | SAC batch size |
+| `--learning-starts` | `LEARNING_STARTS` | `10000` | Random exploration steps before updates |
 | `--gamma` | `GAMMA` | `0.99` | Discount factor |
-| `--gae-lambda` | `GAE_LAMBDA` | `0.95` | GAE lambda |
-| `--num-minibatches` | `NUM_MINIBATCHES` | `32` | Minibatches per update |
-| `--update-epochs` | `UPDATE_EPOCHS` | `10` | Update epochs |
-| `--clip-coef` | `CLIP_COEF` | `0.2` | PPO clipping coefficient |
-| `--ent-coef` | `ENT_COEF` | `0.01` | Entropy coefficient (Crucial for exploration) |
-| `--vf-coef` | `VF_COEF` | `0.5` | Value function coefficient |
-| `--max-grad-norm` | `MAX_GRAD_NORM` | `0.5` | Max gradient norm for clipping |
-| `--target-kl` | `TARGET_KL` | `0.01` | KL divergence target for early stopping |
+| `--tau` | `TAU` | `0.005` | Target network update rate |
+| `--alpha` | `ALPHA` | `0.2` | Initial entropy temperature |
 
 ## Training Recommendations
 
-For the `WalkerRagdoll-v0` (Humanoid-style) environment:
-1. **Network Size**: The architecture was upgraded to **256x256** hidden layers (previously 64x64). This is necessary to handle the 17-actuator control space.
-2. **Entropy**: The entropy coefficient (`ent_coef`) was set to **0.01**. Without entropy, the agent often collapses into a "standing still" local optimum.
-3. **Reward Scaling**: The `progress_reward_weight` was increased to **50.0** in the environment to balance the survival reward.
-4. **Steps**: 8M steps is usually insufficient for stable walking. Aim for **20M to 50M** steps.
+For the `WalkerRagdoll-v0` environment, the reward now follows a HumanoidStandup-style objective: torso height per control step, minus control and impact costs, with a small upright/standing stabilizer. Old PPO checkpoints are not compatible with this task definition.
 
 ## Tests
 
@@ -169,9 +156,9 @@ python play.py --run-id walker_v1 --render-mode human
 python play.py --run-id walker_v1 --num-episodes 10 --render-mode human
 ```
 
-### Deterministic mode (no action noise)
+### Stochastic mode (sample from the SAC policy)
 ```bash
-python play.py --run-id walker_v1 --deterministic --render-mode human
+python play.py --run-id walker_v1 --stochastic --render-mode human
 ```
 
 ### Load a specific checkpoint step
@@ -179,14 +166,16 @@ python play.py --run-id walker_v1 --deterministic --render-mode human
 python play.py --run-id walker_v1 --checkpoint-step 500000 --render-mode human
 ```
 
-**Note:** `play.py` runs a short warm-up (200 random steps by default) to populate observation normalization statistics so the agent behaves consistently.
+**Note:** `play.py` loads the saved observation normalization statistics and freezes them during evaluation.
+
+### Watch an old PPO checkpoint
+```bash
+python play_ppo_legacy.py --run-id Humanoid_Curriculum_v1 --checkpoint-step 133801920 --render-mode human --deterministic
+```
+
+**Note:** `play_ppo_legacy.py` embeds the old 48-dimensional PPO environment and freezes the checkpoint's saved observation normalization statistics, so the funny legacy behavior can still be replayed without affecting the SAC environment.
 
 ## Checkpoints
 
-Checkpoints are saved to `checkpoints/<run_id>/`. The system automatically keeps the 3 most recent checkpoints.
+SAC checkpoints are saved to `checkpoints/<run_id>/sac_ckpt_<step>.pt` and include the actor, critics, entropy temperature, optimizers, and observation normalization statistics.
 
-To load a specific checkpoint:
-```python
-from utils.checkpoint import load_checkpoint
-load_checkpoint(agent, optimizer, "walker_v1", global_step=500000)
-```

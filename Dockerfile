@@ -28,4 +28,4 @@ ENV PYTHONUNBUFFERED=1
 ENV MUJOCO_GL=osmesa
 
 # Default command (training)
-CMD ["python", "ppo_walker.py"]
+CMD ["python", "sac_walker.py"]

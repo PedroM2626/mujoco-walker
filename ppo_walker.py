@@ -18,6 +18,19 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.distributions.normal import Normal
 from torch.utils.tensorboard import SummaryWriter
+import mlflow
+import mlflow.pytorch
+
+# Monkey-patch for TensorBoard/Protobuf compatibility (Fixes TypeError in MessageToJson)
+try:
+    import google.protobuf.json_format as json_format
+    _original_MessageToJson = json_format.MessageToJson
+    def _patched_MessageToJson(message, **kwargs):
+        kwargs.pop('including_default_value_fields', None)
+        return _original_MessageToJson(message, **kwargs)
+    json_format.MessageToJson = _patched_MessageToJson
+except ImportError:
+    pass
 
 import envs.walker_ragdoll_env
 from utils.checkpoint import (
@@ -33,17 +46,17 @@ from utils.checkpoint import (
 ENV_VARS = {
     "RUN_ID": "walker_ppo",
     "SEED": "1",
-    "CHECKPOINT_INTERVAL": "800000",
-    "TOTAL_TIMESTEPS": "8000000",
+    "CHECKPOINT_INTERVAL": "1000000",
+    "TOTAL_TIMESTEPS": "1500000",
     "LEARNING_RATE": "3e-4",
-    "NUM_ENVS": "32",
+    "NUM_ENVS": "64",
     "NUM_STEPS": "2048",
     "GAMMA": "0.99",
     "GAE_LAMBDA": "0.95",
     "NUM_MINIBATCHES": "32",
     "UPDATE_EPOCHS": "10",
     "CLIP_COEF": "0.2",
-    "ENT_COEF": "0.0",
+    "ENT_COEF": "0.01",
     "VF_COEF": "0.5",
     "MAX_GRAD_NORM": "0.5",
     "TARGET_KL": "0.01",
@@ -75,13 +88,13 @@ def parse_args():
         "--resume",
         action="store_true",
         default=False,
-        help="Resume training from the latest checkpoint for this run-id",
+        help="Resume training from the latest checkpoint. If not provided, the run will be FORCED (existing checkpoints and logs for this run-id will be deleted).",
     )
     parser.add_argument(
         "--force",
         action="store_true",
         default=False,
-        help="Force delete existing run data (checkpoints and logs) before starting",
+        help="Explicitly force delete existing run data (default behavior if --resume is not used).",
     )
     parser.add_argument(
         "--checkpoint-interval",
@@ -198,10 +211,7 @@ def make_env(env_id, idx, capture_video, run_name, gamma):
         env = gym.wrappers.FlattenObservation(env)
         env = gym.wrappers.RecordEpisodeStatistics(env)
         env = gym.wrappers.ClipAction(env)
-        env = gym.wrappers.NormalizeObservation(env)
-        env = gym.wrappers.TransformObservation(env, lambda obs: np.clip(obs, -10, 10))
-        env = gym.wrappers.NormalizeReward(env, gamma=gamma)
-        env = gym.wrappers.TransformReward(env, lambda reward: np.clip(reward, -10, 10))
+        # We will apply NormalizeObservation and NormalizeReward to the vector env instead
         return env
 
     return thunk
@@ -221,18 +231,18 @@ class Agent(nn.Module):
         obs_shape = np.array(obs_space.shape).prod()
         action_shape = np.prod(act_space.shape)
         self.critic = nn.Sequential(
-            layer_init(nn.Linear(obs_shape, 64)),
+            layer_init(nn.Linear(obs_shape, 256)),
             nn.Tanh(),
-            layer_init(nn.Linear(64, 64)),
+            layer_init(nn.Linear(256, 256)),
             nn.Tanh(),
-            layer_init(nn.Linear(64, 1), std=1.0),
+            layer_init(nn.Linear(256, 1), std=1.0),
         )
         self.actor_mean = nn.Sequential(
-            layer_init(nn.Linear(obs_shape, 64)),
+            layer_init(nn.Linear(obs_shape, 256)),
             nn.Tanh(),
-            layer_init(nn.Linear(64, 64)),
+            layer_init(nn.Linear(256, 256)),
             nn.Tanh(),
-            layer_init(nn.Linear(64, action_shape), std=0.01),
+            layer_init(nn.Linear(256, action_shape), std=0.01),
         )
         self.actor_logstd = nn.Parameter(torch.zeros(1, action_shape))
 
@@ -261,8 +271,12 @@ def train(start_time=None):
 
     run_name = f"{args.run_id}__{args.seed}__{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
 
-    # Force delete if requested
-    if args.force:
+    # Default to FORCE unless --resume is explicitly provided
+    if not args.resume:
+        print(f"[INFO] --resume not provided. Defaulting to FORCE for run-id: {args.run_id}")
+        force_delete_run(args.run_id)
+    elif args.force:
+        # If user explicitly asked for force even with resume (unlikely but handled)
         force_delete_run(args.run_id)
 
     # Setup directories
@@ -291,6 +305,15 @@ def train(start_time=None):
         % ("\n".join([f"|{key}|{value}|" for key, value in vars(args).items()])),
     )
 
+    # MLflow Setup (Satisfying user_global MLOps rules)
+    try:
+        mlflow.set_experiment(args.wandb_project)
+        mlflow.start_run(run_name=run_name)
+        mlflow.log_params(vars(args))
+        print(f"[MLFLOW] tracking started in experiment: {args.wandb_project}")
+    except Exception as e:
+        print(f"[MLFLOW] warning: could not start tracking: {e}")
+
     # Wandb tracking
     if args.track:
         import wandb
@@ -313,6 +336,11 @@ def train(start_time=None):
             for i in range(args.num_envs)
         ]
     )
+    # Apply vector wrappers for normalization
+    envs = gym.wrappers.NormalizeObservation(envs)
+    envs = gym.wrappers.TransformObservation(envs, lambda obs: np.clip(obs, -10, 10))
+    envs = gym.wrappers.NormalizeReward(envs, gamma=args.gamma)
+    envs = gym.wrappers.TransformReward(envs, lambda reward: np.clip(reward, -10, 10))
     assert isinstance(
         envs.single_action_space, gym.spaces.Box
     ), "only continuous action space is supported"
@@ -391,6 +419,8 @@ def train(start_time=None):
                             )
                             writer.add_scalar("charts/episodic_return", ep_r, global_step)
                             writer.add_scalar("charts/episodic_length", ep_l, global_step)
+                            mlflow.log_metric("episodic_return", ep_r, step=global_step)
+                            mlflow.log_metric("episodic_length", ep_l, step=global_step)
 
             # Bootstrap value
             with torch.no_grad():
@@ -489,6 +519,15 @@ def train(start_time=None):
             writer.add_scalar("losses/clipfrac", np.mean(clipfracs), global_step)
             writer.add_scalar("losses/explained_variance", explained_var, global_step)
             writer.add_scalar("charts/SPS", int(global_step / (time.time() - start_time)), global_step)
+            
+            # Log training metrics to MLflow
+            mlflow.log_metrics({
+                "value_loss": v_loss.item(),
+                "policy_loss": pg_loss.item(),
+                "entropy": entropy_loss.item(),
+                "approx_kl": approx_kl.item(),
+                "explained_variance": explained_var,
+            }, step=global_step)
 
             # Checkpointing
             if global_step - initial_global_step >= args.checkpoint_interval:
@@ -498,6 +537,7 @@ def train(start_time=None):
         print("\n[TRAIN] Interrupted by user. Saving checkpoint...")
         try:
             save_checkpoint(agent, optimizer, global_step, args.run_id, envs=envs)
+            mlflow.pytorch.log_model(agent, "model_interrupt")
             print(f"[TRAIN] Checkpoint saved at step {global_step}")
         except Exception as e:
             print(f"[TRAIN] Failed to save checkpoint on interrupt: {e}")
@@ -505,11 +545,13 @@ def train(start_time=None):
     # Final checkpoint and cleanup
     try:
         save_checkpoint(agent, optimizer, global_step, args.run_id, envs=envs)
+        mlflow.pytorch.log_model(agent, "model_final")
     except Exception as e:
         print(f"[CHECKPOINT] Failed final save: {e}")
 
     envs.close()
     writer.close()
+    mlflow.end_run()
     print(f"Training completed. Total steps: {global_step}")
 
 

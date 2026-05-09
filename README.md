@@ -112,20 +112,28 @@ All hyperparameters can be configured via command line or environment variables.
 |---|---|---|---|
 | `--run-id` | `RUN_ID` | `walker_ppo` | Experiment ID |
 | `--seed` | `SEED` | `1` | Random seed |
-| `--checkpoint-interval` | `CHECKPOINT_INTERVAL` | `100000` | Checkpoint interval in timesteps |
-| `--total-timesteps` | `TOTAL_TIMESTEPS` | `1000000` | Total timesteps |
+| `--checkpoint-interval` | `CHECKPOINT_INTERVAL` | `800000` | Checkpoint interval in timesteps |
+| `--total-timesteps` | `TOTAL_TIMESTEPS` | `50000000` | Total timesteps (20M+ recommended for Humanoid) |
 | `--learning-rate` | `LEARNING_RATE` | `3e-4` | Learning rate |
-| `--num-envs` | `NUM_ENVS` | `8` | Number of parallel environments |
+| `--num-envs` | `NUM_ENVS` | `32` | Number of parallel environments |
 | `--num-steps` | `NUM_STEPS` | `2048` | Steps per rollout |
 | `--gamma` | `GAMMA` | `0.99` | Discount factor |
 | `--gae-lambda` | `GAE_LAMBDA` | `0.95` | GAE lambda |
 | `--num-minibatches` | `NUM_MINIBATCHES` | `32` | Minibatches per update |
 | `--update-epochs` | `UPDATE_EPOCHS` | `10` | Update epochs |
 | `--clip-coef` | `CLIP_COEF` | `0.2` | PPO clipping coefficient |
-| `--ent-coef` | `ENT_COEF` | `0.0` | Entropy coefficient |
+| `--ent-coef` | `ENT_COEF` | `0.01` | Entropy coefficient (Crucial for exploration) |
 | `--vf-coef` | `VF_COEF` | `0.5` | Value function coefficient |
 | `--max-grad-norm` | `MAX_GRAD_NORM` | `0.5` | Max gradient norm for clipping |
 | `--target-kl` | `TARGET_KL` | `0.01` | KL divergence target for early stopping |
+
+## Training Recommendations
+
+For the `WalkerRagdoll-v0` (Humanoid-style) environment:
+1. **Network Size**: The architecture was upgraded to **256x256** hidden layers (previously 64x64). This is necessary to handle the 17-actuator control space.
+2. **Entropy**: The entropy coefficient (`ent_coef`) was set to **0.01**. Without entropy, the agent often collapses into a "standing still" local optimum.
+3. **Reward Scaling**: The `progress_reward_weight` was increased to **50.0** in the environment to balance the survival reward.
+4. **Steps**: 8M steps is usually insufficient for stable walking. Aim for **20M to 50M** steps.
 
 ## Tests
 

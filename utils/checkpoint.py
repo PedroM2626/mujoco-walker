@@ -132,13 +132,17 @@ def cleanup_old_checkpoints(ckpt_dir, keep_last_n=3):
 
 
 def force_delete_run(run_id, ckpt_base="checkpoints", run_base="runs"):
-    """Delete all data for a run (checkpoints and logs)."""
+    """Delete all data for a run (checkpoints and all timestamped logs)."""
     ckpt_dir = get_checkpoint_dir(run_id, ckpt_base)
-    run_dir = get_run_dir(run_id, run_base)
+    
+    # Delete checkpoints
+    if os.path.exists(ckpt_dir):
+        shutil.rmtree(ckpt_dir)
+        print(f"[FORCE] Deleted checkpoints: {ckpt_dir}")
 
-    for d in [ckpt_dir, run_dir]:
-        if os.path.exists(d):
+    # Delete all runs matching the pattern run_id__*
+    run_pattern = os.path.join(run_base, f"{run_id}__*")
+    for d in glob.glob(run_pattern):
+        if os.path.isdir(d):
             shutil.rmtree(d)
-            print(f"[FORCE] Deleted {d}")
-        else:
-            print(f"[FORCE] Directory not found: {d}")
+            print(f"[FORCE] Deleted log directory: {d}")

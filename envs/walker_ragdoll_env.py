@@ -40,17 +40,19 @@ class WalkerRagdollEnv(MujocoEnv, gym.utils.EzPickle):
         xml_file=None,
         frame_skip: int = 5,
         default_camera_config: dict = DEFAULT_CAMERA_CONFIG,
-        progress_reward_weight: float = 8.0,
+        progress_reward_weight: float = 50.0,
         distance_penalty_weight: float = 0.0,
-        ctrl_cost_weight: float = 0.1,
-        healthy_reward: float = 1.0,
-        target_reached_bonus: float = 10.0,
+        ctrl_cost_weight: float = 0.01,
+        upright_reward_weight: float = 10.0,
+        height_reward_weight: float = 20.0,
+        healthy_reward: float = 5.0,
+        target_reached_bonus: float = 100.0,
         target_reach_threshold: float = 0.5,
         target_min_distance: float = 2.0,
         target_max_distance: float = 6.0,
-        terminate_when_unhealthy: bool = True,
-        healthy_z_range: tuple = (1.0, 2.0),
-        reset_noise_scale: float = 1e-2,
+        terminate_when_unhealthy: bool = False,
+        healthy_z_range: tuple = (0.8, 2.0),
+        reset_noise_scale: float = 5e-2,
         **kwargs,
     ):
         if xml_file is None:
@@ -61,6 +63,8 @@ class WalkerRagdollEnv(MujocoEnv, gym.utils.EzPickle):
         self._progress_reward_weight = progress_reward_weight
         self._distance_penalty_weight = distance_penalty_weight
         self._ctrl_cost_weight = ctrl_cost_weight
+        self._upright_reward_weight = upright_reward_weight
+        self._height_reward_weight = height_reward_weight
         self._healthy_reward = healthy_reward
         self._target_reached_bonus = target_reached_bonus
         self._target_reach_threshold = target_reach_threshold
@@ -70,11 +74,12 @@ class WalkerRagdollEnv(MujocoEnv, gym.utils.EzPickle):
         self._healthy_z_range = healthy_z_range
         self._reset_noise_scale = reset_noise_scale
         self._target_xy = np.zeros(2, dtype=np.float64)
+        self._total_steps_counter = 0  # To track progress for curriculum
 
         # nq=24 (free joint: 3 pos + 4 quat + 17 joint angles)
-        # obs = qpos[2:] + qvel + target_rel_xy = 22 + 23 + 2 = 47
+        # obs = qpos[2:] (22) + qvel (23) + target_rel_xy (2) + upright (1) = 48
         observation_space = Box(
-            low=-np.inf, high=np.inf, shape=(47,), dtype=np.float64
+            low=-np.inf, high=np.inf, shape=(48,), dtype=np.float64
         )
 
         MujocoEnv.__init__(
@@ -94,6 +99,8 @@ class WalkerRagdollEnv(MujocoEnv, gym.utils.EzPickle):
             progress_reward_weight,
             distance_penalty_weight,
             ctrl_cost_weight,
+            upright_reward_weight,
+            height_reward_weight,
             healthy_reward,
             target_reached_bonus,
             target_reach_threshold,
@@ -111,13 +118,25 @@ class WalkerRagdollEnv(MujocoEnv, gym.utils.EzPickle):
 
     @property
     def healthy_reward(self):
+        # Survival bonus only if upright and at a decent height
+        is_upright = self.upright_factor > 0.8
+        is_standing = self.data.qpos[2] > 1.1
         return (
-            float(self.is_healthy or self._terminate_when_unhealthy)
+            float(is_upright and is_standing)
             * self._healthy_reward
         )
 
     def control_cost(self, action):
         return self._ctrl_cost_weight * np.sum(np.square(action))
+
+    @property
+    def upright_factor(self):
+        """Returns the Z-component of the torso's up-vector (local Z in world coords).
+        1.0 means perfectly upright, -1.0 means upside down.
+        """
+        # xmat is a 3x3 rotation matrix for the body
+        # torso is at body index 1 (usually)
+        return self.data.body("torso").xmat[8]
 
     @property
     def is_healthy(self):
@@ -132,11 +151,16 @@ class WalkerRagdollEnv(MujocoEnv, gym.utils.EzPickle):
 
     def _get_obs(self):
         # Free joint: qpos = [x, y, z, qw, qx, qy, qz, joint_angles...]
-        # Skip x (index 0) and y (index 1) — keep z + quaternion + joints
-        position = self.data.qpos[2:].copy()   # 22 elements
-        velocity = self.data.qvel.copy()       # 23 elements
+        # position: skip x,y -> keep z, quat, joints (22 elements)
+        position = self.data.qpos[2:].copy()   
+        # velocity: (23 elements)
+        velocity = self.data.qvel.copy()       
+        # target: (2 elements)
         target_rel_xy = self._target_xy - self.data.qpos[:2]
-        return np.concatenate([position, velocity, target_rel_xy])
+        # upright: (1 element)
+        upright = np.array([self.upright_factor], dtype=np.float64)
+        
+        return np.concatenate([position, velocity, target_rel_xy, upright])
 
     def _sample_target(self, base_xy):
         angle = self.np_random.uniform(0.0, 2.0 * np.pi)
@@ -162,20 +186,37 @@ class WalkerRagdollEnv(MujocoEnv, gym.utils.EzPickle):
         xy_after = self.data.qpos[:2].copy()
         dist_after = np.linalg.norm(self._target_xy - xy_after)
 
-        progress_reward = self._progress_reward_weight * (dist_before - dist_after)
-        distance_penalty = self._distance_penalty_weight * dist_after
         reached_target = bool(dist_after <= self._target_reach_threshold)
         reached_bonus = self._target_reached_bonus if reached_target else 0.0
 
+        # Curriculum: Slowly increase progress reward importance
+        # Start at 10% importance, reach 100% at 10M steps
+        curriculum_factor = min(1.0, 0.1 + 0.9 * (self._total_steps_counter / 10_000_000))
+        progress_reward = self._progress_reward_weight * (dist_before - dist_after) * curriculum_factor
+        
+        self._total_steps_counter += self.frame_skip
+        distance_penalty = self._distance_penalty_weight * dist_after
+
         ctrl_cost = self.control_cost(action)
         healthy_reward = self.healthy_reward
+        
+        # Uprightness and Height rewards
+        upright_reward = self._upright_reward_weight * max(0, self.upright_factor)
+        height_reward = self._height_reward_weight * min(self.data.qpos[2], 1.3)
 
-        reward = progress_reward + reached_bonus + healthy_reward - ctrl_cost - distance_penalty
+        # Deviation penalty: penalize if torso is tilted too much sideways or forward
+        # Using xquat: [qw, qx, qy, qz]. qw should be near 1 for upright.
+        quat = self.data.qpos[3:7]
+        tilt_penalty = 5.0 * (1.0 - quat[0]**2) 
+
+        reward = progress_reward + reached_bonus + healthy_reward + upright_reward + height_reward - ctrl_cost - distance_penalty - tilt_penalty
         terminated = self.terminated
         observation = self._get_obs()
 
         info = {
             "reward_progress": progress_reward,
+            "reward_upright": upright_reward,
+            "reward_height": height_reward,
             "reward_distance": -distance_penalty,
             "reward_target_bonus": reached_bonus,
             "reward_ctrl": -ctrl_cost,
@@ -194,14 +235,19 @@ class WalkerRagdollEnv(MujocoEnv, gym.utils.EzPickle):
         return observation, reward, terminated, False, info
 
     def reset_model(self):
-        noise_low = -self._reset_noise_scale
-        noise_high = self._reset_noise_scale
+        # 50% chance of starting in a "fallen" or "random" pose to learn recovery
+        if self.np_random.uniform() < 0.5:
+            # Start fallen: large joint noise, low Z
+            noise_scale = 0.5 
+            qpos = self.init_qpos + self.np_random.uniform(low=-noise_scale, high=noise_scale, size=self.model.nq)
+            qpos[2] = 0.3  # Drop it to the floor
+        else:
+            # Start near standing
+            noise_scale = self._reset_noise_scale
+            qpos = self.init_qpos + self.np_random.uniform(low=-noise_scale, high=noise_scale, size=self.model.nq)
 
-        qpos = self.init_qpos + self.np_random.uniform(
-            low=noise_low, high=noise_high, size=self.model.nq
-        )
         qvel = self.init_qvel + self.np_random.uniform(
-            low=noise_low, high=noise_high, size=self.model.nv
+            low=-0.1, high=0.1, size=self.model.nv
         )
 
         self.set_state(qpos, qvel)

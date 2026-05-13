@@ -40,11 +40,12 @@ class TestTrainingIntegration(unittest.TestCase):
                 "sac_walker.py",
                 "--run-id", self.run_id,
                 "--seed", "42",
-                "--total-timesteps", "4096",
+                "--total-timesteps", "1024",
                 "--num-envs", "2",
                 "--learning-starts", "128",
                 "--batch-size", "64",
-                "--buffer-size", "4096",
+                "--buffer-size", "1024",
+                "--disable-mlflow",
             ],
             cwd=os.path.dirname(os.path.dirname(__file__)),
             capture_output=True,
@@ -64,11 +65,12 @@ class TestTrainingIntegration(unittest.TestCase):
                 "sac_walker.py",
                 "--run-id", self.run_id,
                 "--seed", "42",
-                "--total-timesteps", "2048",
+                "--total-timesteps", "512",
                 "--num-envs", "2",
                 "--learning-starts", "128",
                 "--batch-size", "64",
-                "--buffer-size", "4096",
+                "--buffer-size", "1024",
+                "--disable-mlflow",
             ],
             cwd=os.path.dirname(os.path.dirname(__file__)),
             capture_output=True,
@@ -83,11 +85,12 @@ class TestTrainingIntegration(unittest.TestCase):
                 "--run-id", self.run_id,
                 "--seed", "42",
                 "--resume",
-                "--total-timesteps", "4096",
+                "--total-timesteps", "1024",
                 "--num-envs", "2",
                 "--learning-starts", "128",
                 "--batch-size", "64",
-                "--buffer-size", "4096",
+                "--buffer-size", "1024",
+                "--disable-mlflow",
             ],
             cwd=os.path.dirname(os.path.dirname(__file__)),
             capture_output=True,
@@ -97,14 +100,17 @@ class TestTrainingIntegration(unittest.TestCase):
         print(second.stderr)
         self.assertEqual(second.returncode, 0, f"Resume training failed: {second.stderr}")
 
-        ckpt_path = os.path.join("checkpoints", self.run_id, "sac_ckpt_4096.pt")
+        ckpt_path = os.path.join("checkpoints", self.run_id, "sac_ckpt_1024.pt")
         self.assertTrue(os.path.exists(ckpt_path), "Resumed checkpoint not created")
 
         checkpoint = torch.load(ckpt_path, map_location="cpu")
-        self.assertEqual(checkpoint["global_step"], 4096)
+        self.assertEqual(checkpoint["global_step"], 1024)
         self.assertIn("replay_buffer", checkpoint)
         self.assertGreaterEqual(checkpoint["replay_buffer"]["pos"], 0)
         self.assertIn("rng_state", checkpoint)
+
+        run_dir = os.path.join("runs", f"{self.run_id}__42")
+        self.assertTrue(os.path.exists(run_dir), "Stable TensorBoard run directory not found")
 
 
 if __name__ == "__main__":

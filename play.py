@@ -39,11 +39,30 @@ def parse_args():
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--stochastic", action="store_true", default=False, help="Sample from the SAC policy instead of using the mean action")
     parser.add_argument("--fps", type=int, default=120)
+    parser.add_argument(
+        "--reset-mode",
+        type=str,
+        default="mixed",
+        choices=["fixed", "mixed", "fallen", "upright"],
+        help="Initial-state distribution used while visualizing.",
+    )
+    parser.add_argument(
+        "--task-phase",
+        type=str,
+        default=None,
+        choices=["recovery", "balance", "walk"],
+        help="Reward phase used while visualizing. Defaults to the checkpoint phase when available.",
+    )
     return parser.parse_args()
 
 
-def make_base_env(env_id):
-    env = gym.make(env_id, render_mode="rgb_array")
+def make_base_env(env_id, reset_mode="mixed", task_phase="recovery"):
+    env = gym.make(
+        env_id,
+        render_mode="rgb_array",
+        reset_mode=reset_mode,
+        task_phase=task_phase,
+    )
     env = gym.wrappers.FlattenObservation(env)
     env = gym.wrappers.RecordEpisodeStatistics(env)
     env = gym.wrappers.ClipAction(env)
@@ -78,7 +97,11 @@ def play():
         print(f"[ERROR] {ckpt_path} does not contain observation normalization statistics.")
         sys.exit(1)
 
-    env = FrozenNormalizeObservation(make_base_env(env_id), checkpoint["obs_rms"])
+    task_phase = args.task_phase or checkpoint.get("task_phase") or "recovery"
+    env = FrozenNormalizeObservation(
+        make_base_env(env_id, reset_mode=args.reset_mode, task_phase=task_phase),
+        checkpoint["obs_rms"],
+    )
     obs, _ = env.reset(seed=args.seed)
 
     obs_dim = int(np.prod(env.observation_space.shape))
@@ -87,6 +110,7 @@ def play():
     agent.eval()
 
     print(f"[CHECKPOINT] Loaded {ckpt_path}")
+    print(f"[PLAY] task_phase={task_phase}")
     print(f"[PLAY] {'Stochastic' if args.stochastic else 'Deterministic'} SAC policy")
 
     viewer = None

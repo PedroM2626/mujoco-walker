@@ -10,7 +10,7 @@ import torch
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 import envs.walker_ragdoll_env
-from sac_walker import SACAgent, make_env
+from sac_walker import SACAgent, get_obs_rms, make_env, set_obs_rms
 from utils.checkpoint import save_checkpoint, load_checkpoint, force_delete_run, find_latest_checkpoint
 
 
@@ -32,6 +32,17 @@ class TestWalkerRagdollEnv(unittest.TestCase):
         self.assertIn("z_position", info)
         self.assertIn("upright", info)
 
+    def test_reset_modes(self):
+        for mode in ("fixed", "upright", "fallen", "mixed"):
+            env = gym.make("WalkerRagdoll-v0", reset_mode=mode)
+            try:
+                obs, info = env.reset(seed=42)
+                self.assertEqual(obs.shape, env.observation_space.shape)
+                self.assertTrue(np.isfinite(obs).all())
+                self.assertEqual(info["reset_mode"], mode)
+            finally:
+                env.close()
+
     def test_step(self):
         obs, info = self.env.reset(seed=42)
         action = self.env.action_space.sample()
@@ -42,6 +53,20 @@ class TestWalkerRagdollEnv(unittest.TestCase):
         self.assertIsInstance(truncated, bool)
         self.assertIn("reward_linup", info)
         self.assertIn("reward_ctrl", info)
+        self.assertIn("reward_stability", info)
+        self.assertIn("reward_walk", info)
+
+    def test_task_phases(self):
+        for phase in ("recovery", "balance", "walk"):
+            env = gym.make("WalkerRagdoll-v0", task_phase=phase)
+            try:
+                obs, info = env.reset(seed=42)
+                self.assertEqual(obs.shape, env.observation_space.shape)
+                self.assertEqual(info["task_phase"], phase)
+                obs, reward, terminated, truncated, info = env.step(env.action_space.sample())
+                self.assertEqual(info["task_phase"], phase)
+            finally:
+                env.close()
 
     def test_episode(self):
         obs, _ = self.env.reset(seed=42)
@@ -116,6 +141,24 @@ class TestMakeEnv(unittest.TestCase):
         obs, _ = env.reset(seed=42)
         self.assertEqual(obs.shape, env.observation_space.shape)
         env.close()
+
+    def test_obs_rms_helpers_target_normalize_wrapper(self):
+        envs = gym.vector.SyncVectorEnv(
+            [make_env("WalkerRagdoll-v0", 0, False, "test_run")]
+        )
+        envs = gym.wrappers.NormalizeObservation(envs)
+        envs = gym.wrappers.TransformObservation(envs, lambda obs: np.clip(obs, -10, 10))
+
+        try:
+            obs_rms = get_obs_rms(envs)
+            obs_rms.mean[...] = 123.0
+            set_obs_rms(envs, obs_rms)
+
+            self.assertNotIn("obs_rms", envs.__dict__)
+            self.assertTrue(np.allclose(envs.env.obs_rms.mean, 123.0))
+            self.assertIs(get_obs_rms(envs), envs.env.obs_rms)
+        finally:
+            envs.close()
 
 
 if __name__ == "__main__":

@@ -117,10 +117,46 @@ All hyperparameters can be configured via command line or environment variables.
 | `--gamma` | `GAMMA` | `0.99` | Discount factor |
 | `--tau` | `TAU` | `0.005` | Target network update rate |
 | `--alpha` | `ALPHA` | `0.2` | Initial entropy temperature |
+| `--reset-mode` | `RESET_MODE` | `mixed` | Initial-state distribution: `fixed`, `mixed`, `fallen`, or `upright` |
+| `--fixed-reset-probability` | `FIXED_RESET_PROBABILITY` | `0.25` | In mixed mode, fraction of episodes using the old fixed fallen pose |
+| `--upright-reset-probability` | `UPRIGHT_RESET_PROBABILITY` | `0.15` | In mixed mode, fraction of episodes starting almost upright |
+| `--fallen-velocity-scale` | `FALLEN_VELOCITY_SCALE` | `0.35` | Extra velocity noise for randomized fallen resets |
+| `--task-phase` | `TASK_PHASE` | `recovery` | Reward curriculum phase: `recovery`, `balance`, or `walk` |
+| `--target-forward-velocity` | `TARGET_FORWARD_VELOCITY` | `0.8` | Target x velocity for the walk phase |
+| `--init-from-run-id` | `INIT_FROM_RUN_ID` | - | Start a new run from another SAC run's actor weights and observation normalization |
+| `--init-from-checkpoint-step` | `INIT_FROM_CHECKPOINT_STEP` | `0` | Specific checkpoint step for `--init-from-run-id`; `0` means latest |
+| `--mlflow-experiment` | `MLFLOW_EXPERIMENT` | `walker-ragdoll-sac` | MLflow experiment name |
+| `--disable-mlflow` | - | `False` | Disable MLflow tracking |
 
 ## Training Recommendations
 
-For the `WalkerRagdoll-v0` environment, the reward now follows a HumanoidStandup-style objective: torso height per control step, minus control and impact costs, with a small upright/standing stabilizer. Old PPO checkpoints are not compatible with this task definition.
+For the `WalkerRagdoll-v0` environment, the reward is split into phases. `recovery` keeps the stand-up objective, `balance` adds standing stability, foot-only support, low drift, and low torso velocity, and `walk` adds gated forward-velocity tracking after the agent is upright. Old PPO checkpoints are not compatible with this task definition.
+
+The default reset distribution is `mixed`: some episodes keep the original fixed fallen pose, some start nearly upright, and the rest start from randomized fallen poses with different torso orientations, joint offsets, and velocity perturbations. This makes recovery training cover more of the states the agent reaches after real falls instead of overfitting to one spawn pose.
+
+Useful reset experiments:
+
+```bash
+python sac_walker.py --run-id walker_recovery_v1 --force --total-timesteps 20000000
+python sac_walker.py --run-id walker_recovery_v1 --resume --reset-mode fallen
+python sac_walker.py --run-id walker_recovery_v1 --resume --fixed-reset-probability 0.10 --upright-reset-probability 0.20
+```
+
+Recommended phase progression after `walker_recovery_v1`:
+
+```bash
+# Phase 2: learn to stay upright for longer, without reusing old replay rewards.
+python sac_walker.py --run-id walker_balance_v1 --task-phase balance --init-from-run-id walker_recovery_v1 --total-timesteps 30000000 --upright-reset-probability 0.35 --fixed-reset-probability 0.05
+
+# Phase 3: start walking from the balanced policy.
+python sac_walker.py --run-id walker_walk_v1 --task-phase walk --init-from-run-id walker_balance_v1 --total-timesteps 50000000 --upright-reset-probability 0.40 --fixed-reset-probability 0.05 --target-forward-velocity 0.8
+```
+
+`--init-from-run-id` loads the actor and observation normalization from the source checkpoint, then starts a fresh replay buffer and optimizer state. This is the safest path when changing reward phases. Use `--resume` only to continue the same phase/run, and use `--init-critics` only for experiments where the reward is very similar.
+
+When using `--resume`, SAC restores the actor, critics, target networks, optimizers, entropy temperature, replay buffer, RNG state, and the active `NormalizeObservation` statistics. TensorBoard resumes into `runs/<run_id>__<seed>/`.
+
+The environment reward is versioned. If the reward/contact logic changes, start a new SAC run with `--force`; resuming an older checkpoint would reuse replay-buffer rewards from the old objective.
 
 ## Tests
 
@@ -164,6 +200,12 @@ python play.py --run-id walker_v1 --stochastic --render-mode human
 ### Load a specific checkpoint step
 ```bash
 python play.py --run-id walker_v1 --checkpoint-step 500000 --render-mode human
+```
+
+### Visualize a specific reset distribution
+```bash
+python play.py --run-id walker_v1 --reset-mode fallen --render-mode human
+python play.py --run-id walker_v1 --reset-mode fixed --render-mode human
 ```
 
 **Note:** `play.py` loads the saved observation normalization statistics and freezes them during evaluation.

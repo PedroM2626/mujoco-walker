@@ -7,7 +7,6 @@ import os
 import random
 import time
 from dataclasses import dataclass
-from datetime import datetime
 from typing import Any, Dict
 
 import gymnasium as gym
@@ -19,7 +18,14 @@ import torch.optim as optim
 from torch.utils.tensorboard import SummaryWriter
 
 import envs.walker_ragdoll_env
+from envs.walker_ragdoll_env import ENV_VERSION
 from utils.checkpoint import force_delete_run, get_checkpoint_dir, get_run_dir
+
+try:
+    import mlflow
+    import mlflow.pytorch
+except ImportError:
+    mlflow = None
 
 
 ENV_VARS = {
@@ -37,6 +43,15 @@ ENV_VARS = {
     "TARGET_NETWORK_FREQUENCY": "1",
     "CHECKPOINT_INTERVAL": "1000000",
     "ALPHA": "0.2",
+    "RESET_MODE": "mixed",
+    "FIXED_RESET_PROBABILITY": "0.25",
+    "UPRIGHT_RESET_PROBABILITY": "0.15",
+    "FALLEN_VELOCITY_SCALE": "0.35",
+    "TASK_PHASE": "recovery",
+    "TARGET_FORWARD_VELOCITY": "0.8",
+    "INIT_FROM_RUN_ID": "",
+    "INIT_FROM_CHECKPOINT_STEP": "",
+    "MLFLOW_EXPERIMENT": "walker-ragdoll-sac",
 }
 
 
@@ -62,19 +77,97 @@ def parse_args():
     parser.add_argument("--target-network-frequency", type=int, default=int(get_env_or_default("TARGET_NETWORK_FREQUENCY", ENV_VARS["TARGET_NETWORK_FREQUENCY"])))
     parser.add_argument("--checkpoint-interval", type=int, default=int(get_env_or_default("CHECKPOINT_INTERVAL", ENV_VARS["CHECKPOINT_INTERVAL"])))
     parser.add_argument("--alpha", type=float, default=float(get_env_or_default("ALPHA", ENV_VARS["ALPHA"])))
+    parser.add_argument(
+        "--reset-mode",
+        type=str,
+        default=get_env_or_default("RESET_MODE", ENV_VARS["RESET_MODE"]),
+        choices=["fixed", "mixed", "fallen", "upright"],
+        help="Initial-state distribution for each episode.",
+    )
+    parser.add_argument(
+        "--fixed-reset-probability",
+        type=float,
+        default=float(get_env_or_default("FIXED_RESET_PROBABILITY", ENV_VARS["FIXED_RESET_PROBABILITY"])),
+        help="In mixed reset mode, fraction of episodes using the old fixed fallen pose.",
+    )
+    parser.add_argument(
+        "--upright-reset-probability",
+        type=float,
+        default=float(get_env_or_default("UPRIGHT_RESET_PROBABILITY", ENV_VARS["UPRIGHT_RESET_PROBABILITY"])),
+        help="In mixed reset mode, fraction of episodes starting almost upright.",
+    )
+    parser.add_argument(
+        "--fallen-velocity-scale",
+        type=float,
+        default=float(get_env_or_default("FALLEN_VELOCITY_SCALE", ENV_VARS["FALLEN_VELOCITY_SCALE"])),
+        help="Extra velocity noise applied to randomized fallen resets.",
+    )
+    parser.add_argument(
+        "--task-phase",
+        type=str,
+        default=get_env_or_default("TASK_PHASE", ENV_VARS["TASK_PHASE"]),
+        choices=["recovery", "balance", "walk"],
+        help="Reward curriculum phase: recovery, balance, or walk.",
+    )
+    parser.add_argument(
+        "--target-forward-velocity",
+        type=float,
+        default=float(get_env_or_default("TARGET_FORWARD_VELOCITY", ENV_VARS["TARGET_FORWARD_VELOCITY"])),
+        help="Target x velocity used by the walk phase.",
+    )
+    parser.add_argument(
+        "--init-from-run-id",
+        type=str,
+        default=get_env_or_default("INIT_FROM_RUN_ID", ENV_VARS["INIT_FROM_RUN_ID"]),
+        help="Initialize this new run from another SAC run's latest actor weights and obs normalization.",
+    )
+    parser.add_argument(
+        "--init-from-checkpoint-step",
+        type=int,
+        default=int(get_env_or_default("INIT_FROM_CHECKPOINT_STEP", ENV_VARS["INIT_FROM_CHECKPOINT_STEP"]) or 0),
+        help="Specific checkpoint step to use with --init-from-run-id. 0 means latest.",
+    )
+    parser.add_argument(
+        "--init-critics",
+        action="store_true",
+        default=False,
+        help="Also initialize SAC critics from --init-from-run-id. Actor-only is safer across reward changes.",
+    )
     parser.add_argument("--autotune", action="store_true", default=True)
     parser.add_argument("--no-autotune", dest="autotune", action="store_false")
     parser.add_argument("--capture-video", action="store_true", default=False)
+    parser.add_argument("--mlflow-experiment", type=str, default=get_env_or_default("MLFLOW_EXPERIMENT", ENV_VARS["MLFLOW_EXPERIMENT"]))
+    parser.add_argument("--disable-mlflow", action="store_true", default=False)
+    parser.add_argument("--allow-mismatched-env-version", action="store_true", default=False)
     return parser.parse_args()
 
 
-def make_env(env_id, idx, capture_video, run_name):
+def make_env(
+    env_id,
+    idx,
+    capture_video,
+    run_name,
+    reset_mode="mixed",
+    fixed_reset_probability=0.25,
+    upright_reset_probability=0.15,
+    fallen_velocity_scale=0.35,
+    task_phase="recovery",
+    target_forward_velocity=0.8,
+):
     def thunk():
+        env_kwargs = {
+            "reset_mode": reset_mode,
+            "fixed_reset_probability": fixed_reset_probability,
+            "upright_reset_probability": upright_reset_probability,
+            "fallen_velocity_scale": fallen_velocity_scale,
+            "task_phase": task_phase,
+            "target_forward_velocity": target_forward_velocity,
+        }
         if capture_video and idx == 0:
-            env = gym.make(env_id, render_mode="rgb_array")
+            env = gym.make(env_id, render_mode="rgb_array", **env_kwargs)
             env = gym.wrappers.RecordVideo(env, f"videos/{run_name}")
         else:
-            env = gym.make(env_id)
+            env = gym.make(env_id, **env_kwargs)
         env = gym.wrappers.FlattenObservation(env)
         env = gym.wrappers.RecordEpisodeStatistics(env)
         env = gym.wrappers.ClipAction(env)
@@ -237,15 +330,71 @@ def set_rng_state(state: Dict[str, Any]):
         torch.cuda.set_rng_state_all(state["torch_cuda_random"])
 
 
+def get_normalize_observation_wrapper(env):
+    current = env
+    while current is not None:
+        if isinstance(current, gym.wrappers.NormalizeObservation):
+            return current
+        current = getattr(current, "env", None)
+    raise RuntimeError("NormalizeObservation wrapper not found in env stack.")
+
+
+def get_obs_rms(envs):
+    return get_normalize_observation_wrapper(envs).obs_rms
+
+
+def set_obs_rms(envs, obs_rms):
+    get_normalize_observation_wrapper(envs).obs_rms = obs_rms
+
+
 def reset_envs_without_obs_rms_update(envs, seed):
     """Reset the vector env while preserving restored obs_rms on the first resume step."""
-    normalize_env = envs.env
+    normalize_env = get_normalize_observation_wrapper(envs)
     raw_env = normalize_env.env
     raw_obs, info = raw_env.reset(seed=seed)
     normalized_obs = (raw_obs - normalize_env.obs_rms.mean) / np.sqrt(
         normalize_env.obs_rms.var + normalize_env.epsilon
     )
     return np.clip(normalized_obs, -10, 10), info
+
+
+def start_mlflow_run(args, run_name):
+    if args.disable_mlflow or mlflow is None:
+        if mlflow is None and not args.disable_mlflow:
+            print("[MLFLOW] warning: mlflow is not installed; tracking disabled.")
+        return False
+    try:
+        mlflow.set_experiment(args.mlflow_experiment)
+        mlflow.start_run(run_name=run_name)
+        mlflow.log_params(vars(args))
+        print(f"[MLFLOW] tracking started in experiment: {args.mlflow_experiment}")
+        return True
+    except Exception as exc:
+        print(f"[MLFLOW] warning: could not start tracking: {exc}")
+        return False
+
+
+def log_mlflow_metrics(metrics, step, enabled):
+    if not enabled:
+        return
+    try:
+        mlflow.log_metrics(metrics, step=step)
+    except Exception as exc:
+        print(f"[MLFLOW] warning: could not log metrics: {exc}")
+
+
+def log_mlflow_artifact(path, enabled):
+    if not enabled:
+        return
+    try:
+        mlflow.log_artifact(path)
+    except Exception as exc:
+        print(f"[MLFLOW] warning: could not log artifact {path}: {exc}")
+
+
+def end_mlflow_run(enabled):
+    if enabled:
+        mlflow.end_run()
 
 
 def save_sac_checkpoint(
@@ -262,11 +411,16 @@ def save_sac_checkpoint(
     log_alpha,
     envs,
     replay_buffer,
+    task_phase=None,
+    target_forward_velocity=None,
 ):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     torch.save(
         {
             "algo": "sac",
+            "env_version": ENV_VERSION,
+            "task_phase": task_phase,
+            "target_forward_velocity": target_forward_velocity,
             "global_step": global_step,
             "num_envs": envs.num_envs,
             "buffer_size": replay_buffer.size,
@@ -279,7 +433,7 @@ def save_sac_checkpoint(
             "q_optimizer_state_dict": q_optimizer.state_dict(),
             "alpha_optimizer_state_dict": alpha_optimizer.state_dict() if alpha_optimizer is not None else None,
             "log_alpha": log_alpha.detach().cpu(),
-            "obs_rms": getattr(envs, "obs_rms", None),
+            "obs_rms": get_obs_rms(envs),
             "replay_buffer": serialize_replay_buffer(replay_buffer),
             "rng_state": get_rng_state(),
         },
@@ -301,11 +455,21 @@ def latest_sac_checkpoint(ckpt_dir):
     return max(candidates)[1] if candidates else None
 
 
+def resolve_sac_checkpoint(run_id, checkpoint_step=0):
+    ckpt_dir = get_checkpoint_dir(run_id)
+    if checkpoint_step:
+        ckpt_path = os.path.join(ckpt_dir, f"sac_ckpt_{checkpoint_step}.pt")
+        if os.path.exists(ckpt_path):
+            return ckpt_path
+        raise FileNotFoundError(f"Checkpoint not found: {ckpt_path}")
+    return latest_sac_checkpoint(ckpt_dir)
+
+
 def train(start_time=None):
     if start_time is None:
         start_time = time.time()
     args = parse_args()
-    run_name = f"{args.run_id}__{args.seed}__{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
+    run_name = f"{args.run_id}__{args.seed}"
 
     if not args.resume or args.force:
         force_delete_run(args.run_id)
@@ -317,11 +481,24 @@ def train(start_time=None):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
 
-    writer = SummaryWriter(get_run_dir(run_name))
-    writer.add_text("hyperparameters", "|param|value|\n|-|-|\n%s" % "\n".join(f"|{k}|{v}|" for k, v in vars(args).items()))
-
     env_id = "WalkerRagdoll-v0"
-    envs = gym.vector.SyncVectorEnv([make_env(env_id, i, args.capture_video, run_name) for i in range(args.num_envs)])
+    envs = gym.vector.SyncVectorEnv(
+        [
+            make_env(
+                env_id,
+                i,
+                args.capture_video,
+                run_name,
+                reset_mode=args.reset_mode,
+                fixed_reset_probability=args.fixed_reset_probability,
+                upright_reset_probability=args.upright_reset_probability,
+                fallen_velocity_scale=args.fallen_velocity_scale,
+                task_phase=args.task_phase,
+                target_forward_velocity=args.target_forward_velocity,
+            )
+            for i in range(args.num_envs)
+        ]
+    )
     envs = gym.wrappers.NormalizeObservation(envs)
     envs = gym.wrappers.TransformObservation(envs, lambda obs: np.clip(obs, -10, 10))
 
@@ -353,6 +530,14 @@ def train(start_time=None):
             checkpoint = torch.load(ckpt_path, map_location=device)
             if checkpoint.get("algo") != "sac":
                 raise ValueError(f"Checkpoint {ckpt_path} is not a SAC checkpoint.")
+            checkpoint_env_version = checkpoint.get("env_version")
+            if checkpoint_env_version != ENV_VERSION and not args.allow_mismatched_env_version:
+                raise ValueError(
+                    "Checkpoint environment version mismatch: "
+                    f"checkpoint={checkpoint_env_version!r} current={ENV_VERSION!r}. "
+                    "Start a new run with --force, or pass --allow-mismatched-env-version "
+                    "only if you intentionally want to fine-tune across a reward change."
+                )
             if checkpoint.get("buffer_size") is not None and int(checkpoint["buffer_size"]) != args.buffer_size:
                 raise ValueError(
                     f"Replay buffer size mismatch for resume: checkpoint={checkpoint['buffer_size']} current={args.buffer_size}"
@@ -371,11 +556,43 @@ def train(start_time=None):
             if checkpoint.get("replay_buffer") is not None:
                 restore_replay_buffer(rb, checkpoint["replay_buffer"])
             if checkpoint.get("obs_rms") is not None:
-                envs.obs_rms = checkpoint["obs_rms"]
+                set_obs_rms(envs, checkpoint["obs_rms"])
                 restored_obs_rms = checkpoint["obs_rms"]
             if checkpoint.get("rng_state") is not None:
                 set_rng_state(checkpoint["rng_state"])
             global_step = int(checkpoint.get("global_step", 0))
+    elif args.init_from_run_id:
+        ckpt_path = resolve_sac_checkpoint(
+            args.init_from_run_id, args.init_from_checkpoint_step
+        )
+        if ckpt_path is None:
+            raise FileNotFoundError(
+                f"No SAC checkpoint found for init-from run '{args.init_from_run_id}'."
+            )
+        print(f"[INIT] Loading actor initialization from {ckpt_path}")
+        checkpoint = torch.load(ckpt_path, map_location=device)
+        if checkpoint.get("algo") != "sac":
+            raise ValueError(f"Checkpoint {ckpt_path} is not a SAC checkpoint.")
+        actor.load_state_dict(checkpoint["actor_state_dict"])
+        if args.init_critics:
+            print("[INIT] Loading critics too; use this only when the reward phase is similar.")
+            qf1.load_state_dict(checkpoint["qf1_state_dict"])
+            qf2.load_state_dict(checkpoint["qf2_state_dict"])
+            qf1_target.load_state_dict(checkpoint["qf1_target_state_dict"])
+            qf2_target.load_state_dict(checkpoint["qf2_target_state_dict"])
+        if checkpoint.get("obs_rms") is not None:
+            set_obs_rms(envs, checkpoint["obs_rms"])
+            restored_obs_rms = checkpoint["obs_rms"]
+            print("[INIT] Loaded observation normalization statistics.")
+        print(
+            "[INIT] Starting a fresh replay buffer and optimizer state for the new reward phase."
+        )
+
+    run_dir = get_run_dir(run_name)
+    os.makedirs(run_dir, exist_ok=True)
+    writer = SummaryWriter(run_dir, purge_step=global_step if args.resume else None)
+    writer.add_text("hyperparameters", "|param|value|\n|-|-|\n%s" % "\n".join(f"|{k}|{v}|" for k, v in vars(args).items()), global_step)
+    mlflow_enabled = start_mlflow_run(args, run_name)
 
     if restored_obs_rms is not None:
         next_obs, _ = reset_envs_without_obs_rms_update(envs, seed=args.seed)
@@ -408,6 +625,14 @@ def train(start_time=None):
                         print(f"global_step={global_step}, episodic_return={ep_r:.2f}, episodic_length={ep_l:.0f}")
                         writer.add_scalar("charts/episodic_return", ep_r, global_step)
                         writer.add_scalar("charts/episodic_length", ep_l, global_step)
+                        log_mlflow_metrics(
+                            {
+                                "episodic_return": ep_r,
+                                "episodic_length": ep_l,
+                            },
+                            global_step,
+                            mlflow_enabled,
+                        )
 
             if global_step > args.learning_starts:
                 batch = rb.sample(args.batch_size)
@@ -460,6 +685,17 @@ def train(start_time=None):
                     writer.add_scalar("losses/qf_loss", qf_loss.item(), global_step)
                     writer.add_scalar("losses/alpha", log_alpha.exp().item(), global_step)
                     writer.add_scalar("charts/SPS", int(global_step / (time.time() - start_time)), global_step)
+                    log_mlflow_metrics(
+                        {
+                            "qf1_values": qf1_a_values.mean().item(),
+                            "qf2_values": qf2_a_values.mean().item(),
+                            "qf_loss": qf_loss.item(),
+                            "alpha": log_alpha.exp().item(),
+                            "sps": int(global_step / (time.time() - start_time)),
+                        },
+                        global_step,
+                        mlflow_enabled,
+                    )
 
             if global_step >= next_checkpoint_step:
                 save_sac_checkpoint(
@@ -476,13 +712,20 @@ def train(start_time=None):
                     log_alpha,
                     envs,
                     rb,
+                    task_phase=args.task_phase,
+                    target_forward_velocity=args.target_forward_velocity,
+                )
+                log_mlflow_artifact(
+                    os.path.join(ckpt_dir, f"sac_ckpt_{global_step}.pt"),
+                    mlflow_enabled,
                 )
                 next_checkpoint_step += args.checkpoint_interval
     except KeyboardInterrupt:
         print("\n[TRAIN] Interrupted by user. Saving checkpoint...")
     finally:
+        final_checkpoint_path = os.path.join(ckpt_dir, f"sac_ckpt_{global_step}.pt")
         save_sac_checkpoint(
-            os.path.join(ckpt_dir, f"sac_ckpt_{global_step}.pt"),
+            final_checkpoint_path,
             global_step,
             actor,
             qf1,
@@ -495,9 +738,18 @@ def train(start_time=None):
             log_alpha,
             envs,
             rb,
+            task_phase=args.task_phase,
+            target_forward_velocity=args.target_forward_velocity,
         )
+        log_mlflow_artifact(final_checkpoint_path, mlflow_enabled)
+        if mlflow_enabled:
+            try:
+                mlflow.pytorch.log_model(actor, "actor_final")
+            except Exception as exc:
+                print(f"[MLFLOW] warning: could not log final actor model: {exc}")
         envs.close()
         writer.close()
+        end_mlflow_run(mlflow_enabled)
         print(f"Training completed. Total steps: {global_step}")
 
 

@@ -50,7 +50,7 @@ def parse_args():
         "--task-phase",
         type=str,
         default=None,
-        choices=["recovery", "balance", "walk"],
+        choices=["recovery", "balance", "walk", "target"],
         help="Reward phase used while visualizing. Defaults to the checkpoint phase when available.",
     )
     return parser.parse_args()

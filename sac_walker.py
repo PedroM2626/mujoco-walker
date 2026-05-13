@@ -3,6 +3,7 @@ SAC Walker Ragdoll Training with CleanRL-style checkpointing.
 """
 
 import argparse
+import copy
 import os
 import random
 import time
@@ -106,8 +107,8 @@ def parse_args():
         "--task-phase",
         type=str,
         default=get_env_or_default("TASK_PHASE", ENV_VARS["TASK_PHASE"]),
-        choices=["recovery", "balance", "walk"],
-        help="Reward curriculum phase: recovery, balance, or walk.",
+        choices=["recovery", "balance", "walk", "target"],
+        help="Reward curriculum phase: recovery, balance, walk, or target.",
     )
     parser.add_argument(
         "--target-forward-velocity",
@@ -347,6 +348,56 @@ def set_obs_rms(envs, obs_rms):
     get_normalize_observation_wrapper(envs).obs_rms = obs_rms
 
 
+def adapt_obs_rms(obs_rms, target_shape):
+    if obs_rms is None or tuple(obs_rms.mean.shape) == tuple(target_shape):
+        return obs_rms
+
+    adapted = copy.deepcopy(obs_rms)
+    old_mean = np.asarray(obs_rms.mean)
+    old_var = np.asarray(obs_rms.var)
+    new_mean = np.zeros(target_shape, dtype=old_mean.dtype)
+    new_var = np.ones(target_shape, dtype=old_var.dtype)
+    copy_len = min(old_mean.size, new_mean.size)
+    new_mean.reshape(-1)[:copy_len] = old_mean.reshape(-1)[:copy_len]
+    new_var.reshape(-1)[:copy_len] = old_var.reshape(-1)[:copy_len]
+    adapted.mean = new_mean
+    adapted.var = new_var
+    return adapted
+
+
+def load_state_dict_with_expanded_input(module, source_state_dict, input_weight_key):
+    current_state_dict = module.state_dict()
+    copied = []
+    expanded = False
+
+    for key, source_value in source_state_dict.items():
+        if key not in current_state_dict:
+            continue
+        target_value = current_state_dict[key]
+        if source_value.shape == target_value.shape:
+            current_state_dict[key] = source_value
+            copied.append(key)
+        elif key == input_weight_key and source_value.ndim == 2 and target_value.ndim == 2:
+            copy_rows = min(source_value.shape[0], target_value.shape[0])
+            copy_cols = min(source_value.shape[1], target_value.shape[1])
+            target_value[:copy_rows, :copy_cols] = source_value[:copy_rows, :copy_cols]
+            current_state_dict[key] = target_value
+            copied.append(key)
+            expanded = True
+
+    module.load_state_dict(current_state_dict)
+    return copied, expanded
+
+
+def load_actor_initialization(actor, checkpoint):
+    copied, expanded = load_state_dict_with_expanded_input(
+        actor, checkpoint["actor_state_dict"], "backbone.0.weight"
+    )
+    if "backbone.0.weight" not in copied:
+        raise ValueError("Could not initialize actor first layer from checkpoint.")
+    return expanded
+
+
 def reset_envs_without_obs_rms_update(envs, seed):
     """Reset the vector env while preserving restored obs_rms on the first resume step."""
     normalize_env = get_normalize_observation_wrapper(envs)
@@ -556,8 +607,10 @@ def train(start_time=None):
             if checkpoint.get("replay_buffer") is not None:
                 restore_replay_buffer(rb, checkpoint["replay_buffer"])
             if checkpoint.get("obs_rms") is not None:
-                set_obs_rms(envs, checkpoint["obs_rms"])
-                restored_obs_rms = checkpoint["obs_rms"]
+                restored_obs_rms = adapt_obs_rms(
+                    checkpoint["obs_rms"], envs.single_observation_space.shape
+                )
+                set_obs_rms(envs, restored_obs_rms)
             if checkpoint.get("rng_state") is not None:
                 set_rng_state(checkpoint["rng_state"])
             global_step = int(checkpoint.get("global_step", 0))
@@ -573,16 +626,23 @@ def train(start_time=None):
         checkpoint = torch.load(ckpt_path, map_location=device)
         if checkpoint.get("algo") != "sac":
             raise ValueError(f"Checkpoint {ckpt_path} is not a SAC checkpoint.")
-        actor.load_state_dict(checkpoint["actor_state_dict"])
+        actor_expanded = load_actor_initialization(actor, checkpoint)
+        if actor_expanded:
+            print("[INIT] Expanded actor input layer for new target observations.")
         if args.init_critics:
-            print("[INIT] Loading critics too; use this only when the reward phase is similar.")
-            qf1.load_state_dict(checkpoint["qf1_state_dict"])
-            qf2.load_state_dict(checkpoint["qf2_state_dict"])
-            qf1_target.load_state_dict(checkpoint["qf1_target_state_dict"])
-            qf2_target.load_state_dict(checkpoint["qf2_target_state_dict"])
+            if checkpoint["qf1_state_dict"]["net.0.weight"].shape == qf1.state_dict()["net.0.weight"].shape:
+                print("[INIT] Loading critics too; use this only when the reward phase is similar.")
+                qf1.load_state_dict(checkpoint["qf1_state_dict"])
+                qf2.load_state_dict(checkpoint["qf2_state_dict"])
+                qf1_target.load_state_dict(checkpoint["qf1_target_state_dict"])
+                qf2_target.load_state_dict(checkpoint["qf2_target_state_dict"])
+            else:
+                print("[INIT] Skipping critic initialization because observation size changed.")
         if checkpoint.get("obs_rms") is not None:
-            set_obs_rms(envs, checkpoint["obs_rms"])
-            restored_obs_rms = checkpoint["obs_rms"]
+            restored_obs_rms = adapt_obs_rms(
+                checkpoint["obs_rms"], envs.single_observation_space.shape
+            )
+            set_obs_rms(envs, restored_obs_rms)
             print("[INIT] Loaded observation normalization statistics.")
         print(
             "[INIT] Starting a fresh replay buffer and optimizer state for the new reward phase."

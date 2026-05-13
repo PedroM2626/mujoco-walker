@@ -121,7 +121,7 @@ All hyperparameters can be configured via command line or environment variables.
 | `--fixed-reset-probability` | `FIXED_RESET_PROBABILITY` | `0.25` | In mixed mode, fraction of episodes using the old fixed fallen pose |
 | `--upright-reset-probability` | `UPRIGHT_RESET_PROBABILITY` | `0.15` | In mixed mode, fraction of episodes starting almost upright |
 | `--fallen-velocity-scale` | `FALLEN_VELOCITY_SCALE` | `0.35` | Extra velocity noise for randomized fallen resets |
-| `--task-phase` | `TASK_PHASE` | `recovery` | Reward curriculum phase: `recovery`, `balance`, or `walk` |
+| `--task-phase` | `TASK_PHASE` | `recovery` | Reward curriculum phase: `recovery`, `balance`, `walk`, or `target` |
 | `--target-forward-velocity` | `TARGET_FORWARD_VELOCITY` | `0.8` | Target x velocity for the walk phase |
 | `--init-from-run-id` | `INIT_FROM_RUN_ID` | - | Start a new run from another SAC run's actor weights and observation normalization |
 | `--init-from-checkpoint-step` | `INIT_FROM_CHECKPOINT_STEP` | `0` | Specific checkpoint step for `--init-from-run-id`; `0` means latest |
@@ -130,7 +130,7 @@ All hyperparameters can be configured via command line or environment variables.
 
 ## Training Recommendations
 
-For the `WalkerRagdoll-v0` environment, the reward is split into phases. `recovery` keeps the stand-up objective, `balance` adds standing stability, foot-only support, low drift, and low torso velocity, and `walk` adds gated forward-velocity tracking after the agent is upright. Old PPO checkpoints are not compatible with this task definition.
+For the `WalkerRagdoll-v0` environment, the reward is split into phases. `recovery` keeps the stand-up objective, `balance` adds standing stability, foot-only support, low drift, and low torso velocity, `walk` adds gated forward-velocity tracking after the agent is upright, and `target` adds a sampled navigation target with reward for reducing distance while standing. Old PPO checkpoints are not compatible with this task definition.
 
 The default reset distribution is `mixed`: some episodes keep the original fixed fallen pose, some start nearly upright, and the rest start from randomized fallen poses with different torso orientations, joint offsets, and velocity perturbations. This makes recovery training cover more of the states the agent reaches after real falls instead of overfitting to one spawn pose.
 
@@ -150,9 +150,12 @@ python sac_walker.py --run-id walker_balance_v1 --task-phase balance --init-from
 
 # Phase 3: start walking from the balanced policy.
 python sac_walker.py --run-id walker_walk_v1 --task-phase walk --init-from-run-id walker_balance_v1 --total-timesteps 50000000 --upright-reset-probability 0.40 --fixed-reset-probability 0.05 --target-forward-velocity 0.8
+
+# Phase 4: walk to sampled targets using the walking policy as initialization.
+python sac_walker.py --run-id walker_target_v1 --task-phase target --init-from-run-id walker_walk_v1 --total-timesteps 70000000 --upright-reset-probability 0.40 --fixed-reset-probability 0.05 --target-forward-velocity 0.8
 ```
 
-`--init-from-run-id` loads the actor and observation normalization from the source checkpoint, then starts a fresh replay buffer and optimizer state. This is the safest path when changing reward phases. Use `--resume` only to continue the same phase/run, and use `--init-critics` only for experiments where the reward is very similar.
+`--init-from-run-id` loads the actor and observation normalization from the source checkpoint, then starts a fresh replay buffer and optimizer state. This is the safest path when changing reward phases. For `target`, the observation grows from 46 to 49 dimensions; the loader copies the trained body-control input weights and initializes the new target inputs normally. Use `--resume` only to continue the same phase/run, and use `--init-critics` only for experiments where the reward and observation shape are very similar.
 
 When using `--resume`, SAC restores the actor, critics, target networks, optimizers, entropy temperature, replay buffer, RNG state, and the active `NormalizeObservation` statistics. TensorBoard resumes into `runs/<run_id>__<seed>/`.
 

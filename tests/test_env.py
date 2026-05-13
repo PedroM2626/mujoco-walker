@@ -10,7 +10,7 @@ import torch
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 import envs.walker_ragdoll_env
-from sac_walker import SACAgent, get_obs_rms, make_env, set_obs_rms
+from sac_walker import SACAgent, get_obs_rms, load_actor_initialization, make_env, set_obs_rms
 from utils.checkpoint import save_checkpoint, load_checkpoint, force_delete_run, find_latest_checkpoint
 
 
@@ -24,6 +24,17 @@ class TestWalkerRagdollEnv(unittest.TestCase):
     def test_env_creation(self):
         self.assertIsNotNone(self.env)
         self.assertEqual(self.env.observation_space.shape, (46,))
+
+    def test_target_phase_env_creation(self):
+        env = gym.make("WalkerRagdoll-v0", task_phase="target")
+        try:
+            self.assertEqual(env.observation_space.shape, (49,))
+            obs, info = env.reset(seed=42)
+            self.assertEqual(obs.shape, env.observation_space.shape)
+            self.assertIn("target_distance", info)
+            self.assertGreater(info["target_distance"], 0.0)
+        finally:
+            env.close()
 
     def test_reset(self):
         obs, info = self.env.reset(seed=42)
@@ -57,7 +68,7 @@ class TestWalkerRagdollEnv(unittest.TestCase):
         self.assertIn("reward_walk", info)
 
     def test_task_phases(self):
-        for phase in ("recovery", "balance", "walk"):
+        for phase in ("recovery", "balance", "walk", "target"):
             env = gym.make("WalkerRagdoll-v0", task_phase=phase)
             try:
                 obs, info = env.reset(seed=42)
@@ -65,6 +76,9 @@ class TestWalkerRagdollEnv(unittest.TestCase):
                 self.assertEqual(info["task_phase"], phase)
                 obs, reward, terminated, truncated, info = env.step(env.action_space.sample())
                 self.assertEqual(info["task_phase"], phase)
+                if phase == "target":
+                    self.assertIn("reward_target_progress", info)
+                    self.assertIn("target_distance", info)
             finally:
                 env.close()
 
@@ -94,6 +108,29 @@ class TestAgent(unittest.TestCase):
         action, logprob, _ = self.agent.get_action(obs)
         self.assertEqual(action.shape, (1, self.act_dim))
         self.assertEqual(logprob.shape, (1, 1))
+
+    def test_actor_initialization_expands_target_observation(self):
+        source_env = gym.make("WalkerRagdoll-v0")
+        target_env = gym.make("WalkerRagdoll-v0", task_phase="target")
+        try:
+            source_agent = SACAgent(
+                int(np.prod(source_env.observation_space.shape)), source_env.action_space
+            )
+            target_agent = SACAgent(
+                int(np.prod(target_env.observation_space.shape)), target_env.action_space
+            )
+            checkpoint = {"actor_state_dict": source_agent.state_dict()}
+            expanded = load_actor_initialization(target_agent, checkpoint)
+            self.assertTrue(expanded)
+            self.assertTrue(
+                torch.allclose(
+                    target_agent.backbone[0].weight[:, : self.obs_dim],
+                    source_agent.backbone[0].weight,
+                )
+            )
+        finally:
+            source_env.close()
+            target_env.close()
 
 
 class TestCheckpoint(unittest.TestCase):

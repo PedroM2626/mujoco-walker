@@ -1,5 +1,5 @@
 """
-Visualize a trained SAC Walker Ragdoll agent in real time.
+Visualize a trained SAC or PPO Walker Ragdoll agent in real time.
 """
 
 import argparse
@@ -13,7 +13,11 @@ import numpy as np
 import torch
 
 import envs.walker_ragdoll_env
-from sac_walker import SACAgent, latest_sac_checkpoint
+from train_walker import (
+    SACAgent, PPOAgent,
+    latest_sac_checkpoint, latest_ppo_checkpoint, latest_checkpoint_any,
+    load_torch_checkpoint,
+)
 from utils.checkpoint import get_checkpoint_dir
 
 
@@ -31,13 +35,13 @@ class FrozenNormalizeObservation(gym.ObservationWrapper):
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Play a trained SAC Walker Ragdoll agent")
+    parser = argparse.ArgumentParser(description="Play a trained SAC or PPO Walker Ragdoll agent")
     parser.add_argument("--run-id", type=str, required=True)
     parser.add_argument("--checkpoint-step", type=int, default=None)
     parser.add_argument("--num-episodes", type=int, default=0, help="0 = infinite until Ctrl+C")
     parser.add_argument("--render-mode", type=str, default="human", choices=["human", "rgb_array"])
     parser.add_argument("--seed", type=int, default=1)
-    parser.add_argument("--stochastic", action="store_true", default=False, help="Sample from the SAC policy instead of using the mean action")
+    parser.add_argument("--stochastic", action="store_true", default=False, help="Sample from the policy instead of using the mean action")
     parser.add_argument("--fps", type=int, default=120)
     parser.add_argument(
         "--reset-mode",
@@ -72,11 +76,13 @@ def make_base_env(env_id, reset_mode="mixed", task_phase="recovery"):
 def resolve_checkpoint(run_id, checkpoint_step):
     ckpt_dir = get_checkpoint_dir(run_id)
     if checkpoint_step is not None:
-        ckpt_path = os.path.join(ckpt_dir, f"sac_ckpt_{checkpoint_step}.pt")
-        if os.path.exists(ckpt_path):
-            return ckpt_path
-        print(f"[ERROR] Checkpoint {ckpt_path} not found. Falling back to latest.")
-    return latest_sac_checkpoint(ckpt_dir)
+        # Try SAC first, then PPO
+        for prefix in ("sac_ckpt_", "ppo_ckpt_"):
+            ckpt_path = os.path.join(ckpt_dir, f"{prefix}{checkpoint_step}.pt")
+            if os.path.exists(ckpt_path):
+                return ckpt_path
+        print(f"[ERROR] Checkpoint for step {checkpoint_step} not found. Falling back to latest.")
+    return latest_checkpoint_any(ckpt_dir)
 
 
 def play():
@@ -86,12 +92,13 @@ def play():
 
     ckpt_path = resolve_checkpoint(args.run_id, args.checkpoint_step)
     if ckpt_path is None:
-        print(f"[ERROR] No SAC checkpoint found for run-id '{args.run_id}'. Expected sac_ckpt_*.pt files.")
+        print(f"[ERROR] No checkpoint found for run-id '{args.run_id}'.")
         sys.exit(1)
 
-    checkpoint = torch.load(ckpt_path, map_location=device)
-    if checkpoint.get("algo") != "sac":
-        print(f"[ERROR] {ckpt_path} is not a SAC checkpoint. Train with sac_walker.py first.")
+    checkpoint = load_torch_checkpoint(ckpt_path, device)
+    algo = checkpoint.get("algo", "unknown")
+    if algo not in {"sac", "sac_actor", "ppo"}:
+        print(f"[ERROR] {ckpt_path} has unknown algorithm type '{algo}'.")
         sys.exit(1)
     if checkpoint.get("obs_rms") is None:
         print(f"[ERROR] {ckpt_path} does not contain observation normalization statistics.")
@@ -103,15 +110,23 @@ def play():
         checkpoint["obs_rms"],
     )
     obs, _ = env.reset(seed=args.seed)
-
     obs_dim = int(np.prod(env.observation_space.shape))
-    agent = SACAgent(obs_dim, env.action_space).to(device)
-    agent.load_state_dict(checkpoint["actor_state_dict"])
-    agent.eval()
+
+    if algo in {"sac", "sac_actor"}:
+        agent = SACAgent(obs_dim, env.action_space).to(device)
+        agent.load_state_dict(checkpoint["actor_state_dict"])
+        agent.eval()
+        algo_label = "SAC"
+    else:
+        action_dim = int(np.prod(env.action_space.shape))
+        agent = PPOAgent(obs_dim, action_dim).to(device)
+        agent.load_state_dict(checkpoint["agent_state_dict"])
+        agent.eval()
+        algo_label = "PPO"
 
     print(f"[CHECKPOINT] Loaded {ckpt_path}")
-    print(f"[PLAY] task_phase={task_phase}")
-    print(f"[PLAY] {'Stochastic' if args.stochastic else 'Deterministic'} SAC policy")
+    print(f"[PLAY] algo={algo_label} task_phase={task_phase}")
+    print(f"[PLAY] {'Stochastic' if args.stochastic else 'Deterministic'} policy")
 
     viewer = None
     if args.render_mode == "human":
@@ -126,8 +141,15 @@ def play():
         while True if infinite else episode_count < args.num_episodes:
             with torch.no_grad():
                 obs_tensor = torch.as_tensor(obs, dtype=torch.float32, device=device).unsqueeze(0)
-                action, _, _ = agent.get_action(obs_tensor, deterministic=not args.stochastic)
-                action = action.cpu().numpy()[0]
+                if algo_label == "SAC":
+                    action, _, _ = agent.get_action(obs_tensor, deterministic=not args.stochastic)
+                    action = action.cpu().numpy()[0]
+                else:
+                    if args.stochastic:
+                        action, _, _, _ = agent.get_action_and_value(obs_tensor)
+                    else:
+                        action = agent.get_deterministic_action(obs_tensor)
+                    action = action.cpu().numpy()[0]
 
             obs, reward, terminated, truncated, info = env.step(action)
             total_reward += reward

@@ -37,7 +37,7 @@ class TestTrainingIntegration(unittest.TestCase):
         result = subprocess.run(
             [
                 sys.executable,
-                "sac_walker.py",
+                "train_walker.py",
                 "--run-id", self.run_id,
                 "--seed", "42",
                 "--total-timesteps", "1024",
@@ -62,7 +62,7 @@ class TestTrainingIntegration(unittest.TestCase):
         first = subprocess.run(
             [
                 sys.executable,
-                "sac_walker.py",
+                "train_walker.py",
                 "--run-id", self.run_id,
                 "--seed", "42",
                 "--total-timesteps", "512",
@@ -81,7 +81,7 @@ class TestTrainingIntegration(unittest.TestCase):
         second = subprocess.run(
             [
                 sys.executable,
-                "sac_walker.py",
+                "train_walker.py",
                 "--run-id", self.run_id,
                 "--seed", "42",
                 "--resume",
@@ -111,6 +111,32 @@ class TestTrainingIntegration(unittest.TestCase):
 
         run_dir = os.path.join("runs", f"{self.run_id}__42")
         self.assertTrue(os.path.exists(run_dir), "Stable TensorBoard run directory not found")
+
+    def test_short_ppo_training(self):
+        result = subprocess.run(
+            [
+                sys.executable,
+                "train_walker.py",
+                "--algo", "ppo",
+                "--run-id", self.run_id,
+                "--seed", "42",
+                "--total-timesteps", "512",
+                "--num-envs", "2",
+                "--num-steps", "64",
+                "--num-minibatches", "2",
+                "--update-epochs", "2",
+                "--disable-mlflow",
+            ],
+            cwd=os.path.dirname(os.path.dirname(__file__)),
+            capture_output=True,
+            text=True,
+        )
+        print(result.stdout)
+        print(result.stderr)
+        self.assertEqual(result.returncode, 0, f"PPO training failed: {result.stderr}")
+        ckpt_dir = os.path.join("checkpoints", self.run_id)
+        self.assertTrue(os.path.exists(ckpt_dir), "Checkpoint directory not created")
+        self.assertTrue(any(f.startswith("ppo_ckpt_") for f in os.listdir(ckpt_dir)), "No PPO checkpoint files found")
 
 
 if __name__ == "__main__":

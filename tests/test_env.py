@@ -10,7 +10,7 @@ import torch
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 import envs.walker_ragdoll_env
-from sac_walker import SACAgent, get_obs_rms, load_actor_initialization, make_env, set_obs_rms
+from train_walker import SACAgent, PPOAgent, get_obs_rms, load_actor_initialization, make_env, set_obs_rms
 from utils.checkpoint import save_checkpoint, load_checkpoint, force_delete_run, find_latest_checkpoint
 
 

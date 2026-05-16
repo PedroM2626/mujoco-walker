@@ -1,4 +1,5 @@
 import os
+from collections import deque
 
 import gymnasium as gym
 from gymnasium.envs.mujoco import MujocoEnv
@@ -57,13 +58,14 @@ class WalkerRagdollEnv(MujocoEnv, gym.utils.EzPickle):
         stillness_penalty_weight: float = 2.0,
         lateral_drift_penalty_weight: float = 2.0,
         walk_reward_weight: float = 60.0,
-        forward_velocity_reward_weight: float = 8.0,
+        forward_velocity_reward_weight: float = 30.0,
         target_forward_velocity: float = 0.8,
-        target_progress_reward_weight: float = 120.0,
-        target_direction_reward_weight: float = 8.0,
-        target_success_reward: float = 100.0,
+        target_progress_reward_weight: float = 200.0,
+        target_direction_reward_weight: float = 80.0,
+        target_success_reward: float = 200.0,
         target_radius: float = 0.45,
         target_distance_range: tuple = (2.0, 5.0),
+        target_curriculum_streak: int = 10,
         bad_support_penalty_weight: float = 15.0,
         low_upright_penalty_weight: float = 20.0,
         terminate_when_unhealthy: bool = False,
@@ -98,6 +100,10 @@ class WalkerRagdollEnv(MujocoEnv, gym.utils.EzPickle):
         self._target_success_reward = target_success_reward
         self._target_radius = target_radius
         self._target_distance_range = target_distance_range
+        self._target_curriculum_streak = max(1, target_curriculum_streak)
+        self._target_success_history = deque(maxlen=self._target_curriculum_streak)
+        self._target_reached_this_episode = False
+        self._curriculum_level = 0
         self._bad_support_penalty_weight = bad_support_penalty_weight
         self._low_upright_penalty_weight = low_upright_penalty_weight
         self._terminate_when_unhealthy = terminate_when_unhealthy
@@ -125,6 +131,7 @@ class WalkerRagdollEnv(MujocoEnv, gym.utils.EzPickle):
             )
         self._task_phase = task_phase
         self._target_xy = np.array([3.0, 0.0], dtype=np.float64)
+        self._target_fixed_until_curriculum = True
 
         observation_size = 49 if task_phase == "target" else 46
         observation_space = Box(
@@ -162,6 +169,7 @@ class WalkerRagdollEnv(MujocoEnv, gym.utils.EzPickle):
             target_success_reward,
             target_radius,
             target_distance_range,
+            target_curriculum_streak,
             bad_support_penalty_weight,
             low_upright_penalty_weight,
             terminate_when_unhealthy,
@@ -303,6 +311,7 @@ class WalkerRagdollEnv(MujocoEnv, gym.utils.EzPickle):
         target_progress_reward = 0.0
         target_direction_reward = 0.0
         target_success_reward = 0.0
+        target_distance_penalty = 0.0
 
         if self._task_phase in {"balance", "walk", "target"}:
             stable_pose = standing_gate * np.exp(-0.25 * root_angular_speed)
@@ -310,6 +319,8 @@ class WalkerRagdollEnv(MujocoEnv, gym.utils.EzPickle):
             stability_reward = (
                 self._stability_reward_weight * stable_pose * stable_support
             )
+
+        if self._task_phase == "balance":
             stillness_penalty = (
                 self._stillness_penalty_weight
                 * standing_gate
@@ -322,6 +333,11 @@ class WalkerRagdollEnv(MujocoEnv, gym.utils.EzPickle):
             )
 
         if self._task_phase == "walk":
+            lateral_drift_penalty = (
+                self._lateral_drift_penalty_weight
+                * standing_gate
+                * (abs(y_after) + abs(y_velocity))
+            )
             velocity_error = x_velocity - self._target_forward_velocity
             walk_reward = (
                 self._walk_reward_weight
@@ -349,14 +365,28 @@ class WalkerRagdollEnv(MujocoEnv, gym.utils.EzPickle):
             target_direction_reward = (
                 self._target_direction_reward_weight
                 * standing_gate
-                * np.clip(velocity_toward_target, 0.0, self._target_forward_velocity)
+                * np.clip(velocity_toward_target, -0.5, self._target_forward_velocity)
+            )
+            reached_target = (
+                target_distance_after <= self._target_radius
+                and z_after > 1.0
+                and upright > 0.7
             )
             target_success_reward = (
-                self._target_success_reward
-                * float(target_distance_after <= self._target_radius)
-                * float(z_after > 1.0)
-                * float(upright > 0.7)
+                self._target_success_reward * float(reached_target)
             )
+            # No distance penalty — the robot is incentivised to approach
+            # purely through the progress and direction rewards above.
+
+            if reached_target and not self._target_reached_this_episode:
+                self._target_reached_this_episode = True
+                self._target_success_history.append(1)
+                streak = sum(self._target_success_history)
+                if streak >= self._target_curriculum_streak:
+                    self._curriculum_level += 1
+                    self._target_success_history.clear()
+                self._sample_target()
+                self._set_target_marker()
 
         reward = (
             1.0
@@ -376,6 +406,7 @@ class WalkerRagdollEnv(MujocoEnv, gym.utils.EzPickle):
             - low_upright_penalty
             - stillness_penalty
             - lateral_drift_penalty
+            - target_distance_penalty
         )
         terminated = self.terminated
         observation = self._get_obs()
@@ -397,6 +428,7 @@ class WalkerRagdollEnv(MujocoEnv, gym.utils.EzPickle):
             "reward_low_upright": -low_upright_penalty,
             "reward_stillness": -stillness_penalty,
             "reward_lateral_drift": -lateral_drift_penalty,
+            "reward_target_distance_penalty": -target_distance_penalty,
             "x_position": x_after,
             "y_position": y_after,
             "z_position": z_after,
@@ -404,11 +436,13 @@ class WalkerRagdollEnv(MujocoEnv, gym.utils.EzPickle):
             "y_velocity": y_velocity,
             "target_x": self._target_xy[0],
             "target_y": self._target_xy[1],
-            "target_distance": self._distance_to_target(np.array([x_after, y_after])),
+            "target_distance": target_distance_after if self._task_phase == "target" else self._distance_to_target(np.array([x_after, y_after])),
             "upright": self.upright_factor,
             "bad_floor_contacts": bad_floor_contacts,
             "foot_floor_contacts": foot_floor_contacts,
             "task_phase": self._task_phase,
+            "curriculum_level": self._curriculum_level,
+            "target_success_streak": sum(self._target_success_history),
         }
 
         if self.render_mode == "human":
@@ -491,6 +525,11 @@ class WalkerRagdollEnv(MujocoEnv, gym.utils.EzPickle):
         qpos[7:] = np.clip(qpos[7:] + joint_noise, -1.2, 1.2)
 
     def reset_model(self):
+        # Record failure if the agent did not reach the target this episode
+        if self._task_phase == "target" and not self._target_reached_this_episode:
+            self._target_success_history.append(0)
+        self._target_reached_this_episode = False
+
         qpos = self.init_qpos + self.np_random.uniform(
             low=-self._reset_noise_scale,
             high=self._reset_noise_scale,
@@ -515,7 +554,11 @@ class WalkerRagdollEnv(MujocoEnv, gym.utils.EzPickle):
             qvel += self.np_random.normal(scale=0.08, size=self.model.nv)
 
         self.set_state(qpos, qvel)
-        self._sample_target()
+        # For target phase: only resample on the very first episode (empty history).
+        # Subsequent resamples happen inside step() after a successful streak.
+        # For all other phases: always call _sample_target so the marker is hidden.
+        if self._task_phase != "target" or len(self._target_success_history) == 0:
+            self._sample_target()
         self._set_target_marker()
         return self._get_obs()
 

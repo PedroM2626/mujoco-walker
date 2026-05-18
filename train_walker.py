@@ -145,6 +145,12 @@ def parse_args():
         help="Specific checkpoint step to use with --init-from-run-id. 0 means latest.",
     )
     parser.add_argument(
+        "--actor-learning-starts",
+        type=int,
+        default=0,
+        help="Step at which to start updating the actor. Useful for freezing a pre-trained actor while critics adapt.",
+    )
+    parser.add_argument(
         "--init-critics",
         action="store_true",
         default=True,
@@ -1125,7 +1131,7 @@ def train(start_time=None):
                 nn.utils.clip_grad_norm_(list(qf1.parameters()) + list(qf2.parameters()), 1.0)
                 q_optimizer.step()
 
-                if global_step % (args.policy_frequency * args.num_envs) == 0:
+                if global_step % (args.policy_frequency * args.num_envs) == 0 and global_step > args.actor_learning_starts:
                     for _ in range(args.policy_frequency):
                         pi, log_pi, _ = actor.get_action(batch.obs)
                         qf1_pi = qf1(batch.obs, pi)

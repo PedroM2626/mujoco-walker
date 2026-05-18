@@ -100,10 +100,7 @@ class WalkerRagdollEnv(MujocoEnv, gym.utils.EzPickle):
         self._target_success_reward = target_success_reward
         self._target_radius = target_radius
         self._target_distance_range = target_distance_range
-        self._target_curriculum_streak = max(1, target_curriculum_streak)
-        self._target_success_history = deque(maxlen=self._target_curriculum_streak)
-        self._target_reached_this_episode = False
-        self._curriculum_level = 0
+        self._curriculum_level = 0  # Now used to track total targets reached
         self._bad_support_penalty_weight = bad_support_penalty_weight
         self._low_upright_penalty_weight = low_upright_penalty_weight
         self._terminate_when_unhealthy = terminate_when_unhealthy
@@ -360,12 +357,12 @@ class WalkerRagdollEnv(MujocoEnv, gym.utils.EzPickle):
             target_progress_reward = (
                 self._target_progress_reward_weight
                 * standing_gate
-                * np.clip(progress, -0.05, 0.15)
+                * np.clip(progress, 0.0, 0.15)
             )
             target_direction_reward = (
                 self._target_direction_reward_weight
                 * standing_gate
-                * np.clip(velocity_toward_target, -0.5, self._target_forward_velocity)
+                * np.clip(velocity_toward_target, 0.0, self._target_forward_velocity)
             )
             reached_target = (
                 target_distance_after <= self._target_radius
@@ -378,13 +375,8 @@ class WalkerRagdollEnv(MujocoEnv, gym.utils.EzPickle):
             # No distance penalty — the robot is incentivised to approach
             # purely through the progress and direction rewards above.
 
-            if reached_target and not self._target_reached_this_episode:
-                self._target_reached_this_episode = True
-                self._target_success_history.append(1)
-                streak = sum(self._target_success_history)
-                if streak >= self._target_curriculum_streak:
-                    self._curriculum_level += 1
-                    self._target_success_history.clear()
+            if reached_target:
+                self._curriculum_level += 1
                 self._sample_target()
                 self._set_target_marker()
 
@@ -442,7 +434,7 @@ class WalkerRagdollEnv(MujocoEnv, gym.utils.EzPickle):
             "foot_floor_contacts": foot_floor_contacts,
             "task_phase": self._task_phase,
             "curriculum_level": self._curriculum_level,
-            "target_success_streak": sum(self._target_success_history),
+            "target_success_streak": 0,
         }
 
         if self.render_mode == "human":
@@ -525,10 +517,6 @@ class WalkerRagdollEnv(MujocoEnv, gym.utils.EzPickle):
         qpos[7:] = np.clip(qpos[7:] + joint_noise, -1.2, 1.2)
 
     def reset_model(self):
-        # Record failure if the agent did not reach the target this episode
-        if self._task_phase == "target" and not self._target_reached_this_episode:
-            self._target_success_history.append(0)
-        self._target_reached_this_episode = False
 
         qpos = self.init_qpos + self.np_random.uniform(
             low=-self._reset_noise_scale,
@@ -554,11 +542,8 @@ class WalkerRagdollEnv(MujocoEnv, gym.utils.EzPickle):
             qvel += self.np_random.normal(scale=0.08, size=self.model.nv)
 
         self.set_state(qpos, qvel)
-        # For target phase: only resample on the very first episode (empty history).
-        # Subsequent resamples happen inside step() after a successful streak.
-        # For all other phases: always call _sample_target so the marker is hidden.
-        if self._task_phase != "target" or len(self._target_success_history) == 0:
-            self._sample_target()
+        # Always resample a new target on episode reset
+        self._sample_target()
         self._set_target_marker()
         return self._get_obs()
 

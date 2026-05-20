@@ -251,6 +251,12 @@ class WalkerRagdollEnv(MujocoEnv, gym.utils.EzPickle):
     def _get_target_obs(self):
         rel_xy = self._target_xy - self.data.qpos[:2]
         distance = np.linalg.norm(rel_xy)
+        
+        # Clip to maximum training distance (5.0m) to prevent OOD observations
+        if distance > 5.0:
+            rel_xy = rel_xy * (5.0 / distance)
+            distance = 5.0
+            
         return np.array([rel_xy[0], rel_xy[1], distance], dtype=np.float64)
 
     def _distance_to_target(self, xy=None):
@@ -363,6 +369,14 @@ class WalkerRagdollEnv(MujocoEnv, gym.utils.EzPickle):
                 self._target_direction_reward_weight
                 * standing_gate
                 * np.clip(velocity_toward_target, 0.0, self._target_forward_velocity)
+            )
+            # Perpendicular velocity (lateral velocity relative to target direction)
+            velocity_perpendicular = xy_velocity - velocity_toward_target * target_direction
+            perpendicular_speed = float(np.linalg.norm(velocity_perpendicular))
+            lateral_drift_penalty = (
+                self._lateral_drift_penalty_weight
+                * standing_gate
+                * perpendicular_speed
             )
             reached_target = (
                 target_distance_after <= self._target_radius
@@ -554,7 +568,7 @@ class WalkerRagdollEnv(MujocoEnv, gym.utils.EzPickle):
 
         min_distance, max_distance = self._target_distance_range
         distance = self.np_random.uniform(min_distance, max_distance)
-        angle = self.np_random.uniform(-np.pi, np.pi)
+        angle = self.np_random.uniform(-0.15, 0.15)
         direction = np.array([np.cos(angle), np.sin(angle)], dtype=np.float64)
         self._target_xy = self.data.qpos[:2].copy() + distance * direction
 

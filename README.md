@@ -1,22 +1,21 @@
-# Walker Ragdoll - SAC / PPO with CleanRL and MuJoCo
+# Walker Ragdoll - SAC / PPO / TD3 with CleanRL and MuJoCo
 
-Walker ragdoll training project using SAC (Soft Actor-Critic) and PPO (Proximal Policy Optimization) with MuJoCo and a CleanRL-style environment.
+Walker ragdoll training project using SAC (Soft Actor-Critic), PPO (Proximal Policy Optimization), and TD3 (Twin Delayed DDPG) with MuJoCo and a CleanRL-style environment.
 
 ## Project Structure
 
 ```
 .
-├── train_walker.py            # Main training script (SAC + PPO)
-├── sac_walker.py              # Backward-compatibility shim (imports from train_walker)
+├── train_walker.py            # Main training script (SAC + PPO + TD3)
 ├── play.py                    # Real-time visualization of a trained agent (SAC or PPO)
+├── play_race.py               # Multi-agent visual and headless evaluation race
 ├── walker_ragdoll.xml         # MuJoCo model for the walker ragdoll
 ├── envs/
 │   └── walker_ragdoll_env.py # Custom Gymnasium environment
-├── utils/
-│   └── checkpoint.py          # Checkpoint utilities (save, load, resume, force)
 ├── tests/
 │   ├── test_env.py            # Environment unit tests
-│   └── test_training.py       # Training integration tests (SAC + PPO)
+│   ├── test_training.py       # Training integration tests (SAC + PPO + TD3)
+│   └── test_race.py           # Multi-agent race system tests
 ├── requirements.txt           # Project dependencies
 ├── .env.example               # Environment variables example
 ├── .env                       # Default environment variables
@@ -55,7 +54,7 @@ docker run -v ${PWD}/checkpoints:/app/checkpoints -v ${PWD}/runs:/app/runs walke
 
 ### Algorithm selection
 
-Use `--algo sac` (default) or `--algo ppo` to select the training algorithm:
+Use `--algo sac`, `--algo ppo`, or `--algo td3` to select the training algorithm:
 
 ```bash
 # SAC training (default)
@@ -63,17 +62,39 @@ python train_walker.py --algo sac --run-id walker_sac_v1
 
 # PPO training
 python train_walker.py --algo ppo --run-id walker_ppo_v1
+
+# TD3 training
+python train_walker.py --algo td3 --run-id walker_td3_v1
 ```
 
-### Basic training
+### Weights & Biases Logging (Offline/Local)
+All training runs automatically initialize and track metrics in Weights & Biases (W&B) under **offline mode**, keeping logs strictly local. 
+- You do not need an account or internet connection to log experiments.
+- Logs are written locally to the `wandb/` directory.
+- To disable W&B logging entirely, use the `--disable-wandb` flag.
+
+### Multi-Agent Race Evaluation
+You can evaluate and race different trained agents (even using different algorithms and architectures) in parallel lanes in the same MuJoCo simulation environment using the `play_race.py` script.
+
+#### Command Example
 ```bash
-python train_walker.py --run-id walker_experiment_1 --seed 1 --total-timesteps 1000000
+python play_race.py --checkpoints checkpoints/walker_sac_v1 checkpoints/walker_ppo_v1 checkpoints/walker_td3_v1 --names AgentSAC AgentPPO AgentTD3 --target-x 15.0
 ```
+
+#### Race Options:
+- `--checkpoints`: List of checkpoints (files or folders). Folders will automatically resolve to the latest checkpoint in that folder.
+- `--names`: Optional display names for each competitor.
+- `--target-x`: The distance (in meters) to reach the finish line (default: `15.0`).
+- `--lane-distance`: Spacing (in meters) between lanes (default: `1.8`).
+- `--headless`: Run the simulation in console/headless mode (printing positions and final standings table) without launching the GUI.
+- `--max-steps`: Maximum simulation steps (default: `2500`).
+
+The visual camera tracks the current leading walker dynamically throughout the race!
 
 ### Unity ML-Agents-style features
 
 - **Automatic checkpointing**: Saves checkpoints at each configured interval.
-- **Resume**: Continue training from where it stopped.
+- **Resume**: Continue training from where it stopped (restoring replay buffers and RNG states).
 - **Force**: Delete previous data and start from scratch.
 - **Run ID**: Unique identifier for each experiment.
 
@@ -94,11 +115,6 @@ python train_walker.py --run-id walker_v1 --resume
 python train_walker.py --run-id walker_v1 --force --seed 2
 ```
 
-**Capture video:**
-```bash
-python train_walker.py --run-id walker_v1 --capture-video --total-timesteps 100000
-```
-
 ## Hyperparameters
 
 All hyperparameters can be configured via command line or environment variables.
@@ -107,7 +123,7 @@ All hyperparameters can be configured via command line or environment variables.
 
 | CLI Parameter | Environment Variable | Default | Description |
 |---|---|---|---|
-| `--algo` | `ALGO` | `sac` | Training algorithm: `sac` or `ppo` |
+| `--algo` | `ALGO` | `sac` | Training algorithm: `sac`, `ppo`, or `td3` |
 | `--run-id` | `RUN_ID` | `walker_train` | Experiment ID |
 | `--seed` | `SEED` | `1` | Random seed |
 | `--checkpoint-interval` | `CHECKPOINT_INTERVAL` | `1000000` | Checkpoint interval in timesteps |
@@ -131,7 +147,7 @@ All hyperparameters can be configured via command line or environment variables.
 | `--learning-starts` | `LEARNING_STARTS` | `10000` | Random exploration steps before updates |
 | `--tau` | `TAU` | `0.005` | Target network update rate |
 | `--alpha` | `ALPHA` | `0.2` | Initial entropy temperature |
-| `--init-from-run-id` | `INIT_FROM_RUN_ID` | - | Start a new run from another SAC run's actor weights |
+| `--init-from-run-id` | `INIT_FROM_RUN_ID` | - | Start a new run from another run's actor weights |
 | `--save-replay-buffer` / `--no-save-replay-buffer` | `SAVE_REPLAY_BUFFER` | `true` | Include or skip the replay buffer in checkpoints |
 
 ### PPO-specific Parameters
@@ -146,6 +162,19 @@ All hyperparameters can be configured via command line or environment variables.
 | `--vf-coef` | `VF_COEF` | `0.5` | Value function loss coefficient |
 | `--gae-lambda` | `GAE_LAMBDA` | `0.95` | GAE lambda for advantage estimation |
 | `--max-grad-norm` | `MAX_GRAD_NORM` | `0.5` | Maximum gradient norm for clipping |
+
+### TD3-specific Parameters
+
+| CLI Parameter | Environment Variable | Default | Description |
+|---|---|---|---|
+| `--buffer-size` | `BUFFER_SIZE` | `1000000` | Replay buffer size |
+| `--batch-size` | `BATCH_SIZE` | `256` | TD3 batch size |
+| `--learning-starts` | `LEARNING_STARTS` | `10000` | Random exploration steps before updates |
+| `--tau` | `TAU` | `0.005` | Target network update rate |
+| `--exploration-noise` | `EXPLORATION_NOISE` | `0.1` | Action exploration noise std |
+| `--policy-noise` | `POLICY_NOISE` | `0.2` | Target action smoothing noise std |
+| `--noise-clip` | `NOISE_CLIP` | `0.5` | Target action smoothing noise clip range |
+| `--policy-frequency` | `POLICY_FREQUENCY` | `2` | Delay parameter for policy updates |
 
 ## Training Recommendations
 
@@ -173,6 +202,16 @@ PPO training example:
 python train_walker.py --algo ppo --run-id walker_ppo_v1 --task-phase recovery --total-timesteps 20000000 --num-envs 64
 ```
 
+## Recovery-Supervised Target Training Pipeline
+
+We provide a script `run_training_pipeline.py` to train SAC, PPO, and TD3 agents sequentially for 1M steps in the `target` task phase. The training integrates a **Recovery Supervisor** which intercepts falling states (torso height $z < 1.1$ or upright factor $< 0.8$) and yields control to a pre-trained recovery policy (`walker_recovery_v1`). The training experiences collected under recovery control are excluded from the target agents' update computations via buffer/loss masking.
+
+To run the full 1M-step sequential pipeline:
+```bash
+python run_training_pipeline.py
+```
+This will sequentially produce runs `walker_sac_1m`, `walker_ppo_1m`, and `walker_td3_1m`, logging all training metrics locally to offline W&B.
+
 ## Tests
 
 Run unit and integration tests:
@@ -184,6 +223,7 @@ Or individually:
 ```bash
 python -m tests.test_env
 python -m tests.test_training
+python -m tests.test_race
 ```
 
 ## TensorBoard
@@ -229,3 +269,5 @@ python play_ppo_legacy.py --run-id Humanoid_Curriculum_v1 --checkpoint-step 1338
 SAC checkpoints are saved to `checkpoints/<run_id>/sac_ckpt_<step>.pt` and include the actor, critics, entropy temperature, optimizers, and observation normalization statistics. By default they also include the replay buffer. Use `--no-save-replay-buffer` for lighter checkpoints.
 
 PPO checkpoints are saved to `checkpoints/<run_id>/ppo_ckpt_<step>.pt` and include the full actor-critic agent, optimizer, and observation normalization statistics. PPO checkpoints are always lightweight since there is no replay buffer.
+
+TD3 checkpoints are saved to `checkpoints/<run_id>/td3_ckpt_<step>.pt` and include the actor, both critics, the target actor/critics, optimizers, and observation normalization statistics.

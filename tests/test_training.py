@@ -45,7 +45,7 @@ class TestTrainingIntegration(unittest.TestCase):
                 "--learning-starts", "128",
                 "--batch-size", "64",
                 "--buffer-size", "1024",
-                "--disable-mlflow",
+                "--disable-wandb",
             ],
             cwd=os.path.dirname(os.path.dirname(__file__)),
             capture_output=True,
@@ -70,7 +70,7 @@ class TestTrainingIntegration(unittest.TestCase):
                 "--learning-starts", "128",
                 "--batch-size", "64",
                 "--buffer-size", "1024",
-                "--disable-mlflow",
+                "--disable-wandb",
             ],
             cwd=os.path.dirname(os.path.dirname(__file__)),
             capture_output=True,
@@ -90,7 +90,7 @@ class TestTrainingIntegration(unittest.TestCase):
                 "--learning-starts", "128",
                 "--batch-size", "64",
                 "--buffer-size", "1024",
-                "--disable-mlflow",
+                "--disable-wandb",
             ],
             cwd=os.path.dirname(os.path.dirname(__file__)),
             capture_output=True,
@@ -125,7 +125,7 @@ class TestTrainingIntegration(unittest.TestCase):
                 "--num-steps", "64",
                 "--num-minibatches", "2",
                 "--update-epochs", "2",
-                "--disable-mlflow",
+                "--disable-wandb",
             ],
             cwd=os.path.dirname(os.path.dirname(__file__)),
             capture_output=True,
@@ -137,6 +137,33 @@ class TestTrainingIntegration(unittest.TestCase):
         ckpt_dir = os.path.join("checkpoints", self.run_id)
         self.assertTrue(os.path.exists(ckpt_dir), "Checkpoint directory not created")
         self.assertTrue(any(f.startswith("ppo_ckpt_") for f in os.listdir(ckpt_dir)), "No PPO checkpoint files found")
+
+
+    def test_short_td3_training(self):
+        result = subprocess.run(
+            [
+                sys.executable,
+                "train_walker.py",
+                "--algo", "td3",
+                "--run-id", self.run_id,
+                "--seed", "42",
+                "--total-timesteps", "512",
+                "--num-envs", "2",
+                "--learning-starts", "128",
+                "--batch-size", "64",
+                "--buffer-size", "1024",
+                "--disable-wandb",
+            ],
+            cwd=os.path.dirname(os.path.dirname(__file__)),
+            capture_output=True,
+            text=True,
+        )
+        print(result.stdout)
+        print(result.stderr)
+        self.assertEqual(result.returncode, 0, f"TD3 training failed: {result.stderr}")
+        ckpt_dir = os.path.join("checkpoints", self.run_id)
+        self.assertTrue(os.path.exists(ckpt_dir), "Checkpoint directory not created")
+        self.assertTrue(any(f.startswith("td3_ckpt_") for f in os.listdir(ckpt_dir)), "No TD3 checkpoint files found")
 
 
 if __name__ == "__main__":

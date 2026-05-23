@@ -50,6 +50,42 @@ class LegacyPPOAgent(nn.Module):
         return self.actor_mean(obs)
 
 
+class ARSAgentWrapper(nn.Module):
+    def __init__(self, weights, bias):
+        super().__init__()
+        self.weights = weights
+        self.bias = bias
+    def get_deterministic_action(self, obs_t):
+        obs_np = obs_t.cpu().numpy()[0]
+        action = np.tanh(np.dot(self.weights, obs_np) + self.bias)
+        return torch.as_tensor(action, dtype=torch.float32, device=obs_t.device).unsqueeze(0)
+
+
+class DreamerAgentWrapper(nn.Module):
+    def __init__(self, obs_dim, action_dim, device):
+        super().__init__()
+        from train_dreamer import WorldModel, DreamerActor
+        self.model = WorldModel(obs_dim, action_dim).to(device)
+        self.actor = DreamerActor(hidden_dim=256, stochastic_dim=32, action_dim=action_dim).to(device)
+        self.device = device
+        self.reset_state()
+        
+    def reset_state(self):
+        self.h = torch.zeros(1, 256, device=self.device)
+        self.z = torch.zeros(1, 32, device=self.device)
+        self.last_action = torch.zeros(1, 17, device=self.device)
+        
+    def get_deterministic_action(self, obs_t):
+        with torch.no_grad():
+            self.h, _, _, _ = self.model.rssm.transition(self.h, self.z, self.last_action)
+            embed = self.model.encoder(obs_t)
+            self.z, _, _ = self.model.rssm.posterior(self.h, embed)
+            action = self.actor.get_action(self.h, self.z, sample=False)
+            self.last_action = action
+        return action
+
+
+
 def load_agent(ckpt_path, device):
     """Loads agent policy, detects obs_dim and handles legacy architecture formats."""
     print(f"[LOAD] Loading checkpoint from {ckpt_path} ...")
@@ -89,16 +125,31 @@ def load_agent(ckpt_path, device):
     if is_legacy_ppo:
         print("[LOAD] Detected legacy PPO sequential architecture.")
         agent = LegacyPPOAgent(obs_dim, action_dim).to(device)
-    elif algo == "sac":
+        agent.load_state_dict(actor_state)
+    elif algo in {"sac", "sac_actor"} or algo == "redq":
         agent = SACAgent(obs_dim, action_space).to(device)
+        agent.load_state_dict(actor_state)
     elif algo == "ppo":
         agent = PPOAgent(obs_dim, action_dim).to(device)
+        agent.load_state_dict(actor_state)
     elif algo == "td3":
         agent = TD3Agent(obs_dim, action_space).to(device)
+        agent.load_state_dict(actor_state)
+    elif algo == "ars":
+        weights = checkpoint["weights"]
+        bias = checkpoint["bias"]
+        agent = ARSAgentWrapper(weights, bias).to(device)
+    elif algo == "dreamer":
+        agent = DreamerAgentWrapper(obs_dim, action_dim, device)
+        if "model_state_dict" in checkpoint:
+            agent.model.load_state_dict(checkpoint["model_state_dict"])
+        else:
+            agent.model.encoder.load_state_dict(checkpoint["encoder_state_dict"])
+            agent.model.rssm.load_state_dict(checkpoint["rssm_state_dict"])
+        agent.actor.load_state_dict(checkpoint["actor_state_dict"])
     else:
         raise ValueError(f"Unknown algorithm: {algo}")
 
-    agent.load_state_dict(actor_state)
     agent.eval()
 
     obs_rms = checkpoint.get("obs_rms", None)
@@ -279,7 +330,7 @@ def get_agent_observation(model, data, agent_idx, target_x, target_y_initial, ob
         rel_xy = target_xy - agent_xy
         distance = np.linalg.norm(rel_xy)
         # Scale/clip target observation to stay within training distribution (2.0 to 5.0 meters)
-        max_dist = 4.0
+        max_dist = 5.0
         if distance > max_dist:
             rel_xy = rel_xy * (max_dist / distance)
             distance = max_dist
@@ -389,6 +440,11 @@ def main():
     step_idx = 0
     start_wall_time = time.time()
     
+    # Reset any recurrent agents at the beginning of the race
+    for agent_info in agents:
+        if hasattr(agent_info["model"], "reset_state"):
+            agent_info["model"].reset_state()
+            
     try:
         while step_idx < args.max_steps:
             step_start = time.time()
@@ -417,7 +473,7 @@ def main():
                 # --- AUTO-RESET: teleport fallen agents back upright ---
                 z_raw = obs[0]
                 upright_raw = obs[45] if len(obs) >= 46 else 1.0
-                has_fallen = (z_raw < 0.9 or upright_raw < 0.5)
+                has_fallen = (z_raw < 0.8)
 
                 if has_fallen and respawn_cooldown[i] == 0 and not agent_finished[i]:
                     # Teleport agent to standing pose at current X, lane Y
@@ -429,10 +485,9 @@ def main():
                     n_qvel = 21  # 6 root DoF + 15 joint DoF
                     agent_qvel_slice = slice(agent_qvel_start, agent_qvel_start + n_qvel)
 
-                    # Preserve X progress; reset to standing template pose
-                    current_x = data.qpos[root_qposadr]
+                    # Teleport agent to standing pose at the starting line (X = 0.0)
                     data.qpos[agent_qpos_slice] = standing_qpos_template[agent_qpos_slice]
-                    data.qpos[root_qposadr]     = current_x           # keep X progress
+                    data.qpos[root_qposadr]     = 0.0                 # reset X progress to 0
                     data.qpos[root_qposadr + 1] = lane_y_coords[i]   # restore lane Y
                     data.qpos[root_qposadr + 2] = 1.35               # upright Z height
                     # identity quaternion = [1, 0, 0, 0]
@@ -446,7 +501,9 @@ def main():
 
                     respawn_counts[i] += 1
                     respawn_cooldown[i] = RESPAWN_COOLDOWN_STEPS
-                    print(f"\n[RESPAWN] {agent_names[i]} respawned at x={current_x:.2f}m (respawn #{respawn_counts[i]})")
+                    print(f"\n[RESPAWN] {agent_names[i]} respawned at starting line (respawn #{respawn_counts[i]})")
+                    if hasattr(agent_info["model"], "reset_state"):
+                        agent_info["model"].reset_state()
 
                 if respawn_cooldown[i] > 0:
                     respawn_cooldown[i] -= 1
@@ -462,10 +519,10 @@ def main():
 
                 obs_t = torch.as_tensor(obs_norm, dtype=torch.float32, device=device).unsqueeze(0)
                 with torch.no_grad():
-                    if agent_info["algo"] == "sac":
+                    if agent_info["algo"] in ["sac", "sac_actor", "redq"]:
                         action_t, _, _ = agent_info["model"].get_action(obs_t, deterministic=True)
                         action = action_t.cpu().numpy()[0]
-                    elif agent_info["algo"] == "ppo":
+                    elif agent_info["algo"] in ["ppo", "ars", "dreamer"]:
                         action = agent_info["model"].get_deterministic_action(obs_t).cpu().numpy()[0]
                     elif agent_info["algo"] == "td3":
                         action = agent_info["model"](obs_t).cpu().numpy()[0]

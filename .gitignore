@@ -24,7 +24,6 @@ htmlcov/
 *.log
 runs/
 checkpoints/
-wandb/
 *.pt
 *.pth
 .env.local

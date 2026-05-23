@@ -84,24 +84,24 @@ class TestRaceSystem(unittest.TestCase):
 
     def test_observation_extraction(self):
         base_xml = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "walker_ragdoll.xml")
-        temp_xml = build_race_xml(base_xml, num_agents=2, target_x=12.0, lane_distance=1.5)
+        temp_xml = build_race_xml(base_xml, num_agents=2, target_x=3.0, lane_distance=1.5)
         
         model = mujoco.MjModel.from_xml_path(temp_xml)
         data = mujoco.MjData(model)
         mujoco.mj_forward(model, data)
         
         # Test extraction for agent 0 (recovery phase, size 46)
-        obs_rec = get_agent_observation(model, data, agent_idx=0, target_x=12.0, target_y_initial=-0.75, obs_dim=46)
+        obs_rec = get_agent_observation(model, data, agent_idx=0, target_x=3.0, target_y_initial=-0.75, obs_dim=46)
         self.assertEqual(obs_rec.shape, (46,), "Extracted observation shape mismatch for recovery phase.")
         
         # Test extraction for agent 1 (target phase, size 49)
-        obs_tgt = get_agent_observation(model, data, agent_idx=1, target_x=12.0, target_y_initial=0.75, obs_dim=49)
+        obs_tgt = get_agent_observation(model, data, agent_idx=1, target_x=3.0, target_y_initial=0.75, obs_dim=49)
         self.assertEqual(obs_tgt.shape, (49,), "Extracted observation shape mismatch for target phase.")
         
-        # Check target observation content values (dx relative should be 12.0)
-        self.assertAlmostEqual(obs_tgt[-3], 12.0, places=2)  # dx
+        # Check target observation content values (dx relative should be 3.0)
+        self.assertAlmostEqual(obs_tgt[-3], 3.0, places=2)  # dx
         self.assertAlmostEqual(obs_tgt[-2], 0.0, places=2)   # dy relative
-        self.assertAlmostEqual(obs_tgt[-1], 12.0, places=2)  # distance
+        self.assertAlmostEqual(obs_tgt[-1], 3.0, places=2)  # distance
         
         os.remove(temp_xml)
 

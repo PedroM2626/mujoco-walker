@@ -17,6 +17,7 @@ from train_walker import (
     SACAgent, PPOAgent,
     latest_sac_checkpoint, latest_ppo_checkpoint, latest_checkpoint_any,
     load_torch_checkpoint,
+    RecoverySupervisor,
 )
 from utils.checkpoint import get_checkpoint_dir
 
@@ -57,6 +58,7 @@ def parse_args():
         choices=["recovery", "balance", "walk", "target"],
         help="Reward phase used while visualizing. Defaults to the checkpoint phase when available.",
     )
+    parser.add_argument("--use-supervisor", action="store_true", default=False, help="Use the Recovery Supervisor when fallen and show visualization")
     return parser.parse_args()
 
 
@@ -132,6 +134,11 @@ def play():
     if args.render_mode == "human":
         viewer = mujoco.viewer.launch_passive(env.unwrapped.model, env.unwrapped.data)
 
+    supervisor = None
+    if args.use_supervisor:
+        print("[PLAY] Initializing Recovery Supervisor...")
+        supervisor = RecoverySupervisor(device)
+
     total_reward = 0.0
     episode_count = 0
     step_count = 0
@@ -150,6 +157,22 @@ def play():
                     else:
                         action = agent.get_deterministic_action(obs_tensor)
                     action = action.cpu().numpy()[0]
+
+            if supervisor is not None:
+                actions_array = np.array([action])
+                actions_array, is_rec = supervisor.get_actions([env], actions_array)
+                action = actions_array[0]
+                
+                # Visual feedback: Change walker color when recovery network is active
+                if viewer is not None:
+                    model = env.unwrapped.model
+                    for geom_id in range(model.ngeom):
+                        name = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_GEOM, geom_id)
+                        if name not in ["floor", "target_marker_geom"]:
+                            if is_rec[0]:
+                                model.geom_rgba[geom_id] = [1.0, 0.0, 0.0, 1.0] # Red
+                            else:
+                                model.geom_rgba[geom_id] = [0.8, 0.6, 0.4, 1.0] # Original color approx
 
             obs, reward, terminated, truncated, info = env.step(action)
             total_reward += reward

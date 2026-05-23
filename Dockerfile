@@ -26,6 +26,9 @@ COPY . .
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
 ENV MUJOCO_GL=osmesa
+ENV MLFLOW_EXPERIMENT=walker-ragdoll
+# Override MLFLOW_TRACKING_URI at runtime to point to a remote server:
+# docker run -e MLFLOW_TRACKING_URI=http://host:5000 ...
 
 # Default command (training)
 CMD ["python", "train_walker.py"]

@@ -22,7 +22,6 @@ from torch.utils.tensorboard import SummaryWriter
 import envs.walker_ragdoll_env
 from envs.walker_ragdoll_env import ENV_VERSION
 from utils.checkpoint import force_delete_run, get_checkpoint_dir, get_run_dir
-import wandb
 
 
 ENV_VARS = {
@@ -171,7 +170,6 @@ def parse_args():
     parser.add_argument("--autotune", action="store_true", default=True)
     parser.add_argument("--no-autotune", dest="autotune", action="store_false")
     parser.add_argument("--capture-video", action="store_true", default=False)
-    parser.add_argument("--disable-wandb", action="store_true", default=False, help="Disable W&B logging")
     parser.add_argument("--allow-mismatched-env-version", action="store_true", default=False)
     parser.add_argument("--use-supervisor-in-training", action="store_true", default=False, help="Use recovery supervisor during target phase training")
     # PPO-specific arguments
@@ -557,52 +555,6 @@ def reset_envs_without_obs_rms_update(envs, seed):
     return np.clip(normalized_obs, -10, 10), info
 
 
-def start_wandb_run(args, run_name, algo):
-    if getattr(args, "disable_wandb", False):
-        return None
-    # Force offline mode as requested
-    os.environ["WANDB_MODE"] = "offline"
-    run = wandb.init(
-        project="mujoco-walker-race",
-        group=algo,
-        name=run_name,
-        config=vars(args),
-        mode="offline"
-    )
-    print(f"[WANDB] Offline run started: project=mujoco-walker-race, group={algo}, name={run_name}")
-    return run
-
-
-def log_wandb_metrics(run, metrics, step):
-    if run is None:
-        return
-    try:
-        run.log(metrics, step=step)
-    except Exception as exc:
-        print(f"[WANDB] Warning: could not log metrics: {exc}")
-
-
-def log_wandb_artifact(run, path, algo, global_step):
-    if run is None:
-        return
-    try:
-        artifact = wandb.Artifact(
-            name=f"{algo}_checkpoint_{global_step}",
-            type="model",
-            metadata={"global_step": global_step, "algo": algo}
-        )
-        artifact.add_file(path)
-        run.log_artifact(artifact)
-        print(f"[WANDB] Logged checkpoint artifact: {algo}_checkpoint_{global_step}")
-    except Exception as exc:
-        print(f"[WANDB] Warning: could not log checkpoint artifact {path}: {exc}")
-
-
-def end_wandb_run(run):
-    if run is not None:
-        run.finish()
-
-
 def save_sac_checkpoint(
     path,
     global_step,
@@ -953,7 +905,6 @@ def train_ppo(start_time=None):
     os.makedirs(run_dir, exist_ok=True)
     writer = SummaryWriter(run_dir, purge_step=global_step if args.resume else None)
     writer.add_text("hyperparameters", "|param|value|\n|-|-|\n%s" % "\n".join(f"|{k}|{v}|" for k, v in vars(args).items()), global_step)
-    wandb_run = start_wandb_run(args, run_name, "ppo")
 
     batch_size = int(args.num_envs * args.num_steps)
     minibatch_size = int(batch_size // args.num_minibatches)
@@ -1016,7 +967,7 @@ def train_ppo(start_time=None):
                             print(f"global_step={global_step}, episodic_return={ep_r:.2f}, episodic_length={ep_l:.0f}")
                             writer.add_scalar("charts/episodic_return", ep_r, global_step)
                             writer.add_scalar("charts/episodic_length", ep_l, global_step)
-                            log_wandb_metrics(wandb_run, {"episodic_return": ep_r, "episodic_length": ep_l}, global_step)
+    
 
             # GAE
             with torch.no_grad():
@@ -1113,7 +1064,6 @@ def train_ppo(start_time=None):
                     global_step, agent, optimizer, envs,
                     task_phase=args.task_phase, target_forward_velocity=args.target_forward_velocity,
                 )
-                log_wandb_artifact(wandb_run, ckpt_path, "ppo", global_step)
                 next_checkpoint_step += args.checkpoint_interval
 
     except KeyboardInterrupt:
@@ -1122,10 +1072,8 @@ def train_ppo(start_time=None):
         final_path = os.path.join(ckpt_dir, f"ppo_ckpt_{global_step}.pt")
         save_ppo_checkpoint(final_path, global_step, agent, optimizer, envs,
                             task_phase=args.task_phase, target_forward_velocity=args.target_forward_velocity)
-        log_wandb_artifact(wandb_run, final_path, "ppo", global_step)
         envs.close()
         writer.close()
-        end_wandb_run(wandb_run)
         print(f"PPO training completed. Total steps: {global_step}")
 
 
@@ -1240,7 +1188,6 @@ def train_td3(start_time=None):
     os.makedirs(run_dir, exist_ok=True)
     writer = SummaryWriter(run_dir, purge_step=global_step if args.resume else None)
     writer.add_text("hyperparameters", "|param|value|\n|-|-|\n%s" % "\n".join(f"|{k}|{v}|" for k, v in vars(args).items()), global_step)
-    wandb_run = start_wandb_run(args, run_name, "td3")
 
     if restored_obs_rms is not None:
         next_obs, _ = reset_envs_without_obs_rms_update(envs, seed=args.seed)
@@ -1284,7 +1231,7 @@ def train_td3(start_time=None):
                         print(f"global_step={global_step}, episodic_return={ep_r:.2f}, episodic_length={ep_l:.0f}")
                         writer.add_scalar("charts/episodic_return", ep_r, global_step)
                         writer.add_scalar("charts/episodic_length", ep_l, global_step)
-                        log_wandb_metrics(wandb_run, {"episodic_return": ep_r, "episodic_length": ep_l}, global_step)
+
 
             if global_step > args.learning_starts:
                 batch = rb.sample(args.batch_size)
@@ -1330,16 +1277,7 @@ def train_td3(start_time=None):
                     writer.add_scalar("losses/qf2_values", qf2_a_values.mean().item(), global_step)
                     writer.add_scalar("losses/qf_loss", qf_loss.item(), global_step)
                     writer.add_scalar("charts/SPS", int(global_step / (time.time() - start_time)), global_step)
-                    log_wandb_metrics(
-                        wandb_run,
-                        {
-                            "qf1_values": qf1_a_values.mean().item(),
-                            "qf2_values": qf2_a_values.mean().item(),
-                            "qf_loss": qf_loss.item(),
-                            "sps": int(global_step / (time.time() - start_time)),
-                        },
-                        global_step,
-                    )
+
 
             if global_step >= next_checkpoint_step:
                 ckpt_path = os.path.join(ckpt_dir, f"td3_ckpt_{global_step}.pt")
@@ -1355,7 +1293,6 @@ def train_td3(start_time=None):
                     task_phase=args.task_phase,
                     target_forward_velocity=args.target_forward_velocity,
                 )
-                log_wandb_artifact(wandb_run, ckpt_path, "td3", global_step)
                 next_checkpoint_step += args.checkpoint_interval
     except KeyboardInterrupt:
         print("\n[TRAIN] Interrupted by user. Saving checkpoint...")
@@ -1373,10 +1310,8 @@ def train_td3(start_time=None):
             task_phase=args.task_phase,
             target_forward_velocity=args.target_forward_velocity,
         )
-        log_wandb_artifact(wandb_run, final_checkpoint_path, "td3", global_step)
         envs.close()
         writer.close()
-        end_wandb_run(wandb_run)
         print(f"TD3 training completed. Total steps: {global_step}")
 
 
@@ -1518,7 +1453,6 @@ def train(start_time=None):
     os.makedirs(run_dir, exist_ok=True)
     writer = SummaryWriter(run_dir, purge_step=global_step if args.resume else None)
     writer.add_text("hyperparameters", "|param|value|\n|-|-|\n%s" % "\n".join(f"|{k}|{v}|" for k, v in vars(args).items()), global_step)
-    wandb_run = start_wandb_run(args, run_name, "sac")
 
     if restored_obs_rms is not None:
         next_obs, _ = reset_envs_without_obs_rms_update(envs, seed=args.seed)
@@ -1560,14 +1494,7 @@ def train(start_time=None):
                         print(f"global_step={global_step}, episodic_return={ep_r:.2f}, episodic_length={ep_l:.0f}")
                         writer.add_scalar("charts/episodic_return", ep_r, global_step)
                         writer.add_scalar("charts/episodic_length", ep_l, global_step)
-                        log_wandb_metrics(
-                            wandb_run,
-                            {
-                                "episodic_return": ep_r,
-                                "episodic_length": ep_l,
-                            },
-                            global_step,
-                        )
+
 
             if global_step > args.learning_starts:
                 batch = rb.sample(args.batch_size)
@@ -1622,17 +1549,7 @@ def train(start_time=None):
                     writer.add_scalar("losses/qf_loss", qf_loss.item(), global_step)
                     writer.add_scalar("losses/alpha", log_alpha.exp().item(), global_step)
                     writer.add_scalar("charts/SPS", int(global_step / (time.time() - start_time)), global_step)
-                    log_wandb_metrics(
-                        wandb_run,
-                        {
-                            "qf1_values": qf1_a_values.mean().item(),
-                            "qf2_values": qf2_a_values.mean().item(),
-                            "qf_loss": qf_loss.item(),
-                            "alpha": log_alpha.exp().item(),
-                            "sps": int(global_step / (time.time() - start_time)),
-                        },
-                        global_step,
-                    )
+
 
             if global_step >= next_checkpoint_step:
                 ckpt_path = os.path.join(ckpt_dir, f"sac_ckpt_{global_step}.pt")
@@ -1653,12 +1570,6 @@ def train(start_time=None):
                     task_phase=args.task_phase,
                     target_forward_velocity=args.target_forward_velocity,
                     save_replay_buffer=args.save_replay_buffer,
-                )
-                log_wandb_artifact(
-                    wandb_run,
-                    ckpt_path,
-                    "sac",
-                    global_step,
                 )
                 next_checkpoint_step += args.checkpoint_interval
     except KeyboardInterrupt:
@@ -1683,10 +1594,8 @@ def train(start_time=None):
             target_forward_velocity=args.target_forward_velocity,
             save_replay_buffer=args.save_replay_buffer,
         )
-        log_wandb_artifact(wandb_run, final_checkpoint_path, "sac", global_step)
         envs.close()
         writer.close()
-        end_wandb_run(wandb_run)
         print(f"Training completed. Total steps: {global_step}")
 
 

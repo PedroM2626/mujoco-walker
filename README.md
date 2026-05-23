@@ -7,7 +7,10 @@ Walker ragdoll training project using SAC (Soft Actor-Critic), PPO (Proximal Pol
 ```
 .
 ├── train_walker.py            # Main training script (SAC + PPO + TD3)
-├── play.py                    # Real-time visualization of a trained agent (SAC or PPO)
+├── train_redq.py              # REDQ training script (Random Ensemble Double Q-learning)
+├── train_ars.py               # ARS training script (Augmented Random Search)
+├── train_dreamer.py           # DreamerV3 training script (Model-based RSSM/Imagination)
+├── play.py                    # Real-time visualization of a trained agent (SAC, PPO, etc.)
 ├── play_race.py               # Multi-agent visual and headless evaluation race
 ├── walker_ragdoll.xml         # MuJoCo model for the walker ragdoll
 ├── envs/
@@ -54,7 +57,7 @@ docker run -v ${PWD}/checkpoints:/app/checkpoints -v ${PWD}/runs:/app/runs walke
 
 ### Algorithm selection
 
-Use `--algo sac`, `--algo ppo`, or `--algo td3` to select the training algorithm:
+Use `--algo sac`, `--algo ppo`, or `--algo td3` to select the training algorithm in the main script, or run the specialized scripts for the new algorithms:
 
 ```bash
 # SAC training (default)
@@ -65,13 +68,38 @@ python train_walker.py --algo ppo --run-id walker_ppo_v1
 
 # TD3 training
 python train_walker.py --algo td3 --run-id walker_td3_v1
+
+# REDQ training (Random Ensemble Double Q-learning)
+python train_redq.py --run-id walker_redq_v1
+
+# ARS training (Augmented Random Search)
+python train_ars.py --run-id walker_ars_v1
+
+# DreamerV3 training (Model-based RL)
+python train_dreamer.py --run-id walker_dreamer_v1
 ```
 
-### Weights & Biases Logging (Offline/Local)
-All training runs automatically initialize and track metrics in Weights & Biases (W&B) under **offline mode**, keeping logs strictly local. 
-- You do not need an account or internet connection to log experiments.
-- Logs are written locally to the `wandb/` directory.
-- To disable W&B logging entirely, use the `--disable-wandb` flag.
+### Experiment Tracking
+
+Every training run is tracked:
+
+#### MLflow
+All runs are logged to MLflow under the `walker-ragdoll` experiment (or whatever name is in the `MLFLOW_EXPERIMENT` environment variable).
+- Hyperparameters are stored as MLflow **params**.
+- Training metrics (episodic return, losses, SPS) are stored as MLflow **metrics** with step numbers.
+- Checkpoint files are logged as MLflow **artifacts**.
+- MLflow data is written locally to the `mlruns/` directory by default.
+
+Launch the MLflow UI to browse all runs:
+```bash
+mlflow ui
+# then open http://localhost:5000
+```
+
+To point MLflow at a remote tracking server instead:
+```bash
+export MLFLOW_TRACKING_URI=http://my-mlflow-server:5000
+```
 
 ### Multi-Agent Race Evaluation
 You can evaluate and race different trained agents (even using different algorithms and architectures) in parallel lanes in the same MuJoCo simulation environment using the `play_race.py` script.
@@ -271,3 +299,9 @@ SAC checkpoints are saved to `checkpoints/<run_id>/sac_ckpt_<step>.pt` and inclu
 PPO checkpoints are saved to `checkpoints/<run_id>/ppo_ckpt_<step>.pt` and include the full actor-critic agent, optimizer, and observation normalization statistics. PPO checkpoints are always lightweight since there is no replay buffer.
 
 TD3 checkpoints are saved to `checkpoints/<run_id>/td3_ckpt_<step>.pt` and include the actor, both critics, the target actor/critics, optimizers, and observation normalization statistics.
+
+REDQ checkpoints are saved to `checkpoints/<run_id>/redq_ckpt_<step>.pt` and include the actor, ensemble of critics, target critics, optimizers, and observation normalization statistics.
+
+ARS checkpoints are saved to `checkpoints/<run_id>/ars_ckpt_<step>.pt` and include the linear policy weights, bias, and observation normalization statistics. ARS checkpoints are extremely lightweight.
+
+DreamerV3 checkpoints are saved to `checkpoints/<run_id>/dreamer_ckpt_<step>.pt` and include the RSSM world model, latent actor, latent critic, optimizers, and observation normalization statistics. An actor-only checkpoint `dreamer_actor_<step>.pt` is also saved for deployment and race simulation.

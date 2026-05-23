@@ -15,7 +15,7 @@ DEFAULT_CAMERA_CONFIG = {
     "elevation": -20.0,
 }
 
-ENV_VERSION = "standup_balance_walk_curriculum_v4"
+ENV_VERSION = "standup_balance_walk_curriculum_v8"
 FOOT_BODIES = {"left_foot", "right_foot"}
 
 RESET_MODES = {"fixed", "mixed", "fallen", "upright"}
@@ -69,7 +69,7 @@ class WalkerRagdollEnv(MujocoEnv, gym.utils.EzPickle):
         bad_support_penalty_weight: float = 15.0,
         low_upright_penalty_weight: float = 20.0,
         terminate_when_unhealthy: bool = False,
-        healthy_z_range: tuple = (0.8, 2.0),
+        healthy_z_range: tuple = (1.0, 2.0),
         reset_noise_scale: float = 1e-2,
         reset_mode: str = "mixed",
         fixed_reset_probability: float = 0.25,
@@ -345,7 +345,7 @@ class WalkerRagdollEnv(MujocoEnv, gym.utils.EzPickle):
             walk_reward = (
                 self._walk_reward_weight
                 * standing_gate
-                * np.exp(-(velocity_error**2) / 0.25)
+                * np.exp(-(velocity_error**2) / 0.5)
             )
             forward_velocity_reward = (
                 self._forward_velocity_reward_weight
@@ -415,6 +415,9 @@ class WalkerRagdollEnv(MujocoEnv, gym.utils.EzPickle):
             - target_distance_penalty
         )
         terminated = self.terminated
+        if terminated and not self.is_healthy:
+            reward -= 500.0
+            
         observation = self._get_obs()
 
         info = {
@@ -512,8 +515,9 @@ class WalkerRagdollEnv(MujocoEnv, gym.utils.EzPickle):
         qpos[3:7] = np.array([np.sqrt(0.5), 0.0, np.sqrt(0.5), 0.0])
 
     def _apply_upright_reset(self, qpos):
-        qpos[2] = self.np_random.uniform(1.0, 1.3)
-        qpos[3:7] = self._jitter_quat(np.array([1.0, 0.0, 0.0, 0.0]), max_angle=0.35)
+        # z in [1.2, 1.4] gives safe margin above healthy_z_range minimum (1.0)
+        qpos[2] = self.np_random.uniform(1.2, 1.4)
+        qpos[3:7] = self._jitter_quat(np.array([1.0, 0.0, 0.0, 0.0]), max_angle=0.25)
 
     def _apply_fallen_reset(self, qpos):
         fallen_quats = (

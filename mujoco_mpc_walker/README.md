@@ -1,6 +1,6 @@
 # MuJoCo MPC Walker
 
-Este projeto integra o `walker_ragdoll` como uma Custom Task dentro do framework oficial **MuJoCo MPC (MJPC)** da Google DeepMind.
+Este projeto integra o `walker_ragdoll` como uma Custom Task dentro do framework oficial **MuJoCo MPC (MJPC)** da Google DeepMind, além de disponibilizar todos os modelos padrão do MJPC para comparação.
 
 Como o MJPC é um framework C++, você precisará compilá-lo nativamente no Windows para usar a interface gráfica interativa (onde você pode visualizar as trajetórias sendo planejadas em tempo real, mudar modos e arrastar alvos).
 
@@ -12,22 +12,23 @@ Para compilar, você precisa ter instalados:
 
 ## Como Compilar e Rodar
 
-1. Abra um terminal (PowerShell ou CMD) na pasta `mujoco_mpc_walker`.
-2. Configure o CMake executando:
+Para facilitar o processo, o projeto possui dois scripts de automação:
+
+1. **Compilar:** Abra um terminal (PowerShell ou CMD) na pasta `mujoco_mpc_walker` e execute:
    ```bash
-   cmake -B build
+   .\build.bat
    ```
-3. Compile o projeto executando:
+   Este script inicializa o ambiente de compilação do Visual Studio e compila o projeto em modo Release.
+
+2. **Rodar:** Para abrir a janela de visualização do MuJoCo MPC, execute:
    ```bash
-   cmake --build build --config Release
+   .\run.bat
    ```
-4. Após a compilação, o executável estará pronto. Rode o aplicativo:
-   ```bash
-   ./build/Release/walker_mpc.exe
-   ```
+   Este script configura o caminho dos DLLs do MuJoCo, define as variáveis de ambiente necessárias para encontrar as definições de tarefas e inicia o executável `walker_mpc.exe`.
 
 ## Usando a Interface
-Ao abrir, você verá a GUI do MuJoCo. Na barra lateral esquerda (ou apertando a tecla `T` para abrir a janela de Tasks), você poderá interagir com o agente MPC:
-- O painel mostrará o seu modelo `Walker Ragdoll`.
+Ao abrir a interface gráfica do MuJoCo MPC:
+- No painel lateral, você verá uma lista de tarefas (Tasks). Você pode selecionar a sua custom task `Walker Ragdoll` ou tarefas clássicas do MJPC como `Walker`, `Humanoid Stand`, `Humanoid Walk` e `Acrobot`.
 - O solver (Predictive Sampling) calculará a postura, controle e posições.
 - Você pode ajustar os pesos dos **Resíduos** em tempo real para focar mais em Velocidade, Postura ou Altura.
+- Você pode segurar `Shift` e usar o botão direito do mouse para mover/mudar a posição de alvos e interagir diretamente com a simulação.

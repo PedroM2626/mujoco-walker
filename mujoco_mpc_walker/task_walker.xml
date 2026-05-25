@@ -10,6 +10,8 @@
     <numeric name="sampling_trajectories" data="120"/>
     <numeric name="sampling_spline_points" data="4"/>
     <numeric name="sampling_exploration" data="0.1"/>
+    
+    <text name="task_transition" data="Stand|Walk|Target"/>
   </custom>
 
   <sensor>

@@ -1,0 +1,29 @@
+<mujoco model="Walker MPC">
+  <include file="walker_ragdoll.xml"/>
+
+  <custom>
+    <!-- MJPC Agent Settings -->
+    <!-- agent_planner: 0=Sampling, 1=Gradient, 2=iLQG -->
+    <numeric name="agent_planner" data="0"/>
+    <numeric name="agent_horizon" data="0.5"/>
+    <numeric name="agent_timestep" data="0.015"/>
+    <numeric name="sampling_trajectories" data="120"/>
+    <numeric name="sampling_spline_points" data="4"/>
+    <numeric name="sampling_exploration" data="0.1"/>
+  </custom>
+
+  <sensor>
+    <!-- Residuals for the Walker Task. 
+         Dim 1: Upright posture
+         Dim 1: Torso height
+         Dim 3: Pelvis position (for walking towards target)
+         Dim 2: Center of mass velocity
+         Dim 17: Control effort
+    -->
+    <user name="Upright" dim="1" user="0 10.0 0.0 100.0"/>
+    <user name="Height" dim="1" user="0 5.0 0.0 100.0"/>
+    <user name="Position" dim="3" user="0 5.0 0.0 100.0"/>
+    <user name="Velocity" dim="2" user="0 1.0 0.0 100.0"/>
+    <user name="Control" dim="17" user="0 0.1 0.0 1.0"/>
+  </sensor>
+</mujoco>

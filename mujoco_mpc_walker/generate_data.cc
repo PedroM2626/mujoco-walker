@@ -122,26 +122,7 @@ int main(int argc, char** argv) {
     agent->Reset(data->ctrl);
     mj_resetData(model, data);
     
-    // 50% chance of starting in a fallen state to teach the network how to stand up
-    std::uniform_real_distribution<double> coin_flip(0.0, 1.0);
-    if (coin_flip(rng) < 0.5) {
-      data->qpos[2] = 0.45; // torso Z height (gives ground clearance to prevent penetration)
-      if (coin_flip(rng) < 0.5) {
-        // Lying on back
-        data->qpos[3] = 0.7071;
-        data->qpos[4] = 0.0;
-        data->qpos[5] = 0.7071;
-        data->qpos[6] = 0.0;
-      } else {
-        // Lying on belly
-        data->qpos[3] = 0.7071;
-        data->qpos[4] = 0.0;
-        data->qpos[5] = -0.7071;
-        data->qpos[6] = 0.0;
-      }
-      // No joint noise (keep default angles from mj_resetData) to guarantee absolute physical stability
-      mj_forward(model, data); // Calculate body coordinates
-    }
+    // Removed 50% chance of starting fallen because iLQG hangs on contact derivatives
     
     // Set random target (closer, to avoid falling immediately)
     double tx = dist(rng) * 0.4; // -2.0 to 2.0

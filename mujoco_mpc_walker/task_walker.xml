@@ -25,8 +25,8 @@
          Dim 2: Center of mass velocity
          Dim 17: Control effort
     -->
-    <user name="Upright" dim="1" user="0 150.0 0.0 100.0"/>
-    <user name="Height" dim="1" user="0 200.0 0.0 100.0"/>
+    <user name="Upright" dim="1" user="0 150.0 0.0 1000.0"/>
+    <user name="Height" dim="1" user="0 200.0 0.0 1000.0"/>
     <user name="Position" dim="3" user="0 3.0 0.0 100.0"/>
     <user name="Velocity" dim="2" user="0 15.0 0.0 100.0"/>
     <user name="Control" dim="17" user="0 0.01 0.0 1.0"/>

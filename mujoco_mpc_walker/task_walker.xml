@@ -5,27 +5,30 @@
     <!-- MJPC Agent Settings -->
     <!-- agent_planner: 0=Sampling, 1=Gradient, 2=iLQG -->
     <numeric name="agent_planner" data="0"/>
-    <numeric name="agent_horizon" data="0.5"/>
+    <numeric name="agent_horizon" data="0.8"/>
     <numeric name="agent_timestep" data="0.015"/>
-    <numeric name="sampling_trajectories" data="120"/>
+    <numeric name="sampling_trajectories" data="128"/>
     <numeric name="sampling_spline_points" data="4"/>
-    <numeric name="sampling_exploration" data="0.1"/>
+    <numeric name="sampling_exploration" data="0.15"/>
     
     <text name="task_transition" data="Stand|Walk|Target"/>
   </custom>
 
   <sensor>
     <!-- Residuals for the Walker Task. 
-         Dim 1: Upright posture
+         user="norm_type weight weight_lower_bound weight_upper_bound"
+         norm_type: 0=Quadratic
+         
+         Dim 1: Upright posture (torso Z-axis alignment)
          Dim 1: Torso height
          Dim 3: Pelvis position (for walking towards target)
          Dim 2: Center of mass velocity
          Dim 17: Control effort
     -->
-    <user name="Upright" dim="1" user="0 10.0 0.0 100.0"/>
-    <user name="Height" dim="1" user="0 5.0 0.0 100.0"/>
-    <user name="Position" dim="3" user="0 5.0 0.0 100.0"/>
-    <user name="Velocity" dim="2" user="0 1.0 0.0 100.0"/>
-    <user name="Control" dim="17" user="0 0.1 0.0 1.0"/>
+    <user name="Upright" dim="1" user="0 150.0 0.0 100.0"/>
+    <user name="Height" dim="1" user="0 200.0 0.0 100.0"/>
+    <user name="Position" dim="3" user="0 3.0 0.0 100.0"/>
+    <user name="Velocity" dim="2" user="0 15.0 0.0 100.0"/>
+    <user name="Control" dim="17" user="0 0.01 0.0 1.0"/>
   </sensor>
 </mujoco>

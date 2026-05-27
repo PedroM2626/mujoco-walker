@@ -1,34 +1,115 @@
-# MuJoCo MPC Walker
+# MuJoCo MPC Walker - Behavioral Cloning
 
-Este projeto integra o `walker_ragdoll` como uma Custom Task dentro do framework oficial **MuJoCo MPC (MJPC)** da Google DeepMind, além de disponibilizar todos os modelos padrão do MJPC para comparação.
+Treinamento de uma rede neural student que aprende a imitar o planejador MPC (professor) para controlar um humanoide walker.
 
-Como o MJPC é um framework C++, você precisará compilá-lo nativamente no Windows para usar a interface gráfica interativa (onde você pode visualizar as trajetórias sendo planejadas em tempo real, mudar modos e arrastar alvos).
+## Fluxo de Trabalho
 
-## Pré-requisitos (Windows)
+```
+1. Coleta de dados do professor  ->  collect_data.py
+2. Treinamento do student        ->  train.py
+3. Visualizacao do student       ->  play.py
+```
 
-Para compilar, você precisa ter instalados:
-1. **CMake** (versão 3.16 ou superior). Pode ser baixado em [cmake.org](https://cmake.org/download/) ou via `winget install cmake`.
-2. **Visual Studio Build Tools 2022** (com suporte a "Desenvolvimento para desktop com C++").
+## Requisitos
 
-## Como Compilar e Rodar
+### Build do C++ (necessario uma vez)
 
-Para facilitar o processo, o projeto possui dois scripts de automação:
+```powershell
+cd mujoco_mpc_walker
+.\build.bat
+```
 
-1. **Compilar:** Abra um terminal (PowerShell ou CMD) na pasta `mujoco_mpc_walker` e execute:
-   ```bash
-   .\build.bat
-   ```
-   Este script inicializa o ambiente de compilação do Visual Studio e compila o projeto em modo Release.
+### Dependencias Python
 
-2. **Rodar:** Para abrir a janela de visualização do MuJoCo MPC, execute:
-   ```bash
-   .\run.bat
-   ```
-   Este script configura o caminho dos DLLs do MuJoCo, define as variáveis de ambiente necessárias para encontrar as definições de tarefas e inicia o executável `walker_mpc.exe`.
+```bash
+pip install -r requirements.txt
+```
 
-## Usando a Interface
-Ao abrir a interface gráfica do MuJoCo MPC:
-- No painel lateral, você verá uma lista de tarefas (Tasks). Você pode selecionar a sua custom task `Walker Ragdoll` ou tarefas clássicas do MJPC como `Walker`, `Humanoid Stand`, `Humanoid Walk` e `Acrobot`.
-- O solver (Predictive Sampling) calculará a postura, controle e posições.
-- Você pode ajustar os pesos dos **Resíduos** em tempo real para focar mais em Velocidade, Postura ou Altura.
-- Você pode segurar `Shift` e usar o botão direito do mouse para mover/mudar a posição de alvos e interagir diretamente com a simulação.
+## Como Usar
+
+### 1. Coletar dados do professor MPC
+
+```bash
+python collect_data.py
+```
+
+Isso vai:
+- Abrir o **mjpc.exe** com interface grafica completa para voce ver o MPC em acao
+- Rodar o **generate_dataset.exe** em paralelo (headless) coletando pares (estado, acao)
+- Salvar os dados em `build/dataset.csv`
+
+Opcoes:
+```bash
+python collect_data.py --steps 30000   # coletar mais amostras (padrao: 15000)
+python collect_data.py --no-gui        # apenas coleta, sem janela visual
+```
+
+### 2. Treinar o student
+
+```bash
+python train.py
+```
+
+- Treina uma rede MLP com os dados coletados
+- Usa MLflow para registrar metricas, hiperparametros e artefatos
+- Salva o modelo em `teacher_model.pt` e o scaler em `scaler.pkl`
+
+Visualizar experimentos no MLflow:
+```bash
+mlflow ui --backend-store-uri sqlite:///mlruns.db
+```
+
+### 3. Visualizar o student
+
+```bash
+python play.py
+```
+
+- Abre o viewer do MuJoCo com a rede neural controlando o robo
+- Voce pode arrastar o alvo (bolinha vermelha) com Ctrl + Botao Direito
+
+## Arquitetura
+
+```
+Estado (entrada) = [rel_tx, rel_ty, qpos[2:], qvel]   (47 dimensoes)
+                          |
+               MLP: 256 -> 256 -> 256
+                          |
+         Acoes de controle (17 motores)
+```
+
+A entrada usa **posicao relativa do alvo** (invariante de translacao), descartando as posicoes absolutas X e Y do torso.
+
+## Estrutura de Arquivos
+
+```
+mujoco_mpc_walker/
+├── collect_data.py     # Coleta dados do MPC com visualizacao
+├── train.py            # Treina o student (Behavioral Cloning)
+├── play.py             # Visualiza o student treinado
+├── generate_data.cc    # Coletor headless em C++ (chamado pelo collect_data.py)
+├── walker_task.cc/h    # Definicao da tarefa customizada Walker Ragdoll
+├── task_walker.xml     # Configuracao do agente MPC (planner, horizonte, etc.)
+├── CMakeLists.txt      # Build do C++
+├── build.bat           # Script de compilacao para Windows
+├── build/
+│   ├── bin/mjpc.exe           # GUI do MuJoCo MPC
+│   ├── generate_dataset.exe   # Coletor headless
+│   └── dataset.csv            # Dados coletados (gerado pelo collect_data.py)
+├── teacher_model.pt    # Modelo student treinado
+└── scaler.pkl          # Normalizador dos dados de entrada
+```
+
+## MLOps
+
+Cada run de treinamento e registrada no MLflow com:
+- Hiperparametros: `learning_rate`, `batch_size`, `epochs`, `dataset_size`
+- Metricas: `train_loss`, `val_loss` por epoca
+- Artefatos: `teacher_model.pt`
+
+## Docker
+
+```bash
+docker build -t mujoco-walker .
+docker run --rm mujoco-walker python train.py
+```

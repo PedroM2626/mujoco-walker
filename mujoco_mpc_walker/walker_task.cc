@@ -1,5 +1,7 @@
 #include "walker_task.h"
 
+#include <cmath>
+#include <algorithm>
 #include <string>
 #include <mujoco/mujoco.h>
 #include "mjpc/task.h"
@@ -11,7 +13,7 @@ std::string WalkerTask::Name() const { return "Walker Ragdoll"; }
 std::string WalkerTask::XmlPath() const { return "task_walker.xml"; }
 
 void WalkerTask::ResetLocked(const mjModel* model) {
-  mode = 0; // Seated mode initially (or Walk)
+  mode = 0; // Stand mode initially
   residual_.current_mode_ = 0;
 }
 
@@ -37,11 +39,10 @@ void WalkerTask::ResidualFn::Residual(const mjModel* model, const mjData* data,
   residual[counter++] = torso_z - 1.25; // Target height ~1.25m
 
   double* pelvis_pos = data->xpos + 3 * torso_id;
-  double* pelvis_vel = data->cvel + 6 * torso_id; // CoM velocity
+  double* pelvis_vel = data->cvel + 6 * torso_id; // CoM velocity [rot3; lin3]
 
   if (current_mode_ == 0) {
     // Mode 0: Stand
-    // No position target
     residual[counter++] = 0.0;
     residual[counter++] = 0.0;
     residual[counter++] = 0.0;
@@ -50,14 +51,12 @@ void WalkerTask::ResidualFn::Residual(const mjModel* model, const mjData* data,
     residual[counter++] = pelvis_vel[3] - 0.0;
     residual[counter++] = pelvis_vel[4] - 0.0;
   } else if (current_mode_ == 1) {
-    // Mode 1: Walk
-    // No position target
+    // Mode 1: Walk forward at 1.0 m/s
     residual[counter++] = 0.0;
     residual[counter++] = 0.0;
     residual[counter++] = 0.0;
 
-    // Velocity target: Walk forward at 1.2 m/s
-    residual[counter++] = pelvis_vel[3] - 1.2;
+    residual[counter++] = pelvis_vel[3] - 1.0;
     residual[counter++] = pelvis_vel[4] - 0.0;
   } else if (current_mode_ == 2) {
     // Mode 2: Target
@@ -77,9 +76,19 @@ void WalkerTask::ResidualFn::Residual(const mjModel* model, const mjData* data,
     residual[counter++] = pelvis_pos[1] - target_y;
     residual[counter++] = 0.0;
 
-    // Velocity target: Unconstrained (let position cost drive the movement)
-    residual[counter++] = 0.0;
-    residual[counter++] = 0.0;
+    // Velocity target: towards the target marker
+    double dx = target_x - pelvis_pos[0];
+    double dy = target_y - pelvis_pos[1];
+    double dist = std::sqrt(dx * dx + dy * dy);
+    double target_speed = 1.0;
+    if (dist > 0.3) {
+      double scale = std::min(target_speed, dist);
+      residual[counter++] = pelvis_vel[3] - (dx / dist) * scale;
+      residual[counter++] = pelvis_vel[4] - (dy / dist) * scale;
+    } else {
+      residual[counter++] = pelvis_vel[3] - 0.0;
+      residual[counter++] = pelvis_vel[4] - 0.0;
+    }
   } else {
     // Fallback
     residual[counter++] = 0.0;

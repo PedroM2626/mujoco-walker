@@ -46,17 +46,19 @@ add_custom_command(TARGET walker_mpc POST_BUILD
     ${CMAKE_CURRENT_BINARY_DIR}/walker_ragdoll.xml
 )
 
-add_executable(generate_dataset
+add_executable(mjpc_dataset_tool
   generate_data.cc
   walker_task.cc
 )
 
-target_link_libraries(generate_dataset
+target_link_libraries(mjpc_dataset_tool
   PRIVATE
     libmjpc
     mujoco::mujoco
     absl::flags
     absl::flags_parse
+    absl::flags_marshalling
+    absl::flags_reflection
     absl::random_random
     absl::strings
     threadpool

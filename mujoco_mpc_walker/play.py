@@ -7,6 +7,7 @@ import pickle
 
 # Import the network architecture
 from train import WalkerTeacherNet
+from collections import deque
 
 def main():
     model_path = "teacher_model.pt"
@@ -27,9 +28,10 @@ def main():
     output_dim = m.nu
     
     print("Loading Trained PyTorch Model...")
-    net = WalkerTeacherNet(input_dim=input_dim, output_dim=output_dim)
+    # Carregar modelo (agora com 47 inputs puros)
+    net = WalkerTeacherNet(47, 17)
     try:
-        net.load_state_dict(torch.load(model_path, weights_only=True))
+        net.load_state_dict(torch.load('teacher_model.pt', weights_only=True))
         net.eval()
         print("Model loaded successfully!")
     except FileNotFoundError:
@@ -88,8 +90,10 @@ def main():
                 # Normalização manual nativa ultrarrápida (Ignora a lentidão do Scikit-Learn)
                 # Removendo qpos[0] e qpos[1] da entrada da rede para evitar o "Erro Geocêntrico"
                 x_np = np.concatenate(([rel_tx, rel_ty], qpos[2:], qvel))
+                
+                # Get single frame
                 x_np_scaled = (x_np - scaler_mean) / scaler_scale
-                x_tensor = torch.tensor(x_np_scaled, dtype=torch.float32)
+                x_tensor = torch.tensor(x_np_scaled, dtype=torch.float32).unsqueeze(0)
                 
                 # Predict control with Neural Network
                 with torch.no_grad():

@@ -158,8 +158,8 @@ int main(int argc, char** argv) {
       
       double target_dist = std::sqrt((torso_x - tx)*(torso_x - tx) + (torso_y - ty)*(torso_y - ty));
       
-      // Target reached? Spawn new target!
-      if (target_dist < 0.5) {
+      // Target reached or dynamic timeout? Spawn new target!
+      if (target_dist < 0.5 || (i > 0 && i % 100 == 0)) {
           tx = torso_x + dist(rng) * 0.5; // New random target nearby
           ty = torso_y + dist(rng) * 0.5;
           if (mocapid >= 0) {

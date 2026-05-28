@@ -30,3 +30,6 @@ checkpoints/
 .venv/
 venv/
 env/
+*mlrun*
+*.db
+*.png

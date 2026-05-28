@@ -4,9 +4,9 @@ import torch
 import pickle
 import matplotlib.pyplot as plt
 from mujoco_mpc_walker.train import WalkerTeacherNet
-import os
+from collections import deque
 
-# Load model
+# Load model (47 inputs)
 net = WalkerTeacherNet(47, 17)
 net.load_state_dict(torch.load('mujoco_mpc_walker/teacher_model.pt', weights_only=True))
 net.eval()
@@ -71,11 +71,13 @@ for i in range(steps):
     rel_ty = -rel_tx_global * np.sin(yaw) + rel_ty_global * np.cos(yaw)
     
     x_np = np.concatenate(([rel_tx, rel_ty], qpos[2:], qvel))
+    
+    # Normalize single frame
     x_np_scaled = (x_np - scaler_mean) / scaler_scale
-    x_tensor = torch.tensor(x_np_scaled, dtype=torch.float32)
+    x_tensor = torch.tensor(x_np_scaled, dtype=torch.float32).unsqueeze(0)
     
     with torch.no_grad():
-        ctrl_pred = net(x_tensor).numpy()
+        ctrl_pred = net(x_tensor).squeeze(0).numpy()
     
     d.ctrl[:] = ctrl_pred
     mujoco.mj_step(m, d)

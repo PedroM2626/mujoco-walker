@@ -84,6 +84,13 @@ def main():
     learning_rate = 1e-3
     
     model = WalkerTeacherNet(input_dim=X_np.shape[1], output_dim=len(Y_cols))
+    
+    # NEW CODE: Try loading existing weights to continue training
+    model_path = "teacher_model.pt"
+    if os.path.exists(model_path):
+        print(f"Loading existing model from {model_path} to continue training...")
+        model.load_state_dict(torch.load(model_path, weights_only=True))
+    
     optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=1e-5)
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs, eta_min=1e-5)
     criterion = nn.MSELoss()

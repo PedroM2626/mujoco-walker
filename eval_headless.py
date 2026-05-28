@@ -3,6 +3,7 @@ import numpy as np
 import torch
 import pickle
 import matplotlib.pyplot as plt
+import os
 from mujoco_mpc_walker.train import WalkerTeacherNet
 from collections import deque
 
@@ -74,12 +75,15 @@ for i in range(steps):
     
     # Normalize single frame
     x_np_scaled = (x_np - scaler_mean) / scaler_scale
-    x_tensor = torch.tensor(x_np_scaled, dtype=torch.float32).unsqueeze(0)
+    state_tensor = torch.tensor(x_np_scaled, dtype=torch.float32).unsqueeze(0)
     
     with torch.no_grad():
-        ctrl_pred = net(x_tensor).squeeze(0).numpy()
+        action = net(state_tensor).numpy()[0]
+        # Injetar pequeno ruído Gaussiano para quebrar o congelamento multimodal
+        action += np.random.normal(0, 0.15, size=action.shape)
+        action = np.clip(action, -1.0, 1.0)
     
-    d.ctrl[:] = ctrl_pred
+    d.ctrl[:] = action
     mujoco.mj_step(m, d)
 
 # Plotting

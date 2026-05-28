@@ -122,11 +122,16 @@ int main(int argc, char** argv) {
     agent->Reset(data->ctrl);
     mj_resetData(model, data);
     
-    // Removed 50% chance of starting fallen because iLQG hangs on contact derivatives
-    
-    // Set random target (closer, to avoid falling immediately)
-    double tx = dist(rng) * 0.4; // -2.0 to 2.0
-    double ty = dist(rng) * 0.4;
+    // 50% chance of starting fallen (using safe heights and quats)
+    if (dist(rng) > 0.0) {
+        data->qpos[2] = 0.40; // Safe height to avoid penetration
+        double sq = std::sqrt(0.5);
+        data->qpos[3] = sq; data->qpos[4] = 0.0; data->qpos[5] = sq; data->qpos[6] = 0.0;
+        mj_forward(model, data); // Calculate contacts cleanly
+    }
+    // Set random target (further away to encourage running and falling)
+    double tx = dist(rng) * 2.0; // -10.0 to 10.0
+    double ty = dist(rng) * 2.0;
     if (mocapid >= 0) {
       data->mocap_pos[3 * mocapid + 0] = tx;
       data->mocap_pos[3 * mocapid + 1] = ty;
@@ -159,9 +164,9 @@ int main(int argc, char** argv) {
       double target_dist = std::sqrt((torso_x - tx)*(torso_x - tx) + (torso_y - ty)*(torso_y - ty));
       
       // Target reached or dynamic timeout? Spawn new target!
-      if (target_dist < 0.5 || (i > 0 && i % 100 == 0)) {
-          tx = torso_x + dist(rng) * 0.5; // New random target nearby
-          ty = torso_y + dist(rng) * 0.5;
+      if (target_dist < 0.5 || (i > 0 && i % 200 == 0)) {
+          tx = torso_x + dist(rng) * 2.0; // New random target further away
+          ty = torso_y + dist(rng) * 2.0;
           if (mocapid >= 0) {
               data->mocap_pos[3 * mocapid + 0] = tx;
               data->mocap_pos[3 * mocapid + 1] = ty;
@@ -176,7 +181,8 @@ int main(int argc, char** argv) {
       double reward = -target_dist * 2.0;
       if (done) reward -= 100.0;
       else reward += 1.0;
-          
+      
+      
       // Write to CSV including falling states
       out << tx << "," << ty;
       for(int j=0; j < model->nq; j++) out << "," << data->qpos[j];

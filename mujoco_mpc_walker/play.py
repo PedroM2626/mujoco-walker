@@ -98,6 +98,9 @@ def main():
                 # Predict control with Neural Network
                 with torch.no_grad():
                     ctrl_pred = net(x_tensor).squeeze(0).numpy()
+                    # Injetar pequeno ruído Gaussiano para quebrar o congelamento multimodal
+                    ctrl_pred += np.random.normal(0, 0.15, size=ctrl_pred.shape)
+                    ctrl_pred = np.clip(ctrl_pred, -1.0, 1.0)
                 
                 # Apply control
                 d.ctrl[:] = ctrl_pred

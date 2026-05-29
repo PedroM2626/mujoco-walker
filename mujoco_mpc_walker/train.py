@@ -64,8 +64,28 @@ def main():
     X_cols = ['rel_tx', 'rel_ty'] + qpos_cols_no_xy + qvel_cols
     Y_cols = ctrl_cols
     
-    # PURE BEHAVIORAL CLONING (No Frame Stacking!)
-    X_np = df[X_cols].values
+    # === FRAME STACKING SEGURO POR EPISÓDIO ===
+    # Detecta fronteiras de teleporte procurando saltos no eixo X maiores que 1 metro
+    episode_starts = (df['qpos_0'].diff().abs() > 1.0) | (df.index == 0)
+    df['episode'] = episode_starts.cumsum()
+    
+    # Vamos empilhar os últimos 3 frames (t, t-1, t-2, t-3) = 4 frames total
+    history_len = 3
+    stacked_cols = X_cols.copy()
+    
+    new_cols = {}
+    for lag in range(1, history_len + 1):
+        for col in X_cols:
+            col_name = f"{col}_t-{lag}"
+            new_cols[col_name] = df.groupby('episode')[col].shift(lag)
+            stacked_cols.append(col_name)
+            
+    df = pd.concat([df, pd.DataFrame(new_cols)], axis=1)
+    
+    # Remove as linhas que não tem histórico completo (início dos episódios)
+    df = df.dropna()
+    
+    X_np = df[stacked_cols].values
     Y_np = df[Y_cols].values
     
     # Normalize inputs
@@ -80,7 +100,7 @@ def main():
     Y_tensor = torch.tensor(Y_np, dtype=torch.float32)
     
     batch_size = 1024
-    epochs = 1000
+    epochs = 100
     learning_rate = 1e-3
     
     model = WalkerTeacherNet(input_dim=X_np.shape[1], output_dim=len(Y_cols))

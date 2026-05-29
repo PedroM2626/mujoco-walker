@@ -7,8 +7,8 @@ import os
 from mujoco_mpc_walker.train import WalkerTeacherNet
 from collections import deque
 
-# Load model (47 inputs)
-net = WalkerTeacherNet(47, 17)
+# Load model (188 inputs due to Frame Stacking)
+net = WalkerTeacherNet(188, 17)
 net.load_state_dict(torch.load('mujoco_mpc_walker/teacher_model.pt', weights_only=True))
 net.eval()
 
@@ -31,6 +31,10 @@ d.mocap_pos[mocapid, 0] = 2.0
 d.mocap_pos[mocapid, 1] = 0.0
 
 mujoco.mj_forward(m, d)
+
+last_action = np.zeros(m.nu)
+history_len = 3
+state_history = deque(maxlen=history_len + 1)
 
 torso_x_hist = []
 torso_y_hist = []
@@ -73,15 +77,24 @@ for i in range(steps):
     
     x_np = np.concatenate(([rel_tx, rel_ty], qpos[2:], qvel))
     
-    # Normalize single frame
-    x_np_scaled = (x_np - scaler_mean) / scaler_scale
-    state_tensor = torch.tensor(x_np_scaled, dtype=torch.float32).unsqueeze(0)
+    state_history.append(x_np)
+    while len(state_history) < history_len + 1:
+        state_history.append(x_np)
+        
+    stacked_state = np.concatenate(list(reversed(state_history)))
+    # Normalize stacked frame (188 dims)
+    stacked_state_scaled = (stacked_state - scaler_mean) / scaler_scale
+    state_tensor = torch.tensor(stacked_state_scaled, dtype=torch.float32).unsqueeze(0)
     
     with torch.no_grad():
         action = net(state_tensor).numpy()[0]
         # Injetar pequeno ruído Gaussiano para quebrar o congelamento multimodal
         action += np.random.normal(0, 0.15, size=action.shape)
+        
+        # Action Smoothing (Removido o peso forte para evitar latência fatal)
+        action = 0.2 * last_action + 0.8 * action
         action = np.clip(action, -1.0, 1.0)
+        last_action = action.copy()
     
     d.ctrl[:] = action
     mujoco.mj_step(m, d)

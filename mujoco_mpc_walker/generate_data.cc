@@ -122,11 +122,21 @@ int main(int argc, char** argv) {
     agent->Reset(data->ctrl);
     mj_resetData(model, data);
     
-    // 50% chance of starting fallen (using safe heights and quats)
+    // 50% chance of starting fallen (using safe heights and random YAW)
     if (dist(rng) > 0.0) {
         data->qpos[2] = 0.40; // Safe height to avoid penetration
+        
+        // Random YAW on the floor!
         double sq = std::sqrt(0.5);
-        data->qpos[3] = sq; data->qpos[4] = 0.0; data->qpos[5] = sq; data->qpos[6] = 0.0;
+        double theta = dist(rng); // Random angle
+        double ct = std::cos(theta / 2.0);
+        double st = std::sin(theta / 2.0);
+        
+        data->qpos[3] = ct * sq;
+        data->qpos[4] = -st * sq;
+        data->qpos[5] = ct * sq;
+        data->qpos[6] = st * sq;
+        
         mj_forward(model, data); // Calculate contacts cleanly
     }
     // Set random target (further away to encourage running and falling)

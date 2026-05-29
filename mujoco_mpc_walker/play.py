@@ -28,8 +28,8 @@ def main():
     output_dim = m.nu
     
     print("Loading Trained PyTorch Model...")
-    # Carregar modelo (agora com 47 inputs puros)
-    net = WalkerTeacherNet(47, 17)
+    # Carregar modelo (agora com 47 * 4 = 188 inputs devido ao Frame Stacking)
+    net = WalkerTeacherNet(188, 17)
     try:
         net.load_state_dict(torch.load('teacher_model.pt', weights_only=True))
         net.eval()
@@ -51,6 +51,11 @@ def main():
     # Mover a bolinha um pouco para frente inicialmente
     d.mocap_pos[mocapid, 0] = 2.0
     d.mocap_pos[mocapid, 1] = 0.0
+
+    # Estado para EMA e Histórico
+    last_action = np.zeros(m.nu)
+    history_len = 3
+    state_history = deque(maxlen=history_len + 1)
 
     print("Starting Interactive Viewer...")
     print("Instruções:")
@@ -88,19 +93,28 @@ def main():
                 rel_ty = -rel_tx_global * np.sin(yaw) + rel_ty_global * np.cos(yaw)
                 
                 # Normalização manual nativa ultrarrápida (Ignora a lentidão do Scikit-Learn)
-                # Removendo qpos[0] e qpos[1] da entrada da rede para evitar o "Erro Geocêntrico"
                 x_np = np.concatenate(([rel_tx, rel_ty], qpos[2:], qvel))
+                state_history.append(x_np)
+                # Preenchemos com cópias se for o começo
+                while len(state_history) < history_len + 1:
+                    state_history.append(x_np)
                 
-                # Get single frame
-                x_np_scaled = (x_np - scaler_mean) / scaler_scale
-                x_tensor = torch.tensor(x_np_scaled, dtype=torch.float32).unsqueeze(0)
+                # Reverte para ficar igual ao treino: [t, t-1, t-2, t-3]
+                stacked_state = np.concatenate(list(reversed(state_history)))
+                # Normalize stacked frame (188 dims)
+                stacked_state_scaled = (stacked_state - scaler_mean) / scaler_scale
+                x_tensor = torch.tensor(stacked_state_scaled, dtype=torch.float32).unsqueeze(0)
                 
                 # Predict control with Neural Network
                 with torch.no_grad():
                     ctrl_pred = net(x_tensor).squeeze(0).numpy()
                     # Injetar pequeno ruído Gaussiano para quebrar o congelamento multimodal
                     ctrl_pred += np.random.normal(0, 0.15, size=ctrl_pred.shape)
+                    
+                    # Filtro EMA para não dar socos nos motores e evitar OOD states
+                    ctrl_pred = 0.8 * last_action + 0.2 * ctrl_pred
                     ctrl_pred = np.clip(ctrl_pred, -1.0, 1.0)
+                    last_action = ctrl_pred.copy()
                 
                 # Apply control
                 d.ctrl[:] = ctrl_pred

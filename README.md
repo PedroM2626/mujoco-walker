@@ -13,8 +13,13 @@ Walker ragdoll training project using SAC (Soft Actor-Critic), PPO (Proximal Pol
 ├── play.py                    # Real-time visualization of a trained agent (SAC, PPO, etc.)
 ├── play_race.py               # Multi-agent visual and headless evaluation race
 ├── walker_ragdoll.xml         # MuJoCo model for the walker ragdoll
+├── mujoco_mpc_walker/         # Offline Behavioral Cloning with MuJoCo MPC
+│   ├── generate_data.cc       # C++ script to generate expert data (MPC) with chaotic drops
+│   ├── train.py               # PyTorch training script (Behavioral Cloning with frame stacking)
+│   ├── eval_headless.py       # Evaluation script for the BC agent
+│   └── play.py                # Visual evaluation for the BC agent
 ├── envs/
-│   └── walker_ragdoll_env.py # Custom Gymnasium environment
+│   └── walker_ragdoll_env.py  # Custom Gymnasium environment
 ├── tests/
 │   ├── test_env.py            # Environment unit tests
 │   ├── test_training.py       # Training integration tests (SAC + PPO + TD3)
@@ -142,6 +147,37 @@ python train_walker.py --run-id walker_v1 --resume
 ```bash
 python train_walker.py --run-id walker_v1 --force --seed 2
 ```
+
+## MuJoCo MPC Behavioral Cloning
+
+In addition to traditional reinforcement learning algorithms, this project now includes an **Offline Learning / Behavioral Cloning** pipeline located in the `mujoco_mpc_walker/` folder. This pipeline trains a neural network (the student) to mimic a model-predictive control (MPC) expert (the teacher) that computes optimal actions using real-time finite horizon planning.
+
+This approach was specially designed for extreme recovery and survival:
+- **Robust Dataset Generation:** The C++ script `generate_data.cc` spawns the agent at 1.50m drops with highly randomized initial rotations (YAW) to force the MPC expert to discover how to orient itself, crawl, and recover from severe falls.
+- **Frame Stacking Memory:** `train.py` utilizes a custom history length to allow the feedforward network to perceive inertia and rotational velocities instead of a static snapshot.
+- **MLOps:** The training is natively tracked via `MLflow` (logging MSE Loss, LR, and model weights artifacts).
+
+### Usage (Behavioral Cloning)
+
+**1. Generate Expert Data (C++):**
+Compile and run the C++ executable to generate `dataset.csv`:
+```bash
+cd mujoco_mpc_walker/build
+./mjpc_dataset_tool.exe
+```
+
+**2. Train the Student Network:**
+```bash
+cd mujoco_mpc_walker
+python train.py
+```
+This trains a fast PyTorch feedforward network using Mean Squared Error (MSE) loss against the MPC expert's actions. Checkpoints are registered into `teacher_model.pt`.
+
+**3. Evaluate the Model:**
+```bash
+python eval_headless.py
+```
+Outputs a visual plot `trajectory.png` quantifying the agent's falls and autonomous recoveries. You can also run `play.py` to watch it in real-time.
 
 ## Hyperparameters
 

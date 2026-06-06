@@ -260,6 +260,12 @@ def main():
             print(f"Epoch {epoch+1}/{epochs} | Q Loss: {total_q_loss/n:.4f} | V Loss: {total_v_loss/n:.4f} | Pi Loss: {total_pi_loss/n:.4f}")
             
         torch.save(policy.state_dict(), "iql_model.pt")
+        torch.save({
+            "policy": policy.state_dict(),
+            "q1": q1.state_dict(),
+            "q2": q2.state_dict(),
+            "v": v.state_dict()
+        }, "iql_full_ckpt.pt")
         mlflow.log_artifact("iql_model.pt")
         print("IQL Training Complete.")
 

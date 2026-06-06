@@ -186,11 +186,38 @@ def main():
     max_action = float(env.action_space.high[0])
 
     actor = BCActor(state_dim, action_dim, max_action)
-    if os.path.exists("teacher_model.pt"):
-        actor.load_bc_weights("teacher_model.pt")
-
     q1 = QNetwork(state_dim, action_dim)
     q2 = QNetwork(state_dim, action_dim)
+    
+    if os.path.exists("iql_full_ckpt.pt"):
+        print("Loading pre-trained IQL weights into Actor and Critics...")
+        ckpt = torch.load("iql_full_ckpt.pt", weights_only=True)
+        # Load Actor
+        my_state_dict = actor.state_dict()
+        for k, v in ckpt["policy"].items():
+            if k == "net.9.weight":
+                my_state_dict["mean_layer.weight"] = v
+            elif k == "net.9.bias":
+                my_state_dict["mean_layer.bias"] = v
+            elif k in my_state_dict:
+                my_state_dict[k] = v
+        actor.load_state_dict(my_state_dict)
+        # Load Critics
+        q1.load_state_dict(ckpt["q1"])
+        q2.load_state_dict(ckpt["q2"])
+    elif os.path.exists("iql_model.pt"):
+        print("IQL full checkpoint not found. Loading only the Actor from iql_model.pt...")
+        ckpt = torch.load("iql_model.pt", weights_only=True)
+        my_state_dict = actor.state_dict()
+        for k, v in ckpt.items():
+            if k == "net.9.weight":
+                my_state_dict["mean_layer.weight"] = v
+            elif k == "net.9.bias":
+                my_state_dict["mean_layer.bias"] = v
+            elif k in my_state_dict:
+                my_state_dict[k] = v
+        actor.load_state_dict(my_state_dict)
+
     target_q1 = QNetwork(state_dim, action_dim)
     target_q2 = QNetwork(state_dim, action_dim)
     target_q1.load_state_dict(q1.state_dict())
@@ -275,9 +302,9 @@ def main():
                 for param, target_param in zip(q2.parameters(), target_q2.parameters()):
                     target_param.data.copy_(tau * param.data + (1 - tau) * target_param.data)
 
-        torch.save(actor.state_dict(), "bc_sac_model.pt")
-        mlflow.log_artifact("bc_sac_model.pt")
-        print("BC+SAC Training Complete.")
+        torch.save(actor.state_dict(), "iql_sac_model.pt")
+        mlflow.log_artifact("iql_sac_model.pt")
+        print("IQL+SAC Training Complete.")
 
 if __name__ == "__main__":
     main()

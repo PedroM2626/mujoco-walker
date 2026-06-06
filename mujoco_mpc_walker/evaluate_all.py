@@ -53,7 +53,7 @@ class PolicyNet(nn.Module):
         mean, _ = self.forward(x)
         return torch.tanh(mean) * self.max_action
 
-def evaluate_model(model, scaler, model_type, num_episodes=5, max_steps=1000):
+def evaluate_model(model, scaler, model_type, max_episodes=1000, max_steps=1000):
     xml_path = "../walker_ragdoll.xml"
     model_mj = mujoco.MjModel.from_xml_path(xml_path)
     data = mujoco.MjData(model_mj)
@@ -201,6 +201,30 @@ def main():
         z_heights_dict['BC+SAC'] = z_bc_sac
     else:
         print("BC+SAC model not found.")
+
+    # 5. Evaluate IQL+SAC
+    print("Loading IQL+SAC...")
+    if os.path.exists("iql_sac_model.pt"):
+        iql_sac_model = PolicyNet(188, 17)
+        iql_sac_model.load_state_dict(torch.load("iql_sac_model.pt", weights_only=True))
+        iql_sac_model.eval()
+        avg_r, z_iql_sac = evaluate_model(iql_sac_model, scaler_bc, "IQL+SAC")
+        results['IQL+SAC'] = avg_r
+        z_heights_dict['IQL+SAC'] = z_iql_sac
+    else:
+        print("IQL+SAC model not found.")
+
+    # 6. Evaluate CQL+SAC
+    print("Loading CQL+SAC...")
+    if os.path.exists("cql_sac_model.pt"):
+        cql_sac_model = PolicyNet(188, 17)
+        cql_sac_model.load_state_dict(torch.load("cql_sac_model.pt", weights_only=True))
+        cql_sac_model.eval()
+        avg_r, z_cql_sac = evaluate_model(cql_sac_model, scaler_bc, "CQL+SAC")
+        results['CQL+SAC'] = avg_r
+        z_heights_dict['CQL+SAC'] = z_cql_sac
+    else:
+        print("CQL+SAC model not found.")
         
     print("\n=== FINAL RESULTS ===")
     for k, v in results.items():

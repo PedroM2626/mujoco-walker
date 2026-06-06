@@ -239,6 +239,11 @@ def main():
             print(f"Epoch {epoch+1}/{epochs} | Q Loss: {total_q_loss/n:.4f} | CQL Penalty: {total_cql_penalty/n:.4f} | Pi Loss: {total_pi_loss/n:.4f}")
             
         torch.save(policy.state_dict(), "cql_model.pt")
+        torch.save({
+            "policy": policy.state_dict(),
+            "q1": q1.state_dict(),
+            "q2": q2.state_dict(),
+        }, "cql_full_ckpt.pt")
         mlflow.log_artifact("cql_model.pt")
         print("CQL Training Complete.")
 

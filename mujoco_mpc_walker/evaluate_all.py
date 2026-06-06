@@ -190,6 +190,18 @@ def main():
     else:
         print("CQL model not found.")
         
+    # 4. Evaluate BC+SAC
+    print("Loading BC+SAC...")
+    if os.path.exists("bc_sac_model.pt"):
+        bc_sac_model = PolicyNet(188, 17)
+        bc_sac_model.load_state_dict(torch.load("bc_sac_model.pt", weights_only=True))
+        bc_sac_model.eval()
+        avg_r, z_bc_sac = evaluate_model(bc_sac_model, scaler_bc, "BC+SAC")
+        results['BC+SAC'] = avg_r
+        z_heights_dict['BC+SAC'] = z_bc_sac
+    else:
+        print("BC+SAC model not found.")
+        
     print("\n=== FINAL RESULTS ===")
     for k, v in results.items():
         print(f"{k}: {v:.2f} Avg Reward")

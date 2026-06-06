@@ -18,7 +18,8 @@ Walker ragdoll training project using SAC (Soft Actor-Critic), PPO (Proximal Pol
 │   ├── train.py               # PyTorch BC training script (Behavioral Cloning)
 │   ├── train_iql.py           # PyTorch IQL training script (Implicit Q-Learning)
 │   ├── train_cql.py           # PyTorch CQL training script (Conservative Q-Learning)
-│   ├── evaluate_all.py        # Benchmark script comparing BC vs IQL vs CQL
+│   ├── train_bc_sac.py        # PyTorch SAC fine-tuning script initialized with BC weights
+│   ├── evaluate_all.py        # Benchmark script comparing BC vs IQL vs CQL vs BC+SAC
 │   ├── eval_headless.py       # Evaluation script for the BC agent
 │   └── play.py                # Visual evaluation for the BC agent
 ├── envs/
@@ -171,12 +172,13 @@ cd mujoco_mpc_walker/build
 
 **2. Train the Network (Choose your Offline Algorithm):**
 
-You can train using Pure Behavioral Cloning, Implicit Q-Learning (IQL) or Conservative Q-Learning (CQL):
+You can train using Pure Behavioral Cloning, Implicit Q-Learning (IQL), Conservative Q-Learning (CQL), or Fine-tune BC with SAC:
 ```bash
 cd mujoco_mpc_walker
-python train.py      # Treina o modelo BC (teacher_model.pt)
-python train_iql.py  # Treina o modelo IQL (iql_model.pt)
-python train_cql.py  # Treina o modelo CQL (cql_model.pt)
+python train.py         # Treina o modelo BC puro (teacher_model.pt)
+python train_iql.py     # Treina o modelo IQL offline (iql_model.pt)
+python train_cql.py     # Treina o modelo CQL offline (cql_model.pt)
+python train_bc_sac.py  # Carrega teacher_model.pt e faz fine-tuning online com SAC
 ```
 
 **3. Evaluate the Models:**

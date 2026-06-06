@@ -13,9 +13,12 @@ Walker ragdoll training project using SAC (Soft Actor-Critic), PPO (Proximal Pol
 ├── play.py                    # Real-time visualization of a trained agent (SAC, PPO, etc.)
 ├── play_race.py               # Multi-agent visual and headless evaluation race
 ├── walker_ragdoll.xml         # MuJoCo model for the walker ragdoll
-├── mujoco_mpc_walker/         # Offline Behavioral Cloning with MuJoCo MPC
+├── mujoco_mpc_walker/         # Offline RL & Behavioral Cloning with MuJoCo MPC
 │   ├── generate_data.cc       # C++ script to generate expert data (MPC) with chaotic drops
-│   ├── train.py               # PyTorch training script (Behavioral Cloning with frame stacking)
+│   ├── train.py               # PyTorch BC training script (Behavioral Cloning)
+│   ├── train_iql.py           # PyTorch IQL training script (Implicit Q-Learning)
+│   ├── train_cql.py           # PyTorch CQL training script (Conservative Q-Learning)
+│   ├── evaluate_all.py        # Benchmark script comparing BC vs IQL vs CQL
 │   ├── eval_headless.py       # Evaluation script for the BC agent
 │   └── play.py                # Visual evaluation for the BC agent
 ├── envs/
@@ -166,18 +169,21 @@ cd mujoco_mpc_walker/build
 ./mjpc_dataset_tool.exe
 ```
 
-**2. Train the Student Network:**
+**2. Train the Network (Choose your Offline Algorithm):**
+
+You can train using Pure Behavioral Cloning, Implicit Q-Learning (IQL) or Conservative Q-Learning (CQL):
 ```bash
 cd mujoco_mpc_walker
-python train.py
+python train.py      # Treina o modelo BC (teacher_model.pt)
+python train_iql.py  # Treina o modelo IQL (iql_model.pt)
+python train_cql.py  # Treina o modelo CQL (cql_model.pt)
 ```
-This trains a fast PyTorch feedforward network using Mean Squared Error (MSE) loss against the MPC expert's actions. Checkpoints are registered into `teacher_model.pt`.
 
-**3. Evaluate the Model:**
+**3. Evaluate the Models:**
 ```bash
-python eval_headless.py
+python evaluate_all.py
 ```
-Outputs a visual plot `trajectory.png` quantifying the agent's falls and autonomous recoveries. You can also run `play.py` to watch it in real-time.
+This script runs a headless simulation spanning multiple episodes where the agents are routinely dropped from the sky, measuring their survival rate and total trajectory reward to determine which architecture is the most robust.
 
 ## Hyperparameters
 

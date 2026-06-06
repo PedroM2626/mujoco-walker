@@ -161,13 +161,34 @@ This approach was specially designed for extreme recovery and survival:
 - **Frame Stacking Memory:** `train.py` utilizes a custom history length to allow the feedforward network to perceive inertia and rotational velocities instead of a static snapshot.
 - **MLOps:** The training is natively tracked via `MLflow` (logging MSE Loss, LR, and model weights artifacts).
 
+### Architecture
+
+```
+State (input) = [rel_tx, rel_ty, qpos[2:], qvel]   (188 dimensions due to Frame Stacking length=3)
+                          |
+               MLP: 256 -> 256 -> 256
+                          |
+         Control Actions (17 motors)
+```
+The input uses **relative target position** (translation invariant), discarding the absolute X and Y torso positions.
+
 ### Usage (Behavioral Cloning)
 
-**1. Generate Expert Data (C++):**
-Compile and run the C++ executable to generate `dataset.csv`:
+**0. Build the C++ Collector (Once):**
+```powershell
+cd mujoco_mpc_walker
+.\build.bat
+```
+
+**1. Generate Expert Data:**
+You can generate data via the C++ headless executable or the Python wrapper:
 ```bash
-cd mujoco_mpc_walker/build
-./mjpc_dataset_tool.exe
+# Python wrapper (opens GUI to watch MPC)
+python collect_data.py --steps 30000
+
+# Direct Headless C++ Execution
+cd build
+./generate_dataset.exe
 ```
 
 **2. Train the Network (Choose your Offline Algorithm):**
@@ -179,6 +200,8 @@ python train.py         # Treina o modelo BC puro (teacher_model.pt)
 python train_iql.py     # Treina o modelo IQL offline (iql_model.pt)
 python train_cql.py     # Treina o modelo CQL offline (cql_model.pt)
 python train_bc_sac.py  # Carrega teacher_model.pt e faz fine-tuning online com SAC
+python train_cql_sac.py # Carrega cql_full_ckpt.pt e faz fine-tuning online (Offline-to-Online)
+python train_iql_sac.py # Carrega iql_full_ckpt.pt e faz fine-tuning online (Offline-to-Online)
 ```
 
 **3. Evaluate the Models:**

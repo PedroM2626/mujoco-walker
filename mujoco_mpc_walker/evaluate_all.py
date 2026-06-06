@@ -53,7 +53,7 @@ class PolicyNet(nn.Module):
         mean, _ = self.forward(x)
         return torch.tanh(mean) * self.max_action
 
-def evaluate_model(model, scaler, model_type, max_episodes=1000, max_steps=1000):
+def evaluate_model(model, scaler, model_type, num_episodes=1000, max_steps=1000):
     xml_path = "../walker_ragdoll.xml"
     model_mj = mujoco.MjModel.from_xml_path(xml_path)
     data = mujoco.MjData(model_mj)

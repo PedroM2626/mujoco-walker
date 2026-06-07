@@ -1,231 +1,188 @@
-import mujoco
-import mujoco.viewer
-import time
+import gymnasium as gym
 import torch
-import numpy as np
-import pickle
+import torch.nn as nn
+import time
 import os
-import sys
-import xml.etree.ElementTree as ET
-from collections import deque
+from stable_baselines3 import SAC
 
-from train import WalkerTeacherNet
-from evaluate_all import PolicyNet
+# ==========================================================
+# Architectures Definitions
+# ==========================================================
+class BCPolicy(nn.Module):
+    def __init__(self, input_dim, output_dim):
+        super(BCPolicy, self).__init__()
+        self.net = nn.Sequential(
+            nn.Linear(input_dim, 256),
+            nn.ReLU(),
+            nn.Linear(256, 256),
+            nn.ReLU(),
+            nn.Linear(256, output_dim)
+        )
+    def forward(self, x):
+        return self.net(x)
 
-def build_race_xml(base_xml, num_agents, lane_distance):
-    tree = ET.parse(base_xml)
-    root = tree.getroot()
-    worldbody = root.find("worldbody")
-    actuator = root.find("actuator")
-    tendon = root.find("tendon")
+class SACActor(nn.Module):
+    def __init__(self, input_dim, output_dim, max_action=1.0):
+        super(SACActor, self).__init__()
+        self.net = nn.Sequential(
+            nn.Linear(input_dim, 256),
+            nn.ReLU(),
+            nn.Linear(256, 256),
+            nn.ReLU()
+        )
+        self.mean_layer = nn.Linear(256, output_dim)
+        self.log_std_layer = nn.Parameter(torch.zeros(1, output_dim))
+        self.max_action = max_action
+
+    def forward(self, x):
+        features = self.net(x)
+        mean = self.mean_layer(features)
+        return torch.tanh(mean) * self.max_action
+
+class PolicyNetIQL(nn.Module):
+    def __init__(self, input_dim, output_dim, max_action=1.0):
+        super(PolicyNetIQL, self).__init__()
+        self.net = nn.Sequential(
+            nn.Linear(input_dim, 1024),
+            nn.LayerNorm(1024),
+            nn.Mish(),
+            nn.Linear(1024, 512),
+            nn.LayerNorm(512),
+            nn.Mish(),
+            nn.Linear(512, 512),
+            nn.LayerNorm(512),
+            nn.Mish()
+        )
+        self.mean_layer = nn.Linear(512, output_dim)
+        self.log_std_layer = nn.Parameter(torch.zeros(1, output_dim))
+        self.max_action = max_action
+
+    def forward(self, x):
+        features = self.net(x)
+        mean = self.mean_layer(features)
+        return torch.tanh(mean) * self.max_action
+
+# ==========================================================
+# Evaluation Wrapper
+# ==========================================================
+def evaluate_model(env, name, get_action_fn, episodes=1):
+    print(f"\n[{name}] Preparando para a corrida...")
+    time.sleep(2) # Pausa para o usuario ler o terminal
     
-    walker_body = None
-    for body in worldbody.findall("body"):
-        if body.get("name") == "torso":
-            walker_body = body
-            worldbody.remove(body)
-            break
+    total_rewards = []
+    for ep in range(episodes):
+        obs, _ = env.reset()
+        done = False
+        ep_reward = 0
+        while not done:
+            action = get_action_fn(obs)
+            obs, reward, terminated, truncated, _ = env.step(action)
+            ep_reward += reward
+            done = terminated or truncated
+            env.render()
+            time.sleep(0.01) # Desacelera para visualizacao
             
-    mocap_body = None
-    for body in worldbody.findall("body"):
-        if body.get("name") == "target_marker":
-            mocap_body = body
-            worldbody.remove(body)
-            break
-            
-    base_actuators = list(actuator)
-    for act in base_actuators:
-        actuator.remove(act)
-        
-    original_tendons = []
-    if tendon is not None:
-        original_tendons = list(tendon.findall("fixed"))
-        for t in original_tendons:
-            tendon.remove(t)
-        
-    AGENT_COLORS = [
-        [0.85, 0.15, 0.15, 1.0], [0.15, 0.85, 0.15, 1.0], [0.15, 0.15, 0.85, 1.0],
-        [0.85, 0.75, 0.15, 1.0], [0.75, 0.15, 0.85, 1.0], [0.15, 0.85, 0.85, 1.0]
-    ]
+        total_rewards.append(ep_reward)
+        print(f"[{name}] Episodio {ep+1} - Pontuacao: {ep_reward:.2f}")
     
-    for i in range(num_agents):
-        y_offset = (i - (num_agents - 1) / 2) * lane_distance
-        color = AGENT_COLORS[i % len(AGENT_COLORS)]
-        color_str = f"{color[0]} {color[1]} {color[2]} {color[3]}"
-        
-        target_marker = ET.Element("body", {"name": f"agent{i}_target_marker", "mocap": "true", "pos": f"5.0 {y_offset} 0.05"})
-        ET.SubElement(target_marker, "geom", {"name": f"agent{i}_target_marker_geom", "type": "sphere", "size": "0.1", "rgba": f"{color[0]} {color[1]} {color[2]} 0.5", "contype": "0", "conaffinity": "0"})
-        worldbody.append(target_marker)
-        
-        clone = ET.fromstring(ET.tostring(walker_body))
-        clone.set("name", f"agent{i}_torso")
-        pos = clone.get("pos", "0 0 1.3").split()
-        clone.set("pos", f"{pos[0]} {float(pos[1]) + y_offset} {pos[2]}")
-        
-        for elem in clone.iter():
-            name = elem.get("name")
-            if name:
-                elem.set("name", f"agent{i}_{name}")
-            if elem.tag == "geom" and elem.get("rgba") is None:
-                elem.set("rgba", color_str)
-                
-        worldbody.append(clone)
-        
-        for tend in original_tendons:
-            tend_copy = ET.fromstring(ET.tostring(tend))
-            tend_copy.set("name", f"agent{i}_{tend_copy.get('name')}")
-            for joint_el in tend_copy.findall("joint"):
-                joint_name = joint_el.get("joint")
-                joint_el.set("joint", f"agent{i}_{joint_name}")
-            tendon.append(tend_copy)
-        
-        for act in base_actuators:
-            act_clone = ET.fromstring(ET.tostring(act))
-            act_clone.set("name", f"agent{i}_{act.get('name')}")
-            act_clone.set("joint", f"agent{i}_{act.get('joint')}")
-            actuator.append(act_clone)
-            
-    temp_path = "temp_race_offline.xml"
-    tree.write(temp_path)
-    return temp_path
+    return sum(total_rewards)/len(total_rewards)
 
-def get_agent_observation(model, data, agent_idx, mocap_id):
-    prefix = f"agent{agent_idx}_"
-    root_id = model.joint(f"{prefix}root").id
-    qposadr = model.jnt_qposadr[root_id]
-    dofadr = model.jnt_dofadr[root_id]
-    
-    tx = data.mocap_pos[mocap_id, 0]
-    ty = data.mocap_pos[mocap_id, 1]
-    
-    qpos_slice = data.qpos[qposadr: qposadr + 24]
-    qvel_slice = data.qvel[dofadr: dofadr + 23]
-    
-    rel_tx_global = tx - qpos_slice[0]
-    rel_ty_global = ty - qpos_slice[1]
-    
-    qw, qx, qy, qz = qpos_slice[3], qpos_slice[4], qpos_slice[5], qpos_slice[6]
-    yaw = np.arctan2(2.0 * (qw * qz + qx * qy), 1.0 - 2.0 * (qy * qy + qz * qz))
-    
-    rel_tx = rel_tx_global * np.cos(yaw) + rel_ty_global * np.sin(yaw)
-    rel_ty = -rel_tx_global * np.sin(yaw) + rel_ty_global * np.cos(yaw)
-    
-    return np.concatenate(([rel_tx, rel_ty], qpos_slice[2:], qvel_slice))
-
-def apply_agent_action(model, data, agent_idx, action):
-    # Apply action to correct actuators
-    start_idx = agent_idx * 17
-    data.ctrl[start_idx: start_idx + 17] = action
-
+# ==========================================================
+# Main Runner
+# ==========================================================
 def main():
-    device = torch.device("cpu")
+    print("==================================================")
+    print(" GRANDE CORRIDA OFFLINE RL: WALKER2D-V5 ")
+    print("==================================================")
     
-    agents = []
+    env = gym.make("Walker2d-v5", render_mode="human")
+    state_dim = env.observation_space.shape[0]
+    action_dim = env.action_space.shape[0]
+    max_action = float(env.action_space.high[0])
     
-    os.chdir(os.path.dirname(os.path.abspath(__file__)))
+    device = torch.device("cpu") # Avaliacao visual sempre na CPU para evitar gargalos de sync
     
-    # 1. BC
-    with open("scaler.pkl", "rb") as f: scaler_bc = pickle.load(f)
-    bc_model = WalkerTeacherNet(188, 17)
-    bc_model.load_state_dict(torch.load("teacher_model.pt", weights_only=True, map_location=device))
-    agents.append({"name": "BC", "model": bc_model, "scaler": scaler_bc})
-    
+    scores = {}
+
+    # 0. Professor SAC (Teto)
+    if os.path.exists("sac_walker2d_final.zip"):
+        teacher = SAC.load("sac_walker2d_final.zip", device=device)
+        scores["Teacher (Upper Bound)"] = evaluate_model(env, "Teacher (Upper Bound)", lambda obs: teacher.predict(obs, deterministic=True)[0])
+
+    # 1. Behavioral Cloning Puro
+    if os.path.exists("bc_model.pt"):
+        bc = BCPolicy(state_dim, action_dim).to(device)
+        bc.load_state_dict(torch.load("bc_model.pt", map_location=device))
+        bc.eval()
+        with torch.no_grad():
+            scores["Behavioral Cloning"] = evaluate_model(env, "Behavioral Cloning Puro", lambda obs: bc(torch.FloatTensor(obs).unsqueeze(0).to(device)).squeeze(0).numpy())
+
     # 2. IQL
-    with open("scaler_iql.pkl", "rb") as f: scaler_iql = pickle.load(f)
-    iql_model = PolicyNet(188, 17)
-    iql_model.load_state_dict(torch.load("iql_model.pt", weights_only=True, map_location=device))
-    agents.append({"name": "IQL", "model": iql_model, "scaler": scaler_iql})
-    
+    if os.path.exists("iql_full_ckpt.pt"):
+        iql = PolicyNetIQL(state_dim, action_dim, max_action).to(device)
+        checkpoint = torch.load("iql_full_ckpt.pt", map_location=device)
+        iql.load_state_dict(checkpoint['policy'])
+        iql.eval()
+        with torch.no_grad():
+            scores["IQL Offline"] = evaluate_model(env, "Implicit Q-Learning", lambda obs: iql(torch.FloatTensor(obs).unsqueeze(0).to(device)).squeeze(0).numpy())
+
     # 3. CQL
-    with open("scaler_cql.pkl", "rb") as f: scaler_cql = pickle.load(f)
-    cql_model = PolicyNet(188, 17)
-    cql_model.load_state_dict(torch.load("cql_model.pt", weights_only=True, map_location=device))
-    agents.append({"name": "CQL", "model": cql_model, "scaler": scaler_cql})
-    
-    # 4. BC+SAC
-    bc_sac_model = PolicyNet(188, 17)
-    bc_sac_model.load_state_dict(torch.load("bc_sac_model.pt", weights_only=True, map_location=device))
-    agents.append({"name": "BC+SAC", "model": bc_sac_model, "scaler": scaler_bc})
-    
-    # 5. IQL+SAC
-    iql_sac_model = PolicyNet(188, 17)
-    iql_sac_model.load_state_dict(torch.load("iql_sac_model.pt", weights_only=True, map_location=device))
-    agents.append({"name": "IQL+SAC", "model": iql_sac_model, "scaler": scaler_bc})
-    
-    # 6. CQL+SAC
-    cql_sac_model = PolicyNet(188, 17)
-    cql_sac_model.load_state_dict(torch.load("cql_sac_model.pt", weights_only=True, map_location=device))
-    agents.append({"name": "CQL+SAC", "model": cql_sac_model, "scaler": scaler_bc})
-    
-    num_agents = len(agents)
-    for a in agents:
-        a["model"].eval()
-        
-    xml_path = build_race_xml("walker_ragdoll.xml", num_agents, 1.8)
-    
-    m = mujoco.MjModel.from_xml_path(xml_path)
-    d = mujoco.MjData(m)
-    
-    mocap_ids = [mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_BODY, f"agent{i}_target_marker") for i in range(num_agents)]
-    mocap_idxs = [m.body_mocapid[mid] for mid in mocap_ids]
-    
-    history_len = 3
-    state_histories = [deque(maxlen=history_len + 1) for _ in range(num_agents)]
-    last_actions = [np.zeros(17) for _ in range(num_agents)]
-    
-    # Initial targets
-    for i in range(num_agents):
-        d.mocap_pos[mocap_idxs[i], 0] = 5.0
-        
-    mujoco.mj_forward(m, d)
-    
-    print("Launching Race with 6 Offline Models!")
-    with mujoco.viewer.launch_passive(m, d) as viewer:
-        start_time = time.time()
-        step = 0
-        while viewer.is_running():
-            steps_to_run = int((time.time() - start_time - d.time) / m.opt.timestep)
-            if steps_to_run > 10:
-                steps_to_run = 10
-                start_time = time.time() - d.time
-                
-            for _ in range(steps_to_run):
-                for i in range(num_agents):
-                    x_np = get_agent_observation(m, d, i, mocap_idxs[i])
-                    state_histories[i].append(x_np)
-                    while len(state_histories[i]) < history_len + 1:
-                        state_histories[i].append(x_np)
-                        
-                    stacked = np.concatenate(list(reversed(state_histories[i])))
-                    
-                    scaler = agents[i]["scaler"]
-                    scaled = (stacked - scaler.mean_) / scaler.scale_
-                    x_tensor = torch.tensor(scaled, dtype=torch.float32).unsqueeze(0)
-                    
-                    with torch.no_grad():
-                        if hasattr(agents[i]["model"], "get_action"):
-                            ctrl = agents[i]["model"].get_action(x_tensor, deterministic=True).numpy()[0]
-                        else:
-                            ctrl = agents[i]["model"](x_tensor).squeeze(0).numpy()
-                            # Do not inject noise if we want purely deterministic comparison
-                            
-                        ctrl = np.clip(ctrl, -1.0, 1.0)
-                        
-                    apply_agent_action(m, d, i, ctrl)
-                    
-                    # Update target if reached
-                    torso_id = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_BODY, f"agent{i}_torso")
-                    tx, ty = d.xpos[torso_id, 0], d.xpos[torso_id, 1]
-                    dist = np.sqrt((tx - d.mocap_pos[mocap_idxs[i], 0])**2 + (ty - d.mocap_pos[mocap_idxs[i], 1])**2)
-                    if dist < 0.5:
-                        d.mocap_pos[mocap_idxs[i], 0] = tx + np.random.uniform(2.0, 4.0)
-                        d.mocap_pos[mocap_idxs[i], 1] = ty + np.random.uniform(-1.0, 1.0)
-                        
-                mujoco.mj_step(m, d)
-                step += 1
-                
-            viewer.sync()
-            time.sleep(0.01)
+    if os.path.exists("cql_full_ckpt.pt"):
+        cql = PolicyNetIQL(state_dim, action_dim, max_action).to(device)
+        checkpoint = torch.load("cql_full_ckpt.pt", map_location=device)
+        cql.load_state_dict(checkpoint['policy'])
+        cql.eval()
+        with torch.no_grad():
+            scores["CQL Offline"] = evaluate_model(env, "Conservative Q-Learning", lambda obs: cql(torch.FloatTensor(obs).unsqueeze(0).to(device)).squeeze(0).numpy())
+
+    # 4. BC + SAC (Naive)
+    if os.path.exists("bc_sac_naive_model.pt"):
+        bc_sac = SACActor(state_dim, action_dim, max_action).to(device)
+        bc_sac.load_state_dict(torch.load("bc_sac_naive_model.pt", map_location=device))
+        bc_sac.eval()
+        with torch.no_grad():
+            scores["BC+SAC (Naive)"] = evaluate_model(env, "BC+SAC (Naive Initialization)", lambda obs: bc_sac(torch.FloatTensor(obs).unsqueeze(0).to(device)).squeeze(0).numpy())
+
+    # 5. BC + SAC (Regularized)
+    if os.path.exists("bc_sac_regularized_model.pt"):
+        bc_reg = SACActor(state_dim, action_dim, max_action).to(device)
+        bc_reg.load_state_dict(torch.load("bc_sac_regularized_model.pt", map_location=device))
+        bc_reg.eval()
+        with torch.no_grad():
+            scores["BC+SAC (Regularized)"] = evaluate_model(env, "BC+SAC (Regularization Penalty)", lambda obs: bc_reg(torch.FloatTensor(obs).unsqueeze(0).to(device)).squeeze(0).numpy())
+
+    # 6. BC + SAC (Constrained)
+    if os.path.exists("bc_sac_constrained_model.pt"):
+        bc_con = SACActor(state_dim, action_dim, max_action).to(device)
+        bc_con.load_state_dict(torch.load("bc_sac_constrained_model.pt", map_location=device))
+        bc_con.eval()
+        with torch.no_grad():
+            scores["BC+SAC (Constrained)"] = evaluate_model(env, "BC+SAC (Action Constraints)", lambda obs: bc_con(torch.FloatTensor(obs).unsqueeze(0).to(device)).squeeze(0).numpy())
+
+    # 7. IQL + SAC
+    if os.path.exists("iql_sac_model.pt"):
+        iql_sac = PolicyNetIQL(state_dim, action_dim, max_action).to(device)
+        iql_sac.load_state_dict(torch.load("iql_sac_model.pt", map_location=device))
+        iql_sac.eval()
+        with torch.no_grad():
+            scores["IQL+SAC"] = evaluate_model(env, "IQL+SAC (Offline-to-Online)", lambda obs: iql_sac(torch.FloatTensor(obs).unsqueeze(0).to(device)).squeeze(0).numpy())
+
+    # 8. CQL + SAC
+    if os.path.exists("cql_sac_model.pt"):
+        cql_sac = PolicyNetIQL(state_dim, action_dim, max_action).to(device)
+        cql_sac.load_state_dict(torch.load("cql_sac_model.pt", map_location=device))
+        cql_sac.eval()
+        with torch.no_grad():
+            scores["CQL+SAC"] = evaluate_model(env, "CQL+SAC (Offline-to-Online)", lambda obs: cql_sac(torch.FloatTensor(obs).unsqueeze(0).to(device)).squeeze(0).numpy())
+
+    env.close()
+
+    print("\n==================================================")
+    print(" PLACAR FINAL ")
+    print("==================================================")
+    for model_name, score in sorted(scores.items(), key=lambda item: item[1], reverse=True):
+        print(f"{model_name:30s}: {score:.2f} pontos")
+    print("==================================================")
 
 if __name__ == "__main__":
     main()

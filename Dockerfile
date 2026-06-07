@@ -1,34 +1,25 @@
 FROM python:3.8-slim
 
-# Install system dependencies for MuJoCo and OpenCV
+# Install system dependencies for MuJoCo and rendering
 RUN apt-get update && apt-get install -y \
-    libosmesa6-dev \
-    libgl1-mesa-glx \
-    libglfw3 \
-    libglew-dev \
-    libxrender1 \
-    libxext6 \
     build-essential \
+    libgl1-mesa-dev \
+    libgl1-mesa-glx \
+    libglew-dev \
+    libosmesa6-dev \
+    software-properties-common \
+    wget \
     && rm -rf /var/lib/apt/lists/*
 
+# Set working directory
 WORKDIR /app
-
-# Upgrade pip
-RUN pip install --no-cache-dir --upgrade pip
 
 # Copy requirements and install
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy project files
+# Copy the rest of the project
 COPY . .
 
-# Set environment variables
-ENV PYTHONUNBUFFERED=1
-ENV MUJOCO_GL=osmesa
-ENV MLFLOW_EXPERIMENT=walker-ragdoll
-# Override MLFLOW_TRACKING_URI at runtime to point to a remote server:
-# docker run -e MLFLOW_TRACKING_URI=http://host:5000 ...
-
-# Default command (training)
-CMD ["python", "train_walker.py"]
+# Set default command
+CMD ["bash"]

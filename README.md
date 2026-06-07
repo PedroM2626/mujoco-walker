@@ -1,334 +1,125 @@
-# Walker Ragdoll - SAC / PPO / TD3 with CleanRL and MuJoCo
+# MuJoCo Walker2d Offline RL Benchmark
 
-Walker ragdoll training project using SAC (Soft Actor-Critic), PPO (Proximal Policy Optimization), and TD3 (Twin Delayed DDPG) with MuJoCo and a CleanRL-style environment.
+This repository contains a full **Machine Learning Operations (MLOps)** pipeline designed to benchmark Offline Reinforcement Learning algorithms on the Gymnasium `Walker2d-v5` MuJoCo environment.
 
-## Installation
+It transitions from a purely online Soft Actor-Critic (SAC) expert teacher to generating static datasets, followed by training pure offline models and finally executing Offline-to-Online fine-tuning.
 
-1. Install dependencies:
+## 🏆 Final Benchmark Results (The Offline Race)
+
+We benchmarked 8 different models trained exclusively on 100,000 transitions collected from an expert SAC Teacher. The models were evaluated in a visual race (`play_race.py`) to measure their average return:
+
+| Model Architecture | Final Score | Analysis |
+|:---|:---:|:---|
+| **BC+SAC (Regularized)** | **4030.66** | 🏆 **Champion.** By using the BC loss as an active regularizer, the SAC policy avoided catastrophic forgetting and successfully explored the environment to find a slightly more optimal gait, *beating the original teacher!* |
+| **Teacher (Online SAC)** | 3876.30 | The pure online expert used to generate the dataset. |
+| **Behavioral Cloning (BC)** | 3837.80 | Since the dataset was highly narrow and deterministic (only expert trajectories), pure supervised cloning was extremely effective and almost perfectly matched the teacher. |
+| **BC+SAC (Naive)** | 972.04 | Without regularization, the SAC immediately destroyed the pre-trained BC weights in the first few epochs (Catastrophic Forgetting) because its untrained Critic started sending random gradients to the Actor. |
+| **CQL+SAC** | 402.77 | Fine-tuning a collapsed Q-function yielded poor results. |
+| **CQL Offline** | 315.96 | Conservative Q-Learning failed to learn. Why? Offline RL algorithms require *diverse* datasets with overlaps to properly backup Q-values. Given only a single, narrow expert path, Q-learning collapses. |
+| **BC+SAC (Constrained)** | 146.17 | Hard-clipping the SAC actions to the BC actions destroyed the gradient propagation and ruined the policy. |
+| **IQL Offline** | -17.37 | Implicit Q-Learning also collapsed due to the lack of dataset diversity (narrow expert data). |
+
+---
+
+## 🛠️ Technology Stack & MLOps
+
+*   **Environment:** `gymnasium` (Walker2d-v5 backend by MuJoCo)
+*   **Algorithms:** PyTorch (Custom neural networks for IQL, CQL, BC) & Stable-Baselines3 (Teacher SAC)
+*   **MLOps Tracking:** `mlflow` (All offline experiments log metrics, losses, and artifact weights to `mlruns.db`)
+*   **Containerization:** Docker for reproducible environments
+
+## 📂 Project Structure
+
+All execution code lives in the `openai_walker/` directory.
+
+```text
+D:\mujoco-walker\
+├── openai_walker/
+│   ├── train_teacher.py               # Trains the online expert SAC
+│   ├── generate_dataset.py            # Rolls out the expert to create dataset_openai.csv
+│   ├── train_bc.py                    # Pure Behavioral Cloning
+│   ├── train_iql.py                   # Pure Implicit Q-Learning
+│   ├── train_cql.py                   # Pure Conservative Q-Learning
+│   ├── train_bc_sac_*.py              # 3 variations of Offline-to-Online Fine-Tuning for BC
+│   ├── train_iql_sac.py               # Offline-to-Online Fine-Tuning for IQL
+│   ├── train_cql_sac.py               # Offline-to-Online Fine-Tuning for CQL
+│   └── play_race.py                   # Visual MuJoCo evaluation script
+├── mlruns.db                          # MLFlow SQLite Database
+├── requirements.txt                   # Exact pip dependencies
+└── Dockerfile                         # Container definition
+```
+
+## 🚀 Installation & Setup
+
+### Option 1: Docker (Recommended)
+Build and run the Docker container to ensure all MuJoCo rendering libraries are pre-configured:
+```bash
+docker build -t mujoco-walker-rl .
+docker run -it --rm mujoco-walker-rl bash
+```
+
+### Option 2: Native Virtual Environment
 ```bash
 python -m venv .venv
-.\.venv\Scripts\activate
+# Activate the environment
+.venv\Scripts\activate   # (Windows)
+source .venv/bin/activate # (Linux/Mac)
+
 pip install -r requirements.txt
 ```
 
-2. Verify MuJoCo is installed correctly:
-```bash
-python -c "import mujoco; print(mujoco.__version__)"
-```
+---
 
-## Docker
+## 📖 Step-by-Step Execution Guide
 
-You can also run the project using Docker:
+To reproduce the entire benchmark from scratch, navigate to the `openai_walker/` directory and execute the pipeline sequentially:
 
-### Build
-```bash
-docker build -t walker-marl .
-```
-
-### Run Training
-```bash
-docker run -v ${PWD}/checkpoints:/app/checkpoints -v ${PWD}/runs:/app/runs walker-marl
-```
-
-## Usage
-
-### Algorithm selection
-
-Use `--algo sac`, `--algo ppo`, or `--algo td3` to select the training algorithm in the main script, or run the specialized scripts for the new algorithms:
-
-```bash
-# SAC training (default)
-python train_walker.py --algo sac --run-id walker_sac_v1
-
-# PPO training
-python train_walker.py --algo ppo --run-id walker_ppo_v1
-
-# TD3 training
-python train_walker.py --algo td3 --run-id walker_td3_v1
-
-# REDQ training (Random Ensemble Double Q-learning)
-python train_redq.py --run-id walker_redq_v1
-
-# ARS training (Augmented Random Search)
-python train_ars.py --run-id walker_ars_v1
-
-# DreamerV3 training (Model-based RL)
-python train_dreamer.py --run-id walker_dreamer_v1
-```
-
-### Experiment Tracking
-
-Every training run is tracked:
-
-#### MLflow
-All runs are logged to MLflow under the `walker-ragdoll` experiment (or whatever name is in the `MLFLOW_EXPERIMENT` environment variable).
-- Hyperparameters are stored as MLflow **params**.
-- Training metrics (episodic return, losses, SPS) are stored as MLflow **metrics** with step numbers.
-- Checkpoint files are logged as MLflow **artifacts**.
-- MLflow data is written locally to the `mlruns/` directory by default.
-
-Launch the MLflow UI to browse all runs:
-```bash
-mlflow ui
-# then open http://localhost:5000
-```
-
-To point MLflow at a remote tracking server instead:
-```bash
-export MLFLOW_TRACKING_URI=http://my-mlflow-server:5000
-```
-
-### Multi-Agent Race Evaluation
-You can evaluate and race different trained agents (even using different algorithms and architectures) in parallel lanes in the same MuJoCo simulation environment using the `play_race.py` script.
-
-#### Command Example
-```bash
-python play_race.py --checkpoints checkpoints/walker_sac_v1 checkpoints/walker_ppo_v1 checkpoints/walker_td3_v1 --names AgentSAC AgentPPO AgentTD3 --target-x 15.0
-```
-
-#### Race Options:
-- `--checkpoints`: List of checkpoints (files or folders). Folders will automatically resolve to the latest checkpoint in that folder.
-- `--names`: Optional display names for each competitor.
-- `--target-x`: The distance (in meters) to reach the finish line (default: `15.0`).
-- `--lane-distance`: Spacing (in meters) between lanes (default: `1.8`).
-- `--headless`: Run the simulation in console/headless mode (printing positions and final standings table) without launching the GUI.
-- `--max-steps`: Maximum simulation steps (default: `2500`).
-
-The visual camera tracks the current leading walker dynamically throughout the race!
-
-### Unity ML-Agents-style features
-
-- **Automatic checkpointing**: Saves checkpoints at each configured interval.
-- **Resume**: Continue training from where it stopped (restoring replay buffers and RNG states).
-- **Force**: Delete previous data and start from scratch.
-- **Run ID**: Unique identifier for each experiment.
-
-#### Examples
-
-**Start a new training run:**
-```bash
-python train_walker.py --run-id walker_v1 --seed 1 --total-timesteps 1000000
-```
-
-**Resume training:**
-```bash
-python train_walker.py --run-id walker_v1 --resume
-```
-
-**Force restart (deletes previous checkpoints/logs):**
-```bash
-python train_walker.py --run-id walker_v1 --force --seed 2
-```
-
-## OpenAI Walker2d-v5 (Offline RL & Imitation Learning)
-
-We recently transitioned our Offline RL experiments from the custom MuJoCo MPC ragdoll to the official `Walker2d-v5` environment provided by Gymnasium. This change provides a standardized 17-dimensional state space and 6-dimensional action space, avoiding the erratic, drunken-like recovery behavior of the real-time MPC trajectory planner and allowing Offline RL algorithms (like IQL and CQL) to learn from a smooth, periodic walking gait.
-
-All offline training pipelines have been isolated into the `openai_walker/` folder.
-
-### Pipeline: From Online Teacher to Offline Student
-
-To evaluate Offline RL, we first bootstrap an expert teacher using an online algorithm, collect its experiences, and then train offline algorithms strictly on that static dataset.
-
-**1. Train the Expert Teacher (SAC):**
-A pure SAC algorithm is trained for 500,000 timesteps to learn a perfectly stable walking gait from scratch.
+### 1. Train the Online Expert (Teacher)
+Train a pure Soft Actor-Critic agent from scratch to reach expert status (~3800 points).
 ```bash
 cd openai_walker
 python train_teacher.py
 ```
+*(This will save `sac_walker2d_final.zip`)*
 
-**2. Generate the Offline Dataset:**
-The pre-trained teacher is deployed to run for 100,000 timesteps without exploration noise. Every state transition `(obs, next_obs, action, reward, done)` is written to `dataset_openai.csv`.
+### 2. Generate the Offline Dataset
+Extract 100,000 state-action-reward transitions from the Teacher and save them to a CSV.
 ```bash
 python generate_dataset.py
 ```
+*(This will generate `dataset_openai.csv`)*
 
-**3. Train the Offline Models:**
-Once the dataset is ready, we evaluate three major paradigms of offline learning:
+### 3. Pure Offline RL Training
+Train the completely offline paradigms using the CSV dataset. All runs are automatically tracked in MLFlow.
 ```bash
-python train_bc.py      # Behavioral Cloning (Supervised Learning)
-python train_iql.py     # Implicit Q-Learning (IQL)
-python train_cql.py     # Conservative Q-Learning (CQL)
+python train_bc.py
+python train_iql.py
+python train_cql.py
 ```
 
-**4. Offline-to-Online Fine-Tuning:**
-After the models converge offline, their pre-trained weights can be loaded into an active SAC instance for online fine-tuning in the environment.
+### 4. Offline-to-Online Fine-Tuning
+Load the pre-trained weights from the offline phase and fine-tune them dynamically in the environment using SAC variants.
 ```bash
+# Behavioral Cloning Fine-Tuning Variants
 python train_bc_sac.py
+python train_bc_sac_regularized.py
+python train_bc_sac_constrained.py
+
+# IQL and CQL Fine-Tuning Variants
 python train_iql_sac.py
 python train_cql_sac.py
 ```
 
-*(Note: Empirical results comparing BC, IQL, and CQL will be appended here once the latest evaluations are fully executed.)*
-
-## Hyperparameters
-
-All hyperparameters can be configured via command line or environment variables.
-
-### Shared Parameters
-
-| CLI Parameter | Environment Variable | Default | Description |
-|---|---|---|---|
-| `--algo` | `ALGO` | `sac` | Training algorithm: `sac`, `ppo`, or `td3` |
-| `--run-id` | `RUN_ID` | `walker_train` | Experiment ID |
-| `--seed` | `SEED` | `1` | Random seed |
-| `--checkpoint-interval` | `CHECKPOINT_INTERVAL` | `1000000` | Checkpoint interval in timesteps |
-| `--total-timesteps` | `TOTAL_TIMESTEPS` | `1000000` | Total timesteps |
-| `--learning-rate` | `LEARNING_RATE` | `3e-4` | Learning rate |
-| `--num-envs` | `NUM_ENVS` | `128` | Number of parallel environments |
-| `--gamma` | `GAMMA` | `0.99` | Discount factor |
-| `--reset-mode` | `RESET_MODE` | `mixed` | Initial-state distribution: `fixed`, `mixed`, `fallen`, or `upright` |
-| `--fixed-reset-probability` | `FIXED_RESET_PROBABILITY` | `0.25` | In mixed mode, fraction of episodes using the old fixed fallen pose |
-| `--upright-reset-probability` | `UPRIGHT_RESET_PROBABILITY` | `0.15` | In mixed mode, fraction of episodes starting almost upright |
-| `--fallen-velocity-scale` | `FALLEN_VELOCITY_SCALE` | `0.35` | Extra velocity noise for randomized fallen resets |
-| `--task-phase` | `TASK_PHASE` | `recovery` | Reward curriculum phase: `recovery`, `balance`, `walk`, or `target` |
-| `--target-forward-velocity` | `TARGET_FORWARD_VELOCITY` | `0.8` | Target x velocity for the walk phase |
-
-### SAC-specific Parameters
-
-| CLI Parameter | Environment Variable | Default | Description |
-|---|---|---|---|
-| `--buffer-size` | `BUFFER_SIZE` | `1000000` | Replay buffer size |
-| `--batch-size` | `BATCH_SIZE` | `256` | SAC batch size |
-| `--learning-starts` | `LEARNING_STARTS` | `10000` | Random exploration steps before updates |
-| `--tau` | `TAU` | `0.005` | Target network update rate |
-| `--alpha` | `ALPHA` | `0.2` | Initial entropy temperature |
-| `--init-from-run-id` | `INIT_FROM_RUN_ID` | - | Start a new run from another run's actor weights |
-| `--save-replay-buffer` / `--no-save-replay-buffer` | `SAVE_REPLAY_BUFFER` | `true` | Include or skip the replay buffer in checkpoints |
-
-### PPO-specific Parameters
-
-| CLI Parameter | Environment Variable | Default | Description |
-|---|---|---|---|
-| `--num-steps` | `NUM_STEPS` | `2048` | Rollout length per environment per update |
-| `--num-minibatches` | `NUM_MINIBATCHES` | `32` | Number of minibatches per update |
-| `--update-epochs` | `UPDATE_EPOCHS` | `10` | Number of optimization epochs per rollout |
-| `--clip-coef` | `CLIP_COEF` | `0.2` | PPO clip coefficient |
-| `--ent-coef` | `ENT_COEF` | `0.0` | Entropy bonus coefficient |
-| `--vf-coef` | `VF_COEF` | `0.5` | Value function loss coefficient |
-| `--gae-lambda` | `GAE_LAMBDA` | `0.95` | GAE lambda for advantage estimation |
-| `--max-grad-norm` | `MAX_GRAD_NORM` | `0.5` | Maximum gradient norm for clipping |
-
-### TD3-specific Parameters
-
-| CLI Parameter | Environment Variable | Default | Description |
-|---|---|---|---|
-| `--buffer-size` | `BUFFER_SIZE` | `1000000` | Replay buffer size |
-| `--batch-size` | `BATCH_SIZE` | `256` | TD3 batch size |
-| `--learning-starts` | `LEARNING_STARTS` | `10000` | Random exploration steps before updates |
-| `--tau` | `TAU` | `0.005` | Target network update rate |
-| `--exploration-noise` | `EXPLORATION_NOISE` | `0.1` | Action exploration noise std |
-| `--policy-noise` | `POLICY_NOISE` | `0.2` | Target action smoothing noise std |
-| `--noise-clip` | `NOISE_CLIP` | `0.5` | Target action smoothing noise clip range |
-| `--policy-frequency` | `POLICY_FREQUENCY` | `2` | Delay parameter for policy updates |
-
-## Training Recommendations
-
-For the `WalkerRagdoll-v0` environment, the reward is split into phases. `recovery` keeps the stand-up objective, `balance` adds standing stability, foot-only support, low drift, and low torso velocity, `walk` adds gated forward-velocity tracking after the agent is upright, and `target` adds a sampled navigation target with reward for reducing distance while standing. In the `target` phase, the environment uses curriculum learning: the target only respawns at a new random position after the agent reaches it 10 consecutive times.
-
-Recommended phase progression:
-
+### 5. Final Evaluation (The Race)
+Run the visualization script to load all 8 generated models and pit them against each other in a rendered MuJoCo GUI.
 ```bash
-# Phase 1: learn to stand up
-python train_walker.py --run-id walker_recovery_v1 --force --total-timesteps 20000000
-
-# Phase 2: learn to stay upright
-python train_walker.py --run-id walker_balance_v1 --task-phase balance --init-from-run-id walker_recovery_v1 --total-timesteps 30000000
-
-# Phase 3: start walking
-python train_walker.py --run-id walker_walk_v1 --task-phase walk --init-from-run-id walker_balance_v1 --total-timesteps 50000000
-
-# Phase 4: walk to sampled targets
-python train_walker.py --run-id walker_target_v1 --task-phase target --init-from-run-id walker_walk_v1 --total-timesteps 70000000 --no-save-replay-buffer
+python play_race.py
 ```
 
-PPO training example:
-
+### 6. MLOps Monitoring
+You can monitor all training losses, rewards, and artifact states using the MLflow UI:
 ```bash
-python train_walker.py --algo ppo --run-id walker_ppo_v1 --task-phase recovery --total-timesteps 20000000 --num-envs 64
+# Run this from the root directory
+mlflow ui --backend-store-uri sqlite:///mlruns.db
 ```
-
-## Recovery-Supervised Target Training Pipeline
-
-We provide a script `run_training_pipeline.py` to train SAC, PPO, and TD3 agents sequentially for 1M steps in the `target` task phase. The training integrates a **Recovery Supervisor** which intercepts falling states (torso height $z < 1.1$ or upright factor $< 0.8$) and yields control to a pre-trained recovery policy (`walker_recovery_v1`). The training experiences collected under recovery control are excluded from the target agents' update computations via buffer/loss masking.
-
-To run the full 1M-step sequential pipeline:
-```bash
-python run_training_pipeline.py
-```
-This will sequentially produce runs `walker_sac_1m`, `walker_ppo_1m`, and `walker_td3_1m`, logging all training metrics locally to offline W&B.
-
-## Tests
-
-Run unit and integration tests:
-```bash
-python -m unittest discover -s tests -v
-```
-
-Or individually:
-```bash
-python -m tests.test_env
-python -m tests.test_training
-python -m tests.test_race
-```
-
-## TensorBoard
-
-View training logs:
-```bash
-tensorboard --logdir runs/
-```
-
-## Visualizing the Trained Agent
-
-Use the `play.py` script to watch the trained agent in real time. It automatically detects whether the checkpoint is SAC or PPO.
-
-### Watch live (opens a MuJoCo window, runs until you press Ctrl+C)
-```bash
-python play.py --run-id walker_v1 --render-mode human
-```
-
-### Run a fixed number of episodes
-```bash
-python play.py --run-id walker_v1 --num-episodes 10 --render-mode human
-```
-
-### Stochastic mode (sample from the policy)
-```bash
-python play.py --run-id walker_v1 --stochastic --render-mode human
-```
-
-### Load a specific checkpoint step
-```bash
-python play.py --run-id walker_v1 --checkpoint-step 500000 --render-mode human
-```
-
-**Note:** `play.py` loads the saved observation normalization statistics and freezes them during evaluation.
-
-### Watch an old PPO legacy checkpoint
-```bash
-python play_ppo_legacy.py --run-id Humanoid_Curriculum_v1 --checkpoint-step 133801920 --render-mode human --deterministic
-```
-
-## Checkpoints
-
-SAC checkpoints are saved to `checkpoints/<run_id>/sac_ckpt_<step>.pt` and include the actor, critics, entropy temperature, optimizers, and observation normalization statistics. By default they also include the replay buffer. Use `--no-save-replay-buffer` for lighter checkpoints.
-
-PPO checkpoints are saved to `checkpoints/<run_id>/ppo_ckpt_<step>.pt` and include the full actor-critic agent, optimizer, and observation normalization statistics. PPO checkpoints are always lightweight since there is no replay buffer.
-
-TD3 checkpoints are saved to `checkpoints/<run_id>/td3_ckpt_<step>.pt` and include the actor, both critics, the target actor/critics, optimizers, and observation normalization statistics.
-
-REDQ checkpoints are saved to `checkpoints/<run_id>/redq_ckpt_<step>.pt` and include the actor, ensemble of critics, target critics, optimizers, and observation normalization statistics.
-
-ARS checkpoints are saved to `checkpoints/<run_id>/ars_ckpt_<step>.pt` and include the linear policy weights, bias, and observation normalization statistics. ARS checkpoints are extremely lightweight.
-
-DreamerV3 checkpoints are saved to `checkpoints/<run_id>/dreamer_ckpt_<step>.pt` and include the RSSM world model, latent actor, latent critic, optimizers, and observation normalization statistics. An actor-only checkpoint `dreamer_actor_<step>.pt` is also saved for deployment and race simulation.
-
-## Composição Avançada de Modelos (Model Merging)
-
-Para aprimorar a estabilidade da recuperação física sem depender da Regra Fixa Condicional, avaliamos três abordagens de *Model Merging* para fundir o Agente de Recuperação com o Agente Alvo, obtendo os seguintes resultados visuais empíricos na arena multijogador (corrida sem teletransporte automático):
-
-1. **Mixture of Experts (MoE):** Uma *Gating Network* treinada via Behavioral Cloning atua como juíza, criando uma transição probabilística e fluída entre a corrida e a recuperação com a função Sigmoide. **Obteve o melhor desempenho de locomoção na simulação.**
-2. **Hardcoded Supervisor (Regra Fixa):** Código base. Troca abruptamente a saída da rede baseada em um `threshold` simples de altura. **Apresentou excelente desempenho, mas com trancos mecânicos visíveis.**
-3. **Weight Averaging:** Interpolação linear dos pesos ($0.5 W_{rec} + 0.5 W_{tgt}$). A diferença de dimensões na observação (49 vs 46) foi contornada preenchendo a camada do modelo de recuperação com zeros absolutos (*zero-padding*). **Apesar de ter atingido a maior eficiência energética puramente matemática, o robô adotou uma postura conservadora extrema e na simulação ele "caiu duro"**, hesitando em avançar para o alvo.
-4. **Task Arithmetic:** Soma dos vetores delta de pesos sem Layer Normalization. **Descalibrou as distribuições internas, fazendo o robô se contorcer desgovernadamente pelo chão.**
+Then navigate to `http://localhost:5000` in your browser.

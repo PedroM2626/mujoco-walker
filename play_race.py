@@ -1,3 +1,4 @@
+import mock_wrappers
 import os
 import sys
 import argparse
@@ -86,9 +87,69 @@ class DreamerAgentWrapper(nn.Module):
 
 
 
+class HardcodedRaceAgent:
+    def __init__(self, rec_agent, tgt_agent):
+        self.rec_agent = rec_agent
+        self.tgt_agent = tgt_agent
+        
+    def get_action(self, obs_t, deterministic=True):
+        # obs_t shape [1, 49]
+        z = obs_t[0, 0].item()
+        upright = obs_t[0, 45].item()
+        
+        if z < 1.1 or upright < 0.8:
+            return self.rec_agent.get_action(obs_t[:, :46], deterministic=deterministic)
+        else:
+            return self.tgt_agent.get_action(obs_t, deterministic=deterministic)
+
+class MoERaceAgent:
+    def __init__(self, rec_agent, tgt_agent, moe_gate):
+        self.rec_agent = rec_agent
+        self.tgt_agent = tgt_agent
+        self.moe_gate = moe_gate
+        
+    def get_action(self, obs_t, deterministic=True):
+        g = self.moe_gate(obs_t[:, :46]).item()
+        a_rec, _, _ = self.rec_agent.get_action(obs_t[:, :46], deterministic=deterministic)
+        a_tgt, _, _ = self.tgt_agent.get_action(obs_t, deterministic=deterministic)
+        action = g * a_rec + (1.0 - g) * a_tgt
+        return action, None, None
+
 def load_agent(ckpt_path, device):
     """Loads agent policy, detects obs_dim and handles legacy architecture formats."""
     print(f"[LOAD] Loading checkpoint from {ckpt_path} ...")
+    
+    if ckpt_path == "hardcoded":
+        rec_agent = SACAgent(46, gym.spaces.Box(-1.0, 1.0, shape=(17,))).to(device)
+        rec_agent.load_state_dict(torch.load("checkpoints/walker_recovery_v1/sac_ckpt_20000000.pt", map_location=device).get("actor_state_dict"))
+        rec_agent.eval()
+        
+        tgt_ckpt = torch.load("checkpoints/walker_target_v1/sac_ckpt_40000000.pt", map_location=device)
+        tgt_agent = SACAgent(49, gym.spaces.Box(-1.0, 1.0, shape=(17,))).to(device)
+        tgt_agent.load_state_dict(tgt_ckpt.get("actor_state_dict"))
+        tgt_agent.eval()
+        
+        agent = HardcodedRaceAgent(rec_agent, tgt_agent)
+        return agent, "sac", 49, tgt_ckpt.get("obs_rms"), "target", 0.0
+
+    if ckpt_path == "moe":
+        from train_moe_gate import MoEGate
+        rec_agent = SACAgent(46, gym.spaces.Box(-1.0, 1.0, shape=(17,))).to(device)
+        rec_agent.load_state_dict(torch.load("checkpoints/walker_recovery_v1/sac_ckpt_20000000.pt", map_location=device).get("actor_state_dict"))
+        rec_agent.eval()
+        
+        tgt_ckpt = torch.load("checkpoints/walker_target_v1/sac_ckpt_40000000.pt", map_location=device)
+        tgt_agent = SACAgent(49, gym.spaces.Box(-1.0, 1.0, shape=(17,))).to(device)
+        tgt_agent.load_state_dict(tgt_ckpt.get("actor_state_dict"))
+        tgt_agent.eval()
+        
+        gate = MoEGate().to(device)
+        gate.load_state_dict(torch.load("moe_gate.pt", map_location=device))
+        gate.eval()
+        
+        agent = MoERaceAgent(rec_agent, tgt_agent, gate)
+        return agent, "sac", 49, tgt_ckpt.get("obs_rms"), "target", 0.0
+        
     checkpoint = torch.load(ckpt_path, map_location=device)
     
     # Identify algorithm
@@ -473,7 +534,7 @@ def main():
                 # --- AUTO-RESET: teleport fallen agents back upright ---
                 z_raw = obs[0]
                 upright_raw = obs[45] if len(obs) >= 46 else 1.0
-                has_fallen = (z_raw < 0.8)
+                has_fallen = False # Disabled so agents can use their recovery networks naturally
 
                 if has_fallen and respawn_cooldown[i] == 0 and not agent_finished[i]:
                     # Teleport agent to standing pose at current X, lane Y

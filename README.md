@@ -372,3 +372,12 @@ REDQ checkpoints are saved to `checkpoints/<run_id>/redq_ckpt_<step>.pt` and inc
 ARS checkpoints are saved to `checkpoints/<run_id>/ars_ckpt_<step>.pt` and include the linear policy weights, bias, and observation normalization statistics. ARS checkpoints are extremely lightweight.
 
 DreamerV3 checkpoints are saved to `checkpoints/<run_id>/dreamer_ckpt_<step>.pt` and include the RSSM world model, latent actor, latent critic, optimizers, and observation normalization statistics. An actor-only checkpoint `dreamer_actor_<step>.pt` is also saved for deployment and race simulation.
+
+## Composição Avançada de Modelos (Model Merging)
+
+Para aprimorar a estabilidade da recuperação física sem depender da Regra Fixa Condicional, avaliamos três abordagens de *Model Merging* para fundir o Agente de Recuperação com o Agente Alvo, obtendo os seguintes resultados visuais empíricos na arena multijogador (corrida sem teletransporte automático):
+
+1. **Mixture of Experts (MoE):** Uma *Gating Network* treinada via Behavioral Cloning atua como juíza, criando uma transição probabilística e fluída entre a corrida e a recuperação com a função Sigmoide. **Obteve o melhor desempenho de locomoção na simulação.**
+2. **Hardcoded Supervisor (Regra Fixa):** Código base. Troca abruptamente a saída da rede baseada em um `threshold` simples de altura. **Apresentou excelente desempenho, mas com trancos mecânicos visíveis.**
+3. **Weight Averaging:** Interpolação linear dos pesos ($0.5 W_{rec} + 0.5 W_{tgt}$). A diferença de dimensões na observação (49 vs 46) foi contornada preenchendo a camada do modelo de recuperação com zeros absolutos (*zero-padding*). **Apesar de ter atingido a maior eficiência energética puramente matemática, o robô adotou uma postura conservadora extrema e na simulação ele "caiu duro"**, hesitando em avançar para o alvo.
+4. **Task Arithmetic:** Soma dos vetores delta de pesos sem Layer Normalization. **Descalibrou as distribuições internas, fazendo o robô se contorcer desgovernadamente pelo chão.**

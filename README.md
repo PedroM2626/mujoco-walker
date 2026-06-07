@@ -2,38 +2,6 @@
 
 Walker ragdoll training project using SAC (Soft Actor-Critic), PPO (Proximal Policy Optimization), and TD3 (Twin Delayed DDPG) with MuJoCo and a CleanRL-style environment.
 
-## Project Structure
-
-```
-.
-├── train_walker.py            # Main training script (SAC + PPO + TD3)
-├── train_redq.py              # REDQ training script (Random Ensemble Double Q-learning)
-├── train_ars.py               # ARS training script (Augmented Random Search)
-├── train_dreamer.py           # DreamerV3 training script (Model-based RSSM/Imagination)
-├── play.py                    # Real-time visualization of a trained agent (SAC, PPO, etc.)
-├── play_race.py               # Multi-agent visual and headless evaluation race
-├── walker_ragdoll.xml         # MuJoCo model for the walker ragdoll
-├── mujoco_mpc_walker/         # Offline RL & Behavioral Cloning with MuJoCo MPC
-│   ├── generate_data.cc       # C++ script to generate expert data (MPC) with chaotic drops
-│   ├── train.py               # PyTorch BC training script (Behavioral Cloning)
-│   ├── train_iql.py           # PyTorch IQL training script (Implicit Q-Learning)
-│   ├── train_cql.py           # PyTorch CQL training script (Conservative Q-Learning)
-│   ├── train_bc_sac.py        # PyTorch SAC fine-tuning script initialized with BC weights
-│   ├── evaluate_all.py        # Benchmark script comparing BC vs IQL vs CQL vs BC+SAC
-│   ├── eval_headless.py       # Evaluation script for the BC agent
-│   └── play.py                # Visual evaluation for the BC agent
-├── envs/
-│   └── walker_ragdoll_env.py  # Custom Gymnasium environment
-├── tests/
-│   ├── test_env.py            # Environment unit tests
-│   ├── test_training.py       # Training integration tests (SAC + PPO + TD3)
-│   └── test_race.py           # Multi-agent race system tests
-├── requirements.txt           # Project dependencies
-├── .env.example               # Environment variables example
-├── .env                       # Default environment variables
-└── README.md                  # This file
-```
-
 ## Installation
 
 1. Install dependencies:
@@ -152,63 +120,46 @@ python train_walker.py --run-id walker_v1 --resume
 python train_walker.py --run-id walker_v1 --force --seed 2
 ```
 
-## MuJoCo MPC Behavioral Cloning
+## OpenAI Walker2d-v5 (Offline RL & Imitation Learning)
 
-In addition to traditional reinforcement learning algorithms, this project now includes an **Offline Learning / Behavioral Cloning** pipeline located in the `mujoco_mpc_walker/` folder. This pipeline trains a neural network (the student) to mimic a model-predictive control (MPC) expert (the teacher) that computes optimal actions using real-time finite horizon planning.
+We recently transitioned our Offline RL experiments from the custom MuJoCo MPC ragdoll to the official `Walker2d-v5` environment provided by Gymnasium. This change provides a standardized 17-dimensional state space and 6-dimensional action space, avoiding the erratic, drunken-like recovery behavior of the real-time MPC trajectory planner and allowing Offline RL algorithms (like IQL and CQL) to learn from a smooth, periodic walking gait.
 
-This approach was specially designed for extreme recovery and survival:
-- **Robust Dataset Generation:** The C++ script `generate_data.cc` spawns the agent at 1.50m drops with highly randomized initial rotations (YAW) to force the MPC expert to discover how to orient itself, crawl, and recover from severe falls.
-- **Frame Stacking Memory:** `train.py` utilizes a custom history length to allow the feedforward network to perceive inertia and rotational velocities instead of a static snapshot.
-- **MLOps:** The training is natively tracked via `MLflow` (logging MSE Loss, LR, and model weights artifacts).
+All offline training pipelines have been isolated into the `openai_walker/` folder.
 
-### Architecture
+### Pipeline: From Online Teacher to Offline Student
 
-```
-State (input) = [rel_tx, rel_ty, qpos[2:], qvel]   (188 dimensions due to Frame Stacking length=3)
-                          |
-               MLP: 256 -> 256 -> 256
-                          |
-         Control Actions (17 motors)
-```
-The input uses **relative target position** (translation invariant), discarding the absolute X and Y torso positions.
+To evaluate Offline RL, we first bootstrap an expert teacher using an online algorithm, collect its experiences, and then train offline algorithms strictly on that static dataset.
 
-### Usage (Behavioral Cloning)
-
-**0. Build the C++ Collector (Once):**
-```powershell
-cd mujoco_mpc_walker
-.\build.bat
-```
-
-**1. Generate Expert Data:**
-You can generate data via the C++ headless executable or the Python wrapper:
+**1. Train the Expert Teacher (SAC):**
+A pure SAC algorithm is trained for 500,000 timesteps to learn a perfectly stable walking gait from scratch.
 ```bash
-# Python wrapper (opens GUI to watch MPC)
-python collect_data.py --steps 30000
-
-# Direct Headless C++ Execution
-cd build
-./generate_dataset.exe
+cd openai_walker
+python train_teacher.py
 ```
 
-**2. Train the Network (Choose your Offline Algorithm):**
-
-You can train using Pure Behavioral Cloning, Implicit Q-Learning (IQL), Conservative Q-Learning (CQL), or Fine-tune BC with SAC:
+**2. Generate the Offline Dataset:**
+The pre-trained teacher is deployed to run for 100,000 timesteps without exploration noise. Every state transition `(obs, next_obs, action, reward, done)` is written to `dataset_openai.csv`.
 ```bash
-cd mujoco_mpc_walker
-python train.py         # Treina o modelo BC puro (teacher_model.pt)
-python train_iql.py     # Treina o modelo IQL offline (iql_model.pt)
-python train_cql.py     # Treina o modelo CQL offline (cql_model.pt)
-python train_bc_sac.py  # Carrega teacher_model.pt e faz fine-tuning online com SAC
-python train_cql_sac.py # Carrega cql_full_ckpt.pt e faz fine-tuning online (Offline-to-Online)
-python train_iql_sac.py # Carrega iql_full_ckpt.pt e faz fine-tuning online (Offline-to-Online)
+python generate_dataset.py
 ```
 
-**3. Evaluate the Models:**
+**3. Train the Offline Models:**
+Once the dataset is ready, we evaluate three major paradigms of offline learning:
 ```bash
-python evaluate_all.py
+python train_bc.py      # Behavioral Cloning (Supervised Learning)
+python train_iql.py     # Implicit Q-Learning (IQL)
+python train_cql.py     # Conservative Q-Learning (CQL)
 ```
-This script runs a headless simulation spanning multiple episodes where the agents are routinely dropped from the sky, measuring their survival rate and total trajectory reward to determine which architecture is the most robust.
+
+**4. Offline-to-Online Fine-Tuning:**
+After the models converge offline, their pre-trained weights can be loaded into an active SAC instance for online fine-tuning in the environment.
+```bash
+python train_bc_sac.py
+python train_iql_sac.py
+python train_cql_sac.py
+```
+
+*(Note: Empirical results comparing BC, IQL, and CQL will be appended here once the latest evaluations are fully executed.)*
 
 ## Hyperparameters
 

@@ -132,14 +132,9 @@ def evaluate_model(model, scaler, model_type, num_episodes=1000, max_steps=1000)
             reward = -dist_to_target * 0.01 + (data.qpos[2] > 0.4) * 1.0
             total_reward += reward
             
-            # Periodically throw the robot in the air to test recovery
-            if step > 0 and step % 200 == 0:
-                data.qpos[0:3] += np.random.uniform(-1, 1, size=3)
-                data.qpos[2] = 2.0
-            
+            # Terminate early if the robot falls
             if data.qpos[2] < 0.2: # Hard fall
-                # Give it a chance to recover, but if it stays down for 100 steps, terminate
-                pass
+                break
                 
         episode_rewards.append(total_reward)
         episode_survivals.append(step + 1)

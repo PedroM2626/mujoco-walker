@@ -63,7 +63,7 @@ class QNetwork(nn.Module):
         return self.net(torch.cat([state, action], dim=-1))
 
 def main():
-    csv_path = os.path.join(os.path.dirname(__file__), "build", "dataset.csv")
+    csv_path = "dataset_openai.csv"
     if not os.path.exists(csv_path):
         print(f"Dataset nao encontrado em: {csv_path}")
         return
@@ -72,57 +72,13 @@ def main():
     df = pd.read_csv(csv_path)
     df = df.dropna()
     
-    # Calculate Relative Target Position
-    def quaternion_to_yaw(qw, qx, qy, qz):
-        return np.arctan2(2.0 * (qw * qz + qx * qy), 1.0 - 2.0 * (qy * qy + qz * qz))
-        
-    yaw = quaternion_to_yaw(df['qpos_3'], df['qpos_4'], df['qpos_5'], df['qpos_6'])
-    rel_tx_global = df['target_x'] - df['qpos_0']
-    rel_ty_global = df['target_y'] - df['qpos_1']
+    obs_cols = [c for c in df.columns if c.startswith('obs_')]
+    next_obs_cols = [c for c in df.columns if c.startswith('next_obs_')]
+    act_cols = [c for c in df.columns if c.startswith('action_')]
     
-    df['rel_tx'] = rel_tx_global * np.cos(yaw) + rel_ty_global * np.sin(yaw)
-    df['rel_ty'] = -rel_tx_global * np.sin(yaw) + rel_ty_global * np.cos(yaw)
-    
-    qpos_cols = [col for col in df.columns if col.startswith('qpos_')]
-    qvel_cols = [col for col in df.columns if col.startswith('qvel_')]
-    ctrl_cols = [col for col in df.columns if col.startswith('ctrl_')]
-    
-    qpos_cols_no_xy = [c for c in qpos_cols if c not in ['qpos_0', 'qpos_1']]
-    X_cols = ['rel_tx', 'rel_ty'] + qpos_cols_no_xy + qvel_cols
-    Y_cols = ctrl_cols
-    
-    # Frame Stacking
-    episode_starts = (df['qpos_0'].diff().abs() > 1.0) | (df.index == 0)
-    df['episode'] = episode_starts.cumsum()
-    
-    history_len = 3
-    stacked_cols = X_cols.copy()
-    
-    new_cols = {}
-    for lag in range(1, history_len + 1):
-        for col in X_cols:
-            col_name = f"{col}_t-{lag}"
-            new_cols[col_name] = df.groupby('episode')[col].shift(lag)
-            stacked_cols.append(col_name)
-            
-    df = pd.concat([df, pd.DataFrame(new_cols)], axis=1)
-    df = df.dropna()
-    
-    # Next States for MDP
-    next_cols = {}
-    next_stacked_cols = []
-    for col in stacked_cols:
-        col_name = f"next_{col}"
-        next_cols[col_name] = df.groupby('episode')[col].shift(-1)
-        next_stacked_cols.append(col_name)
-        
-    df = pd.concat([df, pd.DataFrame(next_cols)], axis=1)
-    df = df.dropna()
-
-    # Extract numpy arrays
-    X_np = df[stacked_cols].values
-    X_next_np = df[next_stacked_cols].values
-    Y_np = df[Y_cols].values
+    X_np = df[obs_cols].values
+    X_next_np = df[next_obs_cols].values
+    Y_np = df[act_cols].values
     R_np = df['reward'].values.astype(np.float32).reshape(-1, 1) / 100.0
     D_np = df['done'].values.astype(np.float32).reshape(-1, 1)
     

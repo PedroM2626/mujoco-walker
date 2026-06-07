@@ -97,20 +97,20 @@ int main(int argc, char** argv) {
     tasks.push_back(std::make_shared<mjpc::WalkerTask>());
     std::cout << "Tasks initialized." << std::endl;
 
-    std::ofstream out("dataset.csv", std::ios::app);
-    out.seekp(0, std::ios::end);
-    if (out.tellp() > 0) {
-        header_written = true;
-    }
-    dataset_out = &out;
-    old_step_callback = mjcb_sensor;
-    mjcb_sensor = my_step_callback;
+    // std::ofstream out("dataset.csv", std::ios::app);
+    // out.seekp(0, std::ios::end);
+    // if (out.tellp() > 0) {
+    //     header_written = true;
+    // }
+    // dataset_out = &out;
+    // old_step_callback = mjcb_sensor;
+    // mjcb_sensor = my_step_callback;
 
     std::cout << "Starting MJPC GUI... Brinque com o alvo! Feche a janela quando terminar de coletar." << std::endl;
     mjpc::StartApp(tasks, 0);
     
-    out.flush();
-    out.close();
+    // out.flush();
+    // out.close();
   } catch (const std::exception& e) {
     std::cerr << "Exception: " << e.what() << std::endl;
     return 1;

@@ -155,7 +155,7 @@ def main():
     # 6. CQL+SAC
     cql_sac_model = PolicyNet(188, 17)
     cql_sac_model.load_state_dict(torch.load("cql_sac_model.pt", weights_only=True, map_location=device))
-    agents.append({"name": "CQL+SAC", "model": cql_sac_model, "scaler": scaler_cql}) # Use scaler_cql for CQL+SAC
+    agents.append({"name": "CQL+SAC", "model": cql_sac_model, "scaler": scaler_bc})
     
     num_agents = len(agents)
     for a in agents:
@@ -203,14 +203,13 @@ def main():
                     x_tensor = torch.tensor(scaled, dtype=torch.float32).unsqueeze(0)
                     
                     with torch.no_grad():
-                        out = agents[i]["model"](x_tensor)
-                        if isinstance(out, tuple):
-                            ctrl = out[0].squeeze(0).numpy()
+                        if hasattr(agents[i]["model"], "get_action"):
+                            ctrl = agents[i]["model"].get_action(x_tensor, deterministic=True).numpy()[0]
                         else:
-                            ctrl = out.squeeze(0).numpy()
-                        ctrl = 0.8 * last_actions[i] + 0.2 * ctrl
+                            ctrl = agents[i]["model"](x_tensor).squeeze(0).numpy()
+                            # Do not inject noise if we want purely deterministic comparison
+                            
                         ctrl = np.clip(ctrl, -1.0, 1.0)
-                        last_actions[i] = ctrl.copy()
                         
                     apply_agent_action(m, d, i, ctrl)
                     

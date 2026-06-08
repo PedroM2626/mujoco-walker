@@ -87,16 +87,17 @@ if __name__ == "__main__":
     
     results = {}
     
-    r, s = evaluate_paradigm("WalkerRagdoll-v0", "Hardcoded Supervisor", device, rec_agent=rec_agent, tgt_agent=tgt_agent)
+    num_ep = 1000
+    r, s = evaluate_paradigm("WalkerRagdoll-v0", "Hardcoded Supervisor", device, rec_agent=rec_agent, tgt_agent=tgt_agent, num_episodes=num_ep)
     results["Hardcoded Supervisor"] = {"Reward": r, "Survival Rate": s}
     
-    r, s = evaluate_paradigm("WalkerRagdoll-v0", "Mixture of Experts", device, rec_agent=rec_agent, tgt_agent=tgt_agent, moe_gate=moe_gate)
+    r, s = evaluate_paradigm("WalkerRagdoll-v0", "Mixture of Experts", device, rec_agent=rec_agent, tgt_agent=tgt_agent, moe_gate=moe_gate, num_episodes=num_ep)
     results["Mixture of Experts"] = {"Reward": r, "Survival Rate": s}
     
-    r, s = evaluate_paradigm("WalkerRagdoll-v0", "Weight Averaging", device, single_agent=avg_agent)
+    r, s = evaluate_paradigm("WalkerRagdoll-v0", "Weight Averaging", device, single_agent=avg_agent, num_episodes=num_ep)
     results["Weight Averaging"] = {"Reward": r, "Survival Rate": s}
     
-    r, s = evaluate_paradigm("WalkerRagdoll-v0", "Task Arithmetic", device, single_agent=ta_agent)
+    r, s = evaluate_paradigm("WalkerRagdoll-v0", "Task Arithmetic", device, single_agent=ta_agent, num_episodes=num_ep)
     results["Task Arithmetic"] = {"Reward": r, "Survival Rate": s}
     
     print("\n=== FINAL RANKING ===")

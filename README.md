@@ -1,12 +1,70 @@
-# MuJoCo Walker2d Offline RL Benchmark
+# MuJoCo Walker Advanced RL Laboratory
 
-This repository contains a full **Machine Learning Operations (MLOps)** pipeline designed to benchmark Offline Reinforcement Learning algorithms on the Gymnasium `Walker2d-v5` MuJoCo environment.
+This repository is a comprehensive **Reinforcement Learning and MLOps laboratory** dedicated to solving complex 3D bipedal locomotion, recovery from falls, and offline data utilization. We leverage MuJoCo physics alongside modern deep learning frameworks to benchmark state-of-the-art algorithms on Humanoid/Walker tasks.
 
-It transitions from a purely online Soft Actor-Critic (SAC) expert teacher to generating static datasets, followed by training pure offline models and finally executing Offline-to-Online fine-tuning.
+---
 
-## 🏆 Final Benchmark Results (The Offline Race)
+## 🧠 Project Architecture & Phases
 
-We benchmarked 8 different models trained exclusively on 100,000 transitions collected from an expert SAC Teacher. The models were evaluated in a visual race (`play_race.py`) to measure their average return:
+The repository is structured around several evolutionary phases of experimentation, encompassing everything from World Models and Ensembles to Model Merging and cutting-edge Offline-to-Online Reinforcement Learning.
+
+### 🟢 Phase 1: Advanced Online RL Algorithms (Root Directory)
+We implemented highly efficient online RL paradigms to train the robot from scratch:
+- **DreamerV3 (`train_dreamer.py`):** An implementation of the World Models paradigm. The agent builds a latent hallucination of the MuJoCo physics engine to plan its walking steps internally before acting.
+- **REDQ (`train_redq.py`):** *Randomized Ensembled Double Q-Learning*. Uses an aggressive ensemble of 10 Q-Networks and a high Update-To-Data (UTD) ratio to achieve massive sample efficiency on the Walker.
+- **ARS (`train_ars.py`):** *Augmented Random Search*. A highly parallelized gradient-free evolutionary algorithm that searches for optimal linear policies in the parameter space.
+
+### 🟡 Phase 2: MuJoCo MPC & Imitation Learning (Root Directory)
+To achieve mathematically perfect locomotion, we tapped into the official DeepMind C++ MuJoCo MPC (Model Predictive Control) planner:
+- We extracted **15,000 flawless transitions** of the MPC planner optimizing the walker's physics implicitly (`dataset.csv`).
+- **Behavioral Cloning (`train_walker.py`):** Trained a PyTorch neural network to supervise-clone the MPC's optimal torque decisions, effectively caching the heavy MPC computation into a fast neural policy.
+
+### 🟠 Phase 3: Transfer Learning, Model Merging & Mixture of Experts (Root Directory)
+How do we combine a "Walking Policy" with a "Fall Recovery Policy" without catastrophic forgetting? To achieve this, we utilized a strict **Transfer Learning Curriculum** and advanced Model Merging techniques.
+
+**The Transfer Learning Curriculum (Linear Mode Connectivity):**
+To merge two different neural networks, they must share the same *Linear Mode Connectivity Basin*. If two networks are trained from different random initializations, averaging their weights produces garbage. 
+1. First, we pre-trained a base agent to walk perfectly (`walker_target_v1` - 40M steps).
+2. Then, we performed **Transfer Learning**: we duplicated these pre-trained weights and spawned a new training environment focused *exclusively* on recovering from extreme falls (`walker_recovery_v1` - 20M steps).
+3. Because the recovery agent was fine-tuned from the walking agent, they share the same geometric parameter space, allowing us to perform algebraic operations on their matrices.
+
+**Merging Techniques Evaluated:**
+- **Task Arithmetic (`merge_models.py`):** Subtracts the base walking weights from the fine-tuned recovery weights to isolate a pure "Recovery Task Vector" ($\tau = \theta_{rec} - \theta_{walk}$). This vector is then added algebraically to any policy.
+- **Weight Averaging (`merge_models.py`):** Directly interpolates the parameter matrices of the two policies ($\theta_{avg} = 0.5 \cdot \theta_{rec} + 0.5 \cdot \theta_{walk}$).
+- **Mixture of Experts / MoE Gate (`train_moe_gate.py`):** A routing network (`moe_gate.pt`) trained to dynamically switch the robot's control between the Walking Policy and the Recovery Policy based on its current pitch/velocity (e.g., if it detects a fall, it activates the recovery expert).
+- **Evaluation (`evaluate_merging.py` & `play.py`):** Scripts to visually inspect how well the merged/MoE models transition between walking and standing up.
+
+#### 📊 Empirical Results (Phase 3 Benchmark - 1000 Episodes)
+The models were evaluated under extreme conditions where the robot is subjected to forces that induce falling. The benchmark was massively scaled to **1,000 episodes** per model (4,000,000 steps total) to measure true long-term robustness. The goal is to survive (stand back up) while maintaining the highest possible reward (least penalty).
+
+| Merging Strategy | Avg Reward | Survival Rate | Analysis |
+|:---|:---:|:---:|:---|
+| **Hardcoded Supervisor** | **-11191.88** | 100% | 🥇 **Upper Bound.** The deterministic IF/ELSE baseline that manually swaps policies. |
+| **Weight Averaging (50/50)** | -11692.61 | 100% | 🥈 **Highly Robust.** Counter to intuition, interpolating the weights created an incredibly robust hybrid policy that survived 1000 extreme episodes without a single fatal failure, smoothing out the transitions between walking and recovering. |
+| **Mixture of Experts (MoE)** | -11763.92 | 100% | The neural router successfully learned to mimic the hardcoded supervisor dynamically, matching its survival rate flawlessly over 1000 episodes. |
+| **Task Arithmetic** | -16958.91 | 100% | ⚠️ **Degradation.** The algebraic addition of the "recovery task vector" to the walking weights successfully kept the robot alive (100% survival), but heavily corrupted the walking gait, resulting in severe penalties. |
+
+### 🔴 Phase 4: Offline RL & Offline-to-Online Benchmarking (`openai_walker/` folder)
+We migrated to the standardized `Walker2d-v5` Gymnasium environment to conduct a massive benchmark on learning *strictly from static datasets*, without querying the environment.
+
+1.  **Online Expert Generation:** `train_teacher.py` trains a flawless Soft Actor-Critic (SAC) model.
+2.  **Dataset Mining:** `generate_dataset.py` records 100k transitions from the teacher (`dataset_openai.csv`).
+3.  **Pure Offline Training:** 
+    - `train_bc.py`: Supervised Imitation.
+    - `train_iql.py`: Implicit Q-Learning (Expectile Regression to avoid out-of-distribution queries).
+    - `train_cql.py`: Conservative Q-Learning (Penalizes Q-values for unseen actions).
+4.  **Offline-to-Online Fine-Tuning:** Injecting offline weights into an active SAC for continued environmental exploration:
+    - `train_bc_sac.py` (Naive initialization)
+    - `train_bc_sac_regularized.py` (BC Loss Penalty in the Actor)
+    - `train_bc_sac_constrained.py` (Action Constraints / Clipping)
+    - `train_iql_sac.py` & `train_cql_sac.py`
+5.  **Grand Evaluation:** `play_race.py` sequentially simulates all generated models.
+
+---
+
+## 🏆 Final Benchmark Results (Offline-to-Online Race)
+
+Below are the empirical results from running `play_race.py` on the 100k expert transitions dataset:
 
 | Model Architecture | Final Score | Analysis |
 |:---|:---:|:---|
@@ -23,31 +81,12 @@ We benchmarked 8 different models trained exclusively on 100,000 transitions col
 
 ## 🛠️ Technology Stack & MLOps
 
-*   **Environment:** `gymnasium` (Walker2d-v5 backend by MuJoCo)
-*   **Algorithms:** PyTorch (Custom neural networks for IQL, CQL, BC) & Stable-Baselines3 (Teacher SAC)
+*   **Environments:** `mujoco` native bindings & `gymnasium` (Walker2d-v5)
+*   **Algorithms:** PyTorch (IQL, CQL, BC, MoE, REDQ) & Stable-Baselines3 (SAC)
 *   **MLOps Tracking:** `mlflow` (All offline experiments log metrics, losses, and artifact weights to `mlruns.db`)
-*   **Containerization:** Docker for reproducible environments
+*   **Containerization:** Docker with full OpenGL/OSMesa support for reproducible rendering.
 
-## 📂 Project Structure
-
-All execution code lives in the `openai_walker/` directory.
-
-```text
-D:\mujoco-walker\
-├── openai_walker/
-│   ├── train_teacher.py               # Trains the online expert SAC
-│   ├── generate_dataset.py            # Rolls out the expert to create dataset_openai.csv
-│   ├── train_bc.py                    # Pure Behavioral Cloning
-│   ├── train_iql.py                   # Pure Implicit Q-Learning
-│   ├── train_cql.py                   # Pure Conservative Q-Learning
-│   ├── train_bc_sac_*.py              # 3 variations of Offline-to-Online Fine-Tuning for BC
-│   ├── train_iql_sac.py               # Offline-to-Online Fine-Tuning for IQL
-│   ├── train_cql_sac.py               # Offline-to-Online Fine-Tuning for CQL
-│   └── play_race.py                   # Visual MuJoCo evaluation script
-├── mlruns.db                          # MLFlow SQLite Database
-├── requirements.txt                   # Exact pip dependencies
-└── Dockerfile                         # Container definition
-```
+---
 
 ## 🚀 Installation & Setup
 
@@ -70,56 +109,12 @@ pip install -r requirements.txt
 
 ---
 
-## 📖 Step-by-Step Execution Guide
+## 📖 Monitoring Experiments
 
-To reproduce the entire benchmark from scratch, navigate to the `openai_walker/` directory and execute the pipeline sequentially:
-
-### 1. Train the Online Expert (Teacher)
-Train a pure Soft Actor-Critic agent from scratch to reach expert status (~3800 points).
-```bash
-cd openai_walker
-python train_teacher.py
-```
-*(This will save `sac_walker2d_final.zip`)*
-
-### 2. Generate the Offline Dataset
-Extract 100,000 state-action-reward transitions from the Teacher and save them to a CSV.
-```bash
-python generate_dataset.py
-```
-*(This will generate `dataset_openai.csv`)*
-
-### 3. Pure Offline RL Training
-Train the completely offline paradigms using the CSV dataset. All runs are automatically tracked in MLFlow.
-```bash
-python train_bc.py
-python train_iql.py
-python train_cql.py
-```
-
-### 4. Offline-to-Online Fine-Tuning
-Load the pre-trained weights from the offline phase and fine-tune them dynamically in the environment using SAC variants.
-```bash
-# Behavioral Cloning Fine-Tuning Variants
-python train_bc_sac.py
-python train_bc_sac_regularized.py
-python train_bc_sac_constrained.py
-
-# IQL and CQL Fine-Tuning Variants
-python train_iql_sac.py
-python train_cql_sac.py
-```
-
-### 5. Final Evaluation (The Race)
-Run the visualization script to load all 8 generated models and pit them against each other in a rendered MuJoCo GUI.
-```bash
-python play_race.py
-```
-
-### 6. MLOps Monitoring
-You can monitor all training losses, rewards, and artifact states using the MLflow UI:
+All experiments across Phase 4 (Offline RL) are fully integrated with MLFlow.
+To visualize the loss curves, Q-value estimations, and download the `.pt` artifacts:
 ```bash
 # Run this from the root directory
 mlflow ui --backend-store-uri sqlite:///mlruns.db
 ```
-Then navigate to `http://localhost:5000` in your browser.
+Navigate to `http://localhost:5000` in your browser.

@@ -22,8 +22,8 @@ class BCPolicy(nn.Module):
         return self.net(x)
 
 class SACActor(nn.Module):
-    def __init__(self, input_dim, output_dim, max_action=1.0):
-        super(SACActor, self).__init__()
+    def __init__(self, input_dim, output_dim, max_action):
+        super().__init__()
         self.net = nn.Sequential(
             nn.Linear(input_dim, 256),
             nn.ReLU(),
@@ -34,9 +34,27 @@ class SACActor(nn.Module):
         self.log_std_layer = nn.Parameter(torch.zeros(1, output_dim))
         self.max_action = max_action
 
-    def forward(self, x):
-        features = self.net(x)
-        mean = self.mean_layer(features)
+    def forward(self, state):
+        x = self.net(state)
+        mean = self.mean_layer(x)
+        return torch.tanh(mean) * self.max_action
+
+class GAILActor(nn.Module):
+    def __init__(self, state_dim, action_dim, max_action):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(state_dim, 256),
+            nn.ReLU(),
+            nn.Linear(256, 256),
+            nn.ReLU()
+        )
+        self.mean_layer = nn.Linear(256, action_dim)
+        self.log_std_layer = nn.Linear(256, action_dim)
+        self.max_action = max_action
+
+    def forward(self, state):
+        x = self.net(state)
+        mean = self.mean_layer(x)
         return torch.tanh(mean) * self.max_action
 
 class PolicyNetIQL(nn.Module):
@@ -174,6 +192,16 @@ def main():
         cql_sac.eval()
         with torch.no_grad():
             scores["CQL+SAC"] = evaluate_model(env, "CQL+SAC (Offline-to-Online)", lambda obs: cql_sac(torch.FloatTensor(obs).unsqueeze(0).to(device)).squeeze(0).numpy())
+    
+    # 9. GAIL
+    gail = GAILActor(state_dim, action_dim, max_action).to(device)
+    try:
+        gail.load_state_dict(torch.load("gail_model.pt", map_location=device))
+        gail.eval()
+        with torch.no_grad():
+            scores["Inverse RL (GAIL)"] = evaluate_model(env, "Inverse RL (GAIL)", lambda obs: gail(torch.FloatTensor(obs).unsqueeze(0).to(device)).squeeze(0).numpy())
+    except Exception as e:
+        print(f"GAIL skip: {e}")
 
     env.close()
 

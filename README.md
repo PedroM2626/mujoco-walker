@@ -58,7 +58,8 @@ We migrated to the standardized `Walker2d-v5` Gymnasium environment to conduct a
     - `train_bc_sac_regularized.py` (BC Loss Penalty in the Actor)
     - `train_bc_sac_constrained.py` (Action Constraints / Clipping)
     - `train_iql_sac.py` & `train_cql_sac.py`
-5.  **Grand Evaluation:** `play_race.py` sequentially simulates all generated models.
+5.  **Inverse Reinforcement Learning (IRL):** `train_irl_gail.py` implements a Generative Adversarial Imitation Learning (GAIL) paradigm. It trains a Discriminator to distinguish expert from agent, and trains a SAC agent purely on the Discriminator's adversarial reward, completely bypassing the MuJoCo environment's native reward.
+6.  **Grand Evaluation:** `play_race.py` sequentially simulates all generated models in the arena.
 
 ---
 
@@ -71,11 +72,12 @@ Below are the empirical results from running `play_race.py` on the 100k expert t
 | **BC+SAC (Regularized)** | **4030.66** | 🏆 **Champion.** By using the BC loss as an active regularizer, the SAC policy avoided catastrophic forgetting and successfully explored the environment to find a slightly more optimal gait, *beating the original teacher!* |
 | **Teacher (Online SAC)** | 3876.30 | The pure online expert used to generate the dataset. |
 | **Behavioral Cloning (BC)** | 3837.80 | Since the dataset was highly narrow and deterministic (only expert trajectories), pure supervised cloning was extremely effective and almost perfectly matched the teacher. |
-| **BC+SAC (Naive)** | 972.04 | Without regularization, the SAC immediately destroyed the pre-trained BC weights in the first few epochs (Catastrophic Forgetting) because its untrained Critic started sending random gradients to the Actor. |
-| **CQL+SAC** | 402.77 | Fine-tuning a collapsed Q-function yielded poor results. |
-| **CQL Offline** | 315.96 | Conservative Q-Learning failed to learn. Why? Offline RL algorithms require *diverse* datasets with overlaps to properly backup Q-values. Given only a single, narrow expert path, Q-learning collapses. |
-| **BC+SAC (Constrained)** | 146.17 | Hard-clipping the SAC actions to the BC actions destroyed the gradient propagation and ruined the policy. |
-| **IQL Offline** | -17.37 | Implicit Q-Learning also collapsed due to the lack of dataset diversity (narrow expert data). |
+| **BC+SAC (Naive)** | 1248.83 | Without regularization, the SAC immediately destroyed the pre-trained BC weights in the first few epochs (Catastrophic Forgetting) because its untrained Critic started sending random gradients to the Actor. |
+| **Inverse RL (GAIL)** | 1016.41 | 🤖 **Blind Learning.** This agent trained with *zero* knowledge of the environment's true reward. It learned entirely from the subjective reward of an Adversarial Discriminator. Despite being "blind", it successfully learned to walk! <br><br>⚠️ **The 1 Million Steps Plateau:** We trained this model up to 1,000,000 steps, but the score stagnated around ~1000. This happened because the offline dataset was *too deterministic*. The Discriminator overfitted and became a "perfect judge," assigning a reward of 0 to any movement that wasn't pixel-perfect. This caused a Vanishing Gradient problem for the SAC agent, halting its learning. To fix this in the future, techniques like Adversarial IRL (AIRL) or Noise Injection would be required. |
+| **CQL+SAC** | 394.00 | Fine-tuning a collapsed Q-function yielded poor results. |
+| **CQL Offline** | 319.61 | Conservative Q-Learning failed to learn. Why? Offline RL algorithms require *diverse* datasets with overlaps to properly backup Q-values. Given only a single, narrow expert path, Q-learning collapses. |
+| **BC+SAC (Constrained)** | 203.54 | Hard-clipping the SAC actions to the BC actions destroyed the gradient propagation and ruined the policy. |
+| **IQL Offline** | -16.93 | Implicit Q-Learning also collapsed due to the lack of dataset diversity (narrow expert data). |
 
 ---
 

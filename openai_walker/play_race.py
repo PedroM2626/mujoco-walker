@@ -4,6 +4,7 @@ import torch.nn as nn
 import time
 import os
 from stable_baselines3 import SAC
+from train_irl_airl import SACActor as AIRLActor
 
 # ==========================================================
 # Architectures Definitions
@@ -83,9 +84,9 @@ class PolicyNetIQL(nn.Module):
 # ==========================================================
 # Evaluation Wrapper
 # ==========================================================
-def evaluate_model(env, name, get_action_fn, episodes=1):
+def evaluate_model(env, name, model, device, episodes=1, is_gail=False, is_airl=False):
     print(f"\n[{name}] Preparando para a corrida...")
-    time.sleep(2) # Pausa para o usuario ler o terminal
+    time.sleep(2)
     
     total_rewards = []
     for ep in range(episodes):
@@ -93,12 +94,17 @@ def evaluate_model(env, name, get_action_fn, episodes=1):
         done = False
         ep_reward = 0
         while not done:
-            action = get_action_fn(obs)
+            with torch.no_grad():
+                state_t = torch.FloatTensor(obs).unsqueeze(0).to(device)
+                if is_airl:
+                    mean, _ = model(state_t)
+                    action = (torch.tanh(mean) * model.max_action).cpu().data.numpy().flatten()
+                else:
+                    action = model(state_t).squeeze(0).cpu().data.numpy()
             obs, reward, terminated, truncated, _ = env.step(action)
             ep_reward += reward
             done = terminated or truncated
             env.render()
-            time.sleep(0.01) # Desacelera para visualizacao
             
         total_rewards.append(ep_reward)
         print(f"[{name}] Episodio {ep+1} - Pontuacao: {ep_reward:.2f}")
@@ -118,22 +124,24 @@ def main():
     action_dim = env.action_space.shape[0]
     max_action = float(env.action_space.high[0])
     
-    device = torch.device("cpu") # Avaliacao visual sempre na CPU para evitar gargalos de sync
+    device = torch.device("cpu")
     
     scores = {}
 
-    # 0. Professor SAC (Teto)
     if os.path.exists("sac_walker2d_final.zip"):
         teacher = SAC.load("sac_walker2d_final.zip", device=device)
-        scores["Teacher (Upper Bound)"] = evaluate_model(env, "Teacher (Upper Bound)", lambda obs: teacher.predict(obs, deterministic=True)[0])
+        class TeacherWrapper(nn.Module):
+            def forward(self, state):
+                action, _ = teacher.predict(state.cpu().numpy(), deterministic=True)
+                return torch.FloatTensor(action).to(device)
+        scores["Teacher (Upper Bound)"] = evaluate_model(env, "Teacher (Upper Bound)", TeacherWrapper(), device)
 
     # 1. Behavioral Cloning Puro
     if os.path.exists("bc_model.pt"):
         bc = BCPolicy(state_dim, action_dim).to(device)
         bc.load_state_dict(torch.load("bc_model.pt", map_location=device))
         bc.eval()
-        with torch.no_grad():
-            scores["Behavioral Cloning"] = evaluate_model(env, "Behavioral Cloning Puro", lambda obs: bc(torch.FloatTensor(obs).unsqueeze(0).to(device)).squeeze(0).numpy())
+        scores["Behavioral Cloning"] = evaluate_model(env, "Behavioral Cloning Puro", bc, device)
 
     # 2. IQL
     if os.path.exists("iql_full_ckpt.pt"):
@@ -141,8 +149,7 @@ def main():
         checkpoint = torch.load("iql_full_ckpt.pt", map_location=device)
         iql.load_state_dict(checkpoint['policy'])
         iql.eval()
-        with torch.no_grad():
-            scores["IQL Offline"] = evaluate_model(env, "Implicit Q-Learning", lambda obs: iql(torch.FloatTensor(obs).unsqueeze(0).to(device)).squeeze(0).numpy())
+        scores["IQL Offline"] = evaluate_model(env, "Implicit Q-Learning", iql, device)
 
     # 3. CQL
     if os.path.exists("cql_full_ckpt.pt"):
@@ -150,58 +157,56 @@ def main():
         checkpoint = torch.load("cql_full_ckpt.pt", map_location=device)
         cql.load_state_dict(checkpoint['policy'])
         cql.eval()
-        with torch.no_grad():
-            scores["CQL Offline"] = evaluate_model(env, "Conservative Q-Learning", lambda obs: cql(torch.FloatTensor(obs).unsqueeze(0).to(device)).squeeze(0).numpy())
+        scores["CQL Offline"] = evaluate_model(env, "Conservative Q-Learning", cql, device)
 
     # 4. BC + SAC (Naive)
     if os.path.exists("bc_sac_naive_model.pt"):
         bc_sac = SACActor(state_dim, action_dim, max_action).to(device)
         bc_sac.load_state_dict(torch.load("bc_sac_naive_model.pt", map_location=device))
         bc_sac.eval()
-        with torch.no_grad():
-            scores["BC+SAC (Naive)"] = evaluate_model(env, "BC+SAC (Naive Initialization)", lambda obs: bc_sac(torch.FloatTensor(obs).unsqueeze(0).to(device)).squeeze(0).numpy())
+        scores["BC+SAC (Naive)"] = evaluate_model(env, "BC+SAC (Naive Initialization)", bc_sac, device)
 
     # 5. BC + SAC (Regularized)
     if os.path.exists("bc_sac_regularized_model.pt"):
         bc_reg = SACActor(state_dim, action_dim, max_action).to(device)
         bc_reg.load_state_dict(torch.load("bc_sac_regularized_model.pt", map_location=device))
         bc_reg.eval()
-        with torch.no_grad():
-            scores["BC+SAC (Regularized)"] = evaluate_model(env, "BC+SAC (Regularization Penalty)", lambda obs: bc_reg(torch.FloatTensor(obs).unsqueeze(0).to(device)).squeeze(0).numpy())
+        scores["BC+SAC (Regularized)"] = evaluate_model(env, "BC+SAC (Regularization Penalty)", bc_reg, device)
 
     # 6. BC + SAC (Constrained)
     if os.path.exists("bc_sac_constrained_model.pt"):
         bc_con = SACActor(state_dim, action_dim, max_action).to(device)
         bc_con.load_state_dict(torch.load("bc_sac_constrained_model.pt", map_location=device))
         bc_con.eval()
-        with torch.no_grad():
-            scores["BC+SAC (Constrained)"] = evaluate_model(env, "BC+SAC (Action Constraints)", lambda obs: bc_con(torch.FloatTensor(obs).unsqueeze(0).to(device)).squeeze(0).numpy())
+        scores["BC+SAC (Constrained)"] = evaluate_model(env, "BC+SAC (Action Constraints)", bc_con, device)
 
     # 7. IQL + SAC
     if os.path.exists("iql_sac_model.pt"):
         iql_sac = PolicyNetIQL(state_dim, action_dim, max_action).to(device)
         iql_sac.load_state_dict(torch.load("iql_sac_model.pt", map_location=device))
         iql_sac.eval()
-        with torch.no_grad():
-            scores["IQL+SAC"] = evaluate_model(env, "IQL+SAC (Offline-to-Online)", lambda obs: iql_sac(torch.FloatTensor(obs).unsqueeze(0).to(device)).squeeze(0).numpy())
+        scores["IQL+SAC"] = evaluate_model(env, "IQL+SAC (Offline-to-Online)", iql_sac, device)
 
     # 8. CQL + SAC
     if os.path.exists("cql_sac_model.pt"):
         cql_sac = PolicyNetIQL(state_dim, action_dim, max_action).to(device)
         cql_sac.load_state_dict(torch.load("cql_sac_model.pt", map_location=device))
         cql_sac.eval()
-        with torch.no_grad():
-            scores["CQL+SAC"] = evaluate_model(env, "CQL+SAC (Offline-to-Online)", lambda obs: cql_sac(torch.FloatTensor(obs).unsqueeze(0).to(device)).squeeze(0).numpy())
+        scores["CQL+SAC"] = evaluate_model(env, "CQL+SAC (Offline-to-Online)", cql_sac, device)
     
     # 9. GAIL
     gail = GAILActor(state_dim, action_dim, max_action).to(device)
-    try:
+    if os.path.exists("gail_model.pt"):
         gail.load_state_dict(torch.load("gail_model.pt", map_location=device))
         gail.eval()
-        with torch.no_grad():
-            scores["Inverse RL (GAIL)"] = evaluate_model(env, "Inverse RL (GAIL)", lambda obs: gail(torch.FloatTensor(obs).unsqueeze(0).to(device)).squeeze(0).numpy())
-    except Exception as e:
-        print(f"GAIL skip: {e}")
+        scores["Inverse RL (GAIL)"] = evaluate_model(env, "Inverse RL (GAIL)", gail, device, is_gail=True)
+
+    # 10. AIRL
+    airl = AIRLActor(state_dim, action_dim, max_action).to(device)
+    if os.path.exists("airl_model.pt"):
+        airl.load_state_dict(torch.load("airl_model.pt", map_location=device))
+        airl.eval()
+        scores["Inverse RL (AIRL)"] = evaluate_model(env, "Inverse RL (AIRL)", airl, device, is_airl=True)
 
     env.close()
 

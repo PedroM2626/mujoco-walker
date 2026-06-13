@@ -78,6 +78,7 @@ Below are the empirical results from running `play_race.py` on the 100k expert t
 | **CQL Offline** | 319.61 | Conservative Q-Learning failed to learn. Why? Offline RL algorithms require *diverse* datasets with overlaps to properly backup Q-values. Given only a single, narrow expert path, Q-learning collapses. |
 | **BC+SAC (Constrained)** | 203.54 | Hard-clipping the SAC actions to the BC actions destroyed the gradient propagation and ruined the policy. |
 | **IQL Offline** | -16.93 | Implicit Q-Learning also collapsed due to the lack of dataset diversity (narrow expert data). |
+| **Inverse RL (AIRL)** | -6.36 | 💥 **Numerical Catastrophe:** We implemented the mathematically superior AIRL formula to fix the GAIL plateau. However, because our dataset contains strictly deterministic expert actions hitting the extreme edges of the action space (e.g. 1.0 or -1.0), calculating the true $\log(\pi(a|s))$ via the `atanh` transformation resulted in numerical infinities (`NaN`). This destroyed the Discriminator's gradients instantly, causing the agent to fall over immediately. A classic MLOps lesson: beautiful theory often requires heavy engineering hacks (Gradient Clipping, Spectral Normalization) to work in practice! |
 
 ---
 

@@ -5,6 +5,10 @@ import time
 import os
 from stable_baselines3 import SAC
 from train_irl_airl import SACActor as AIRLActor
+from train_offline_bcq import VAE, PerturbationNetwork
+from train_offline_dt import DecisionTransformer
+from train_irl_maxent import SACActor as MaxEntActor
+from train_irl_pqr import PolicyNet as PQRPolicy
 
 # ==========================================================
 # Architectures Definitions
@@ -84,7 +88,7 @@ class PolicyNetIQL(nn.Module):
 # ==========================================================
 # Evaluation Wrapper
 # ==========================================================
-def evaluate_model(env, name, model, device, episodes=1, is_gail=False, is_airl=False):
+def evaluate_model(env, name, model, device, episodes=1, is_gail=False, is_airl=False, is_dt=False, is_maxent=False, dt_context=20):
     print(f"\n[{name}] Preparando para a corrida...")
     time.sleep(2)
     
@@ -93,16 +97,49 @@ def evaluate_model(env, name, model, device, episodes=1, is_gail=False, is_airl=
         obs, _ = env.reset()
         done = False
         ep_reward = 0
+        
+        # Specific context for Decision Transformer
+        if is_dt:
+            state_seq = torch.zeros((1, dt_context, env.observation_space.shape[0]), dtype=torch.float32, device=device)
+            action_seq = torch.zeros((1, dt_context, env.action_space.shape[0]), dtype=torch.float32, device=device)
+            rtg_seq = torch.zeros((1, dt_context, 1), dtype=torch.float32, device=device)
+            
+            # Start with a high target return
+            rtg = 4000.0
+            
+            step = 0
+            
         while not done:
             with torch.no_grad():
-                state_t = torch.FloatTensor(obs).unsqueeze(0).to(device)
-                if is_airl:
-                    mean, _ = model(state_t)
-                    action = (torch.tanh(mean) * model.max_action).cpu().data.numpy().flatten()
+                if is_dt:
+                    # Shift sequences and append current obs
+                    state_seq[0, :-1] = state_seq[0, 1:].clone()
+                    state_seq[0, -1] = torch.FloatTensor(obs).to(device)
+                    
+                    rtg_seq[0, :-1] = rtg_seq[0, 1:].clone()
+                    rtg_seq[0, -1] = torch.tensor([rtg], dtype=torch.float32).to(device)
+                    
+                    timesteps = torch.arange(0, dt_context, device=device).unsqueeze(0)
+                    
+                    action_preds = model(state_seq, action_seq, rtg_seq, timesteps)
+                    action = action_preds[0, -1].cpu().data.numpy().flatten()
+                    
+                    action_seq[0, :-1] = action_seq[0, 1:].clone()
+                    action_seq[0, -1] = torch.FloatTensor(action).to(device)
+                    
                 else:
-                    action = model(state_t).squeeze(0).cpu().data.numpy()
+                    state_t = torch.FloatTensor(obs).unsqueeze(0).to(device)
+                    if is_airl or is_maxent:
+                        mean, _ = model(state_t)
+                        action = (torch.tanh(mean) * model.max_action).cpu().data.numpy().flatten()
+                    elif is_gail:
+                        action = model(state_t).squeeze(0).cpu().data.numpy()
+                    else:
+                        action = model(state_t).squeeze(0).cpu().data.numpy()
             obs, reward, terminated, truncated, _ = env.step(action)
             ep_reward += reward
+            if is_dt:
+                rtg -= reward
             done = terminated or truncated
             env.render()
             
@@ -207,6 +244,41 @@ def main():
         airl.load_state_dict(torch.load("airl_model.pt", map_location=device))
         airl.eval()
         scores["Inverse RL (AIRL)"] = evaluate_model(env, "Inverse RL (AIRL)", airl, device, is_airl=True)
+
+    # 11. BCQ
+    if os.path.exists("bcq_vae.pt"):
+        vae = VAE(state_dim, action_dim, action_dim*2, max_action).to(device)
+        vae.load_state_dict(torch.load("bcq_vae.pt", map_location=device))
+        perturbation = PerturbationNetwork(state_dim, action_dim, max_action).to(device)
+        perturbation.load_state_dict(torch.load("bcq_perturbation.pt", map_location=device))
+        vae.eval()
+        perturbation.eval()
+        class BCQWrapper(nn.Module):
+            def forward(self, state):
+                a = vae.decode(state)
+                return perturbation(state, a)
+        scores["Batch-Constrained Q-learning (BCQ)"] = evaluate_model(env, "Batch-Constrained Q-learning (BCQ)", BCQWrapper(), device)
+
+    # 12. Decision Transformer
+    if os.path.exists("dt_model.pt"):
+        dt = DecisionTransformer(state_dim, action_dim, hidden_size=128, max_length=20).to(device)
+        dt.load_state_dict(torch.load("dt_model.pt", map_location=device))
+        dt.eval()
+        scores["Decision Transformer (DT)"] = evaluate_model(env, "Decision Transformer (DT)", dt, device, is_dt=True)
+
+    # 13. MaxEnt IRL
+    maxent = MaxEntActor(state_dim, action_dim, max_action).to(device)
+    if os.path.exists("maxent_model.pt"):
+        maxent.load_state_dict(torch.load("maxent_model.pt", map_location=device))
+        maxent.eval()
+        scores["MaxEnt IRL"] = evaluate_model(env, "MaxEnt IRL", maxent, device, is_maxent=True)
+
+    # 14. Deep PQR
+    pqr = PQRPolicy(state_dim, action_dim, max_action).to(device)
+    if os.path.exists("pqr_policy.pt"):
+        pqr.load_state_dict(torch.load("pqr_policy.pt", map_location=device))
+        pqr.eval()
+        scores["Deep PQR"] = evaluate_model(env, "Deep PQR", pqr, device)
 
     env.close()
 

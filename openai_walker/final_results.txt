@@ -1,0 +1,60 @@
+==================================================
+ GRANDE CORRIDA OFFLINE RL: WALKER2D-V5 
+==================================================
+
+[Teacher (Upper Bound)] Preparando para a corrida...
+[Teacher (Upper Bound)] Episodio 1 - Pontuacao: 3865.41
+
+[Behavioral Cloning Puro] Preparando para a corrida...
+[Behavioral Cloning Puro] Episodio 1 - Pontuacao: 1728.81
+
+[Implicit Q-Learning] Preparando para a corrida...
+[Implicit Q-Learning] Episodio 1 - Pontuacao: -15.81
+
+[Conservative Q-Learning] Preparando para a corrida...
+[Conservative Q-Learning] Episodio 1 - Pontuacao: 315.37
+
+[BC+SAC (Naive Initialization)] Preparando para a corrida...
+[BC+SAC (Naive Initialization)] Episodio 1 - Pontuacao: 1369.87
+
+[BC+SAC (Regularization Penalty)] Preparando para a corrida...
+[BC+SAC (Regularization Penalty)] Episodio 1 - Pontuacao: 3396.81
+
+[BC+SAC (Action Constraints)] Preparando para a corrida...
+[BC+SAC (Action Constraints)] Episodio 1 - Pontuacao: 338.67
+
+[CQL+SAC (Offline-to-Online)] Preparando para a corrida...
+[CQL+SAC (Offline-to-Online)] Episodio 1 - Pontuacao: 401.80
+
+[Inverse RL (GAIL)] Preparando para a corrida...
+[Inverse RL (GAIL)] Episodio 1 - Pontuacao: 997.57
+
+[Inverse RL (AIRL)] Preparando para a corrida...
+[Inverse RL (AIRL)] Episodio 1 - Pontuacao: -6.36
+
+[Batch-Constrained Q-learning (BCQ)] Preparando para a corrida...
+[Batch-Constrained Q-learning (BCQ)] Episodio 1 - Pontuacao: 3897.63
+
+[Decision Transformer (DT)] Preparando para a corrida...
+[Decision Transformer (DT)] Episodio 1 - Pontuacao: 1288.02
+
+[MaxEnt IRL] Preparando para a corrida...
+[MaxEnt IRL] Episodio 1 - Pontuacao: 269.61
+
+==================================================
+ PLACAR FINAL 
+==================================================
+Batch-Constrained Q-learning (BCQ): 3897.63 pontos
+Teacher (Upper Bound)         : 3865.41 pontos
+BC+SAC (Regularized)          : 3396.81 pontos
+Behavioral Cloning            : 1728.81 pontos
+BC+SAC (Naive)                : 1369.87 pontos
+Decision Transformer (DT)     : 1288.02 pontos
+Inverse RL (GAIL)             : 997.57 pontos
+CQL+SAC                       : 401.80 pontos
+BC+SAC (Constrained)          : 338.67 pontos
+CQL Offline                   : 315.37 pontos
+MaxEnt IRL                    : 269.61 pontos
+Inverse RL (AIRL)             : -6.36 pontos
+IQL Offline                   : -15.81 pontos
+==================================================

@@ -9,17 +9,20 @@ from torch.utils.data import Dataset, DataLoader
 import mlflow
 import os
 
+import torch.nn.utils.spectral_norm as spectral_norm
+
 class ExpertDataset(Dataset):
     def __init__(self, csv_file):
         df = pd.read_csv(csv_file)
         self.states = torch.FloatTensor(df.iloc[:, :17].values)
-        self.actions = torch.FloatTensor(df.iloc[:, 17:23].values)
+        self.next_states = torch.FloatTensor(df.iloc[:, 17:34].values)
+        self.actions = torch.FloatTensor(df.iloc[:, 34:40].values)
 
     def __len__(self):
         return len(self.states)
 
     def __getitem__(self, idx):
-        return self.states[idx], self.actions[idx]
+        return self.states[idx], self.actions[idx], self.next_states[idx]
 
 class ReplayBuffer:
     def __init__(self, state_dim, action_dim, max_size=1000000):
@@ -54,20 +57,33 @@ class ReplayBuffer:
         )
 
 class DiscriminatorAIRL(nn.Module):
-    def __init__(self, state_dim, action_dim):
+    def __init__(self, state_dim, action_dim, gamma=0.99):
         super().__init__()
-        # In AIRL, the discriminator outputs the reward function f(s,a)
-        self.net = nn.Sequential(
-            nn.Linear(state_dim + action_dim, 256),
+        self.gamma = gamma
+        self.g = nn.Sequential(
+            spectral_norm(nn.Linear(state_dim + action_dim, 256)),
             nn.Tanh(),
-            nn.Linear(256, 256),
+            spectral_norm(nn.Linear(256, 256)),
             nn.Tanh(),
-            nn.Linear(256, 1)
+            spectral_norm(nn.Linear(256, 1))
+        )
+        self.h = nn.Sequential(
+            spectral_norm(nn.Linear(state_dim, 256)),
+            nn.Tanh(),
+            spectral_norm(nn.Linear(256, 256)),
+            nn.Tanh(),
+            spectral_norm(nn.Linear(256, 1))
         )
         
-    def forward(self, state, action):
+    def forward(self, state, action, next_state):
         sa = torch.cat([state, action], dim=1)
-        return self.net(sa) # f(s,a)
+        g_val = self.g(sa)
+        h_s = self.h(state)
+        h_next_s = self.h(next_state)
+        
+        # f(s,a,s') = g(s,a) + gamma * h(s') - h(s)
+        f_val = g_val + self.gamma * h_next_s - h_s
+        return f_val, g_val
 
 class SACActor(nn.Module):
     def __init__(self, state_dim, action_dim, max_action):
@@ -107,8 +123,9 @@ class SACActor(nn.Module):
         normal = torch.distributions.Normal(mean, std)
         # un-tanh the action
         # a = tanh(u) * max_action -> u = atanh(a / max_action)
+        # Clip actions strictly before atanh to avoid infinity
         action_scaled = action / self.max_action
-        action_scaled = torch.clamp(action_scaled, -0.999999, 0.999999)
+        action_scaled = torch.clamp(action_scaled, -0.95, 0.95)
         u = torch.atanh(action_scaled)
         log_prob = normal.log_prob(u)
         log_prob -= torch.log(self.max_action * (1 - action_scaled.pow(2)) + 1e-6)
@@ -217,22 +234,21 @@ def train_airl():
                 
                 # Sample Expert Batch
                 try:
-                    s_exp, a_exp = next(expert_iter)
+                    s_exp, a_exp, ns_exp = next(expert_iter)
                 except StopIteration:
                     expert_iter = iter(expert_loader)
-                    s_exp, a_exp = next(expert_iter)
-                s_exp, a_exp = s_exp.to(device), a_exp.to(device)
+                    s_exp, a_exp, ns_exp = next(expert_iter)
+                s_exp, a_exp, ns_exp = s_exp.to(device), a_exp.to(device), ns_exp.to(device)
                 
                 # -----------------------------
                 # 1. Train AIRL Discriminator
                 # -----------------------------
-                # AIRL Logit: D(s,a) = sigmoid(f(s,a) - log_pi(a|s))
                 with torch.no_grad():
                     log_pi_exp = actor.evaluate(s_exp, a_exp)
                     log_pi_ag = actor.evaluate(s_ag, a_ag)
                     
-                f_exp = discriminator(s_exp, a_exp)
-                f_ag = discriminator(s_ag, a_ag)
+                f_exp, _ = discriminator(s_exp, a_exp, ns_exp)
+                f_ag, _ = discriminator(s_ag, a_ag, ns_ag)
                 
                 logits_exp = f_exp - log_pi_exp
                 logits_ag = f_ag - log_pi_ag
@@ -249,10 +265,9 @@ def train_airl():
                 # -----------------------------
                 # 2. Compute AIRL Reward
                 # -----------------------------
-                # R_airl = f(s,a) 
-                # Note: true AIRL uses f(s,a,s') = g(s,a) + gamma V(s') - V(s). We use f(s,a) = g(s,a) for stability.
+                # R_airl = f(s,a,s')
                 with torch.no_grad():
-                    r_airl = discriminator(s_ag, a_ag)
+                    r_airl, _ = discriminator(s_ag, a_ag, ns_ag)
                     
                 # -----------------------------
                 # 3. Train SAC using AIRL Reward

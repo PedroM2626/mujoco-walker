@@ -26,6 +26,8 @@ runs/
 checkpoints/
 *.pt
 *.pth
+*.pkl
+*.zip
 .env.local
 .venv/
 venv/

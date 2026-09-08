@@ -1,0 +1,33 @@
+# Normaliza line endings para evitar corrupção do index (ex: entrada "./" com null sha1)
+# e o ciclo delete(staged)+untracked visto com core.autocrlf=true no Windows.
+* text=auto
+
+# Código e texto: sempre LF no repositório
+*.py text eol=lf
+*.xml text eol=lf
+*.md text eol=lf
+*.txt text eol=lf
+*.csv text eol=lf
+*.json text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.toml text eol=lf
+*.cfg text eol=lf
+*.ini text eol=lf
+Dockerfile text eol=lf
+.gitignore text eol=lf
+.gitattributes text eol=lf
+
+# Scripts Windows: CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Binários: sem conversão
+*.pt binary
+*.pth binary
+*.pkl binary
+*.zip binary
+*.db binary
+*.png binary
+*.so binary

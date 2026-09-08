@@ -115,6 +115,7 @@ class TestRaceSystem(unittest.TestCase):
                 "--names", "FastSAC", "AccuratePPO", "RobustTD3",
                 "--target-x", "5.0",
                 "--max-steps", "10",
+                "--device", "cpu",
                 "--headless"
             ],
             cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),

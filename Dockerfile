@@ -1,25 +1,29 @@
-FROM python:3.8-slim
+FROM python:3.11-slim
 
-# Install system dependencies for MuJoCo and rendering
-RUN apt-get update && apt-get install -y \
+# System dependencies for MuJoCo physics + headless (OSMesa/EGL) rendering.
+RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
+    libgl1 \
+    libglx-mesa0 \
     libgl1-mesa-dev \
-    libgl1-mesa-glx \
     libglew-dev \
     libosmesa6-dev \
-    software-properties-common \
+    libglfw3-dev \
+    libegl-dev \
     wget \
     && rm -rf /var/lib/apt/lists/*
 
-# Set working directory
+ENV PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    MUJOCO_GL=osmesa
+
 WORKDIR /app
 
-# Copy requirements and install
+# Install Python deps first (better layer caching).
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --upgrade pip && pip install -r requirements.txt
 
-# Copy the rest of the project
+# Copy the rest of the project (.dockerignore excludes .git/.venv/runs/checkpoints).
 COPY . .
 
-# Set default command
 CMD ["bash"]

@@ -151,11 +151,7 @@ def train_ars():
     ckpt_dir = get_checkpoint_dir(args.run_id)
     next_checkpoint_step = ((global_step // args.checkpoint_interval) + 1) * args.checkpoint_interval
 
-    # Setup WandB
-            mode="offline",
-            dir=".",
-        )
-
+    # Setup WandB (removido: tracking canônico é MLflow + TensorBoard; wandb não é dependência)
     # Setup MLflow
     mlf_run = start_mlflow_run(args, run_name, "ars")
 
@@ -166,7 +162,7 @@ def train_ars():
             files.sort(key=lambda x: int(x.split("_")[-1].split(".")[0]))
             ckpt_path = os.path.join(ckpt_dir, files[-1])
             print(f"[CHECKPOINT] Loading from {ckpt_path}")
-            checkpoint = torch.load(ckpt_path)
+            checkpoint = torch.load(ckpt_path, weights_only=False)
             weights = checkpoint["weights"]
             bias = checkpoint["bias"]
             normalizer.mean = checkpoint["obs_rms"]["mean"]

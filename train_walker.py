@@ -234,7 +234,7 @@ def make_env(
             env = gym.make(env_id, **env_kwargs)
         env = gym.wrappers.FlattenObservation(env)
         env = gym.wrappers.RecordEpisodeStatistics(env)
-        env = gym.wrappers.ClipAction(env)
+        env = wrap_clip_action(env)
         return env
 
     return thunk
@@ -269,6 +269,15 @@ class SACAgent(nn.Module):
     def __init__(self, obs_dim, action_space):
         super().__init__()
         self.action_dim = int(np.prod(action_space.shape))
+        high = np.asarray(action_space.high, dtype=np.float64)
+        low = np.asarray(action_space.low, dtype=np.float64)
+        if not (np.all(np.isfinite(high)) and np.all(np.isfinite(low))):
+            raise ValueError(
+                "SACAgent requer action_space com bounds finitos; "
+                f"recebido high={high}, low={low}. "
+                "Se o env usa ClipAction do gymnasium>=1.0, aplique "
+                "train_walker.wrap_clip_action para restaurar os bounds."
+            )
         self.register_buffer("action_scale", torch.tensor((action_space.high - action_space.low) / 2.0, dtype=torch.float32))
         self.register_buffer("action_bias", torch.tensor((action_space.high + action_space.low) / 2.0, dtype=torch.float32))
         self.backbone = nn.Sequential(
@@ -395,7 +404,7 @@ class RecoverySupervisor:
             if candidates:
                 ckpt_path = max(candidates)[1]
                 print(f"[RECOVERY] Loading recovery agent from {ckpt_path}")
-                checkpoint = torch.load(ckpt_path, map_location=device)
+                checkpoint = torch.load(ckpt_path, map_location=device, weights_only=False)
                 action_space = gym.spaces.Box(-1.0, 1.0, shape=(17,))
                 
                 self.recovery_agent = SACAgent(46, action_space).to(device)
@@ -470,15 +479,95 @@ def get_rng_state() -> Dict[str, Any]:
 def set_rng_state(state: Dict[str, Any]):
     random.setstate(state["python_random"])
     np.random.set_state(state["numpy_random"])
-    torch.set_rng_state(state["torch_random"])
+    # torch.set_rng_state exige ByteTensor na CPU, mas o checkpoint pode ter
+    # sido carregado com map_location=cuda (move todos os tensores p/ GPU).
+    torch_state = state["torch_random"]
+    if isinstance(torch_state, torch.Tensor):
+        torch_state = torch_state.to(device="cpu", dtype=torch.uint8)
+    torch.set_rng_state(torch_state)
     if torch.cuda.is_available() and state.get("torch_cuda_random") is not None:
-        torch.cuda.set_rng_state_all(state["torch_cuda_random"])
+        # set_rng_state_all exige ByteTensor na CPU; o checkpoint pode ter
+        # sido carregado com map_location=cuda. Fatia p/ nº atual de GPUs.
+        cuda_states = []
+        for s in state["torch_cuda_random"]:
+            if isinstance(s, torch.Tensor):
+                s = s.to(device="cpu", dtype=torch.uint8)
+            cuda_states.append(s)
+        torch.cuda.set_rng_state_all(cuda_states[: torch.cuda.device_count()])
+
+
+def _vector_wrappers():
+    return getattr(gym.wrappers, "vector", None)
+
+
+def _is_vector_env(env):
+    return isinstance(env, gym.vector.VectorEnv)
+
+
+def wrap_normalize_observation(env):
+    """NormalizeObservation que aceita Env simples e VectorEnv (gymnasium>=0.29)."""
+    if _is_vector_env(env):
+        vec = _vector_wrappers()
+        if vec is not None and hasattr(vec, "NormalizeObservation"):
+            return vec.NormalizeObservation(env)
+    return gym.wrappers.NormalizeObservation(env)
+
+
+def wrap_transform_observation(env, func):
+    """TransformObservation que aceita Env simples e VectorEnv."""
+    if _is_vector_env(env):
+        vec = _vector_wrappers()
+        if vec is not None and hasattr(vec, "TransformObservation"):
+            return vec.TransformObservation(env, func)
+    return gym.wrappers.TransformObservation(env, func)
+
+
+def wrap_normalize_reward(env, gamma=0.99):
+    """NormalizeReward que aceita Env simples e VectorEnv."""
+    if _is_vector_env(env):
+        vec = _vector_wrappers()
+        if vec is not None and hasattr(vec, "NormalizeReward"):
+            return vec.NormalizeReward(env, gamma=gamma)
+    return gym.wrappers.NormalizeReward(env, gamma=gamma)
+
+
+def wrap_transform_reward(env, func):
+    """TransformReward que aceita Env simples e VectorEnv."""
+    if _is_vector_env(env):
+        vec = _vector_wrappers()
+        if vec is not None and hasattr(vec, "TransformReward"):
+            return vec.TransformReward(env, func)
+    return gym.wrappers.TransformReward(env, func)
+
+
+def wrap_clip_action(env):
+    """ClipAction preservando bounds finitos (compat gymnasium>=1.0).
+
+    Desde o gymnasium v1.0, ClipAction expõe Box(-inf, inf) ("technically
+    correct" no changelog v1.0.0). O clipping em si continua funcionando via
+    closure com os bounds originais, mas o espaço externo ilimitado quebra o
+    padrão action_scale/action_bias dos agentes (scale=inf, bias=NaN ->
+    ações NaN -> "Nan in CTRL" -> simulação explode). Como o MJCF define
+    ctrlrange ±1 real, restauramos o espaço original para o mundo externo.
+    """
+    bounded_space = env.action_space
+    env = gym.wrappers.ClipAction(env)
+    env.action_space = bounded_space
+    return env
+
+
+def _normalize_obs_classes():
+    classes = [gym.wrappers.NormalizeObservation]
+    vec = _vector_wrappers()
+    if vec is not None and hasattr(vec, "NormalizeObservation"):
+        classes.append(vec.NormalizeObservation)
+    return tuple(classes)
 
 
 def get_normalize_observation_wrapper(env):
     current = env
     while current is not None:
-        if isinstance(current, gym.wrappers.NormalizeObservation):
+        if isinstance(current, _normalize_obs_classes()):
             return current
         current = getattr(current, "env", None)
     raise RuntimeError("NormalizeObservation wrapper not found in env stack.")
@@ -507,6 +596,70 @@ def adapt_obs_rms(obs_rms, target_shape):
     adapted.mean = new_mean
     adapted.var = new_var
     return adapted
+
+
+try:
+    import mlflow as _mlflow
+except Exception:
+    _mlflow = None
+
+
+def start_mlflow_run(args, run_name, algo_name):
+    """Inicia um run MLflow de forma tolerante a falhas (retorna None se indisponível)."""
+    if _mlflow is None:
+        return None
+    try:
+        tracking_uri = os.environ.get("MLFLOW_TRACKING_URI", "sqlite:///mlruns.db")
+        _mlflow.set_tracking_uri(tracking_uri)
+        experiment = getattr(args, "mlflow_experiment", None) or os.environ.get("MLFLOW_EXPERIMENT", "walker-ragdoll")
+        _mlflow.set_experiment(experiment)
+        run = _mlflow.start_run(run_name=f"{algo_name}_{run_name}")
+        try:
+            _mlflow.log_param("algo", algo_name)
+            _mlflow.log_param("run_name", run_name)
+            for key in ("seed", "task_phase", "reset_mode", "total_timesteps",
+                        "learning_rate", "num_envs"):
+                value = getattr(args, key, None)
+                if value is None or isinstance(value, (str, int, float, bool)):
+                    _mlflow.log_param(key, value)
+        except Exception:
+            pass
+        return run
+    except Exception as e:
+        print(f"[MLFLOW] Tracking desabilitado ({e}).")
+        return None
+
+
+def log_mlflow_metrics(run, metrics, step=None):
+    """Loga métricas no run ativo; no-op se tracking indisponível."""
+    if run is None or _mlflow is None:
+        return
+    try:
+        for key, value in metrics.items():
+            _mlflow.log_metric(key, float(value), step=step)
+    except Exception:
+        pass
+
+
+def log_mlflow_artifact(run, local_path, algo_name=None, step=None):
+    """Anexa artefato ao run ativo; no-op se tracking indisponível."""
+    if run is None or _mlflow is None:
+        return
+    try:
+        if os.path.exists(local_path):
+            _mlflow.log_artifact(local_path)
+    except Exception:
+        pass
+
+
+def end_mlflow_run(run):
+    """Encerra o run ativo; no-op se tracking indisponível."""
+    if run is None or _mlflow is None:
+        return
+    try:
+        _mlflow.end_run()
+    except Exception:
+        pass
 
 
 def load_state_dict_with_expanded_input(module, source_state_dict, input_weight_key):
@@ -660,7 +813,9 @@ def latest_sac_actor_checkpoint(ckpt_dir):
 
 
 def load_torch_checkpoint(path, device):
-    return torch.load(path, map_location=device)
+    # Checkpoints locais (obs_rms=RunningMeanStd, replay_buffer, rng states).
+    # torch>=2.6 usa weights_only=True por padrão e recusaria esses objetos.
+    return torch.load(path, map_location=device, weights_only=False)
 
 
 def resolve_checkpoint_any(run_id, checkpoint_step=0, prefer_actor=False):
@@ -737,6 +892,15 @@ class TD3Agent(nn.Module):
     def __init__(self, obs_dim, action_space):
         super().__init__()
         self.action_dim = int(np.prod(action_space.shape))
+        high = np.asarray(action_space.high, dtype=np.float64)
+        low = np.asarray(action_space.low, dtype=np.float64)
+        if not (np.all(np.isfinite(high)) and np.all(np.isfinite(low))):
+            raise ValueError(
+                "TD3Agent requer action_space com bounds finitos; "
+                f"recebido high={high}, low={low}. "
+                "Se o env usa ClipAction do gymnasium>=1.0, aplique "
+                "train_walker.wrap_clip_action para restaurar os bounds."
+            )
         self.register_buffer("action_scale", torch.tensor((action_space.high - action_space.low) / 2.0, dtype=torch.float32))
         self.register_buffer("action_bias", torch.tensor((action_space.high + action_space.low) / 2.0, dtype=torch.float32))
         self.backbone = nn.Sequential(
@@ -859,10 +1023,10 @@ def train_ppo(start_time=None):
                  terminate_when_unhealthy=(args.task_phase == "target"))
         for i in range(args.num_envs)
     ])
-    envs = gym.wrappers.NormalizeObservation(envs)
-    envs = gym.wrappers.TransformObservation(envs, lambda obs: np.clip(obs, -10, 10))
-    envs = gym.wrappers.NormalizeReward(envs, gamma=args.gamma)
-    envs = gym.wrappers.TransformReward(envs, lambda reward: np.clip(reward, -10, 10))
+    envs = wrap_normalize_observation(envs)
+    envs = wrap_transform_observation(envs, lambda obs: np.clip(obs, -10, 10))
+    envs = wrap_normalize_reward(envs, gamma=args.gamma)
+    envs = wrap_transform_reward(envs, lambda reward: np.clip(reward, -10, 10))
 
     obs_dim = int(np.prod(envs.single_observation_space.shape))
     action_dim = int(np.prod(envs.single_action_space.shape))
@@ -1050,12 +1214,6 @@ def train_ppo(start_time=None):
             writer.add_scalar("losses/clipfrac", np.mean(clipfracs), global_step)
             writer.add_scalar("losses/explained_variance", explained_var, global_step)
             writer.add_scalar("charts/SPS", int(global_step / (time.time() - start_time)), global_step)
-            log_wandb_metrics(wandb_run, {
-                "value_loss": v_loss.item(), "policy_loss": pg_loss.item(),
-                "entropy": entropy_loss.item(), "clipfrac": np.mean(clipfracs),
-                "explained_variance": explained_var,
-                "sps": int(global_step / (time.time() - start_time)),
-            }, global_step)
 
             if global_step >= next_checkpoint_step:
                 ckpt_path = os.path.join(ckpt_dir, f"ppo_ckpt_{global_step}.pt")
@@ -1112,8 +1270,8 @@ def train_td3(start_time=None):
             for i in range(args.num_envs)
         ]
     )
-    envs = gym.wrappers.NormalizeObservation(envs)
-    envs = gym.wrappers.TransformObservation(envs, lambda obs: np.clip(obs, -10, 10))
+    envs = wrap_normalize_observation(envs)
+    envs = wrap_transform_observation(envs, lambda obs: np.clip(obs, -10, 10))
 
     obs_dim = int(np.prod(envs.single_observation_space.shape))
     action_dim = int(np.prod(envs.single_action_space.shape))
@@ -1350,8 +1508,8 @@ def train(start_time=None):
             for i in range(args.num_envs)
         ]
     )
-    envs = gym.wrappers.NormalizeObservation(envs)
-    envs = gym.wrappers.TransformObservation(envs, lambda obs: np.clip(obs, -10, 10))
+    envs = wrap_normalize_observation(envs)
+    envs = wrap_transform_observation(envs, lambda obs: np.clip(obs, -10, 10))
 
     obs_dim = int(np.prod(envs.single_observation_space.shape))
     action_dim = int(np.prod(envs.single_action_space.shape))

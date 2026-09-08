@@ -5,15 +5,26 @@ import torch.nn.functional as F
 import torch.optim as optim
 import numpy as np
 import pandas as pd
+import os
 from torch.utils.data import Dataset, DataLoader
 import mlflow
 
 class ExpertDataset(Dataset):
     def __init__(self, csv_file):
         df = pd.read_csv(csv_file)
-        self.states = torch.FloatTensor(df.iloc[:, :17].values)
-        self.next_states = torch.FloatTensor(df.iloc[:, 17:34].values)
-        self.actions = torch.FloatTensor(df.iloc[:, 34:40].values)
+        obs_cols = [c for c in df.columns if c.startswith('obs_') and not c.startswith('next_obs_')]
+        next_cols = [c for c in df.columns if c.startswith('next_obs_')]
+        act_cols = [c for c in df.columns if c.startswith('action_')]
+        if obs_cols and next_cols and act_cols:
+            # Layout canônico do generate_dataset.py (17 obs, 17 next, 6 ações)
+            self.states = torch.FloatTensor(df[obs_cols].values)
+            self.next_states = torch.FloatTensor(df[next_cols].values)
+            self.actions = torch.FloatTensor(df[act_cols].values)
+        else:
+            # Fallback posicional legado (dataset 42 cols: 0-16 obs, 17-33 next, 34-39 act)
+            self.states = torch.FloatTensor(df.iloc[:, :17].values)
+            self.next_states = torch.FloatTensor(df.iloc[:, 17:34].values)
+            self.actions = torch.FloatTensor(df.iloc[:, 34:40].values)
 
     def __len__(self):
         return len(self.states)
@@ -67,9 +78,14 @@ class RewardNet(nn.Module):
         return self.net(sa)
 
 def train_pqr():
-    mlflow.set_tracking_uri("sqlite:///../mlruns.db")
+    mlflow.set_tracking_uri("sqlite:///mlruns.db")
     mlflow.set_experiment("Walker2d_Offline_to_Online")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    if not os.path.exists("dataset_openai.csv"):
+        print("Dataset nao encontrado em: dataset_openai.csv")
+        print("Execute primeiro: python train_teacher.py && python generate_dataset.py")
+        return
     
     env = gym.make("Walker2d-v5")
     state_dim = env.observation_space.shape[0]
@@ -94,23 +110,31 @@ def train_pqr():
     gamma = 0.99
     
     with mlflow.start_run(run_name="Deep_PQR_IRL"):
+        mlflow.log_param("gamma", gamma)
         epochs = 10
         print("Training PQR - Step 1: Policy")
         for epoch in range(epochs):
+            total_pi = 0.0
+            n_pi = 0
             for s, a, ns in dataloader:
                 s, a = s.to(device), a.to(device)
                 loss_pi = F.mse_loss(pi(s), a)
                 opt_pi.zero_grad()
                 loss_pi.backward()
                 opt_pi.step()
-                
+                total_pi += loss_pi.item()
+                n_pi += 1
+            mlflow.log_metric("pi_loss", total_pi / max(n_pi, 1), step=epoch)
+
         print("Training PQR - Step 2: Q-Function with Anchor Action")
         # Anchor action = 0, Q(s, 0) = 0 assumed for identifiability
-        anchor_action = torch.zeros(256, action_dim).to(device)
         for epoch in range(epochs):
+            total_q = 0.0
+            n_q = 0
             for s, a, ns in dataloader:
                 s, a, ns = s.to(device), a.to(device), ns.to(device)
-                
+                anchor_action = torch.zeros(s.shape[0], action_dim).to(device)
+
                 with torch.no_grad():
                     next_a = pi(ns)
                     target_q = q_net(ns, next_a)
@@ -125,21 +149,30 @@ def train_pqr():
                 opt_q.zero_grad()
                 loss_q.backward()
                 opt_q.step()
-                
+                total_q += loss_q.item()
+                n_q += 1
+            mlflow.log_metric("q_loss", total_q / max(n_q, 1), step=epoch)
+
         print("Training PQR - Step 3: Reward Extraction")
         # Extract Reward: R(s,a) = Q(s,a) - gamma * Q(s', a')
         for epoch in range(epochs):
+            total_r = 0.0
+            n_r = 0
             for s, a, ns in dataloader:
                 s, a, ns = s.to(device), a.to(device), ns.to(device)
                 with torch.no_grad():
                     target_r = q_net(s, a) - gamma * q_net(ns, pi(ns))
-                
+
                 loss_r = F.mse_loss(r_net(s, a), target_r)
                 opt_r.zero_grad()
                 loss_r.backward()
                 opt_r.step()
-                
+                total_r += loss_r.item()
+                n_r += 1
+            mlflow.log_metric("r_loss", total_r / max(n_r, 1), step=epoch)
+
         torch.save(pi.state_dict(), "pqr_policy.pt")
+        mlflow.log_artifact("pqr_policy.pt")
         print("Model saved as pqr_policy.pt")
 
 if __name__ == "__main__":

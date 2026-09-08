@@ -8,7 +8,8 @@ import gymnasium as gym
 import gymnasium.wrappers
 
 def load_agent(checkpoint_path, device, input_dim=46):
-    checkpoint = torch.load(checkpoint_path, map_location=device)
+    # Checkpoint local (pode conter RunningMeanStd em obs_rms).
+    checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
     action_space = gym.spaces.Box(-1.0, 1.0, shape=(17,))
     agent = SACAgent(input_dim, action_space).to(device)
     state_dict = checkpoint.get("actor_state_dict", checkpoint)
@@ -71,31 +72,46 @@ def task_arithmetic(base_agent_46, agent_rec_46, agent_tgt_49, lambda_A=1.0, lam
     return merged_agent
 
 if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Merging Fase 3 (avg + task arithmetic).")
+    parser.add_argument("--base-ckpt", default="checkpoints/walker_recovery_v1/sac_ckpt_1000000.pt")
+    parser.add_argument("--rec-ckpt", default="checkpoints/walker_recovery_v1/sac_ckpt_20000000.pt")
+    parser.add_argument("--tgt-ckpt", default="checkpoints/walker_target_v1/sac_ckpt_40000000.pt")
+    parser.add_argument("--alpha", type=float, default=0.5)
+    parser.add_argument("--lambda-a", type=float, default=1.0)
+    parser.add_argument("--lambda-b", type=float, default=1.0)
+    parser.add_argument("--out-avg", default="merged_avg_model.pt")
+    parser.add_argument("--out-ta", default="merged_ta_model.pt")
+    args = parser.parse_args()
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print("Loading checkpoints...")
-    
-    base_ckpt = "checkpoints/walker_recovery_v1/sac_ckpt_1000000.pt"
-    rec_ckpt = "checkpoints/walker_recovery_v1/sac_ckpt_20000000.pt"
-    tgt_ckpt = "checkpoints/walker_target_v1/sac_ckpt_40000000.pt"
-    
-    if not os.path.exists(base_ckpt) or not os.path.exists(rec_ckpt) or not os.path.exists(tgt_ckpt):
-        print("Error: Could not find required checkpoints.")
-        exit(1)
-        
+
+    base_ckpt = args.base_ckpt
+    rec_ckpt = args.rec_ckpt
+    tgt_ckpt = args.tgt_ckpt
+
+    for p in (base_ckpt, rec_ckpt, tgt_ckpt):
+        if not os.path.exists(p):
+            print(f"Error: checkpoint not found: {p}")
+            print("Treine a Fase 3 ou informe --base-ckpt/--rec-ckpt/--tgt-ckpt.")
+            raise SystemExit(2)
+
     base_agent = load_agent(base_ckpt, device, input_dim=46)
     rec_agent = load_agent(rec_ckpt, device, input_dim=46)
     tgt_agent = load_agent(tgt_ckpt, device, input_dim=49)
-    
-    print("Performing Weight Averaging (alpha=0.5)...")
-    avg_agent = weight_averaging(rec_agent, tgt_agent, alpha=0.5)
-    
-    print("Performing Task Arithmetic (lambda_rec=1.0, lambda_tgt=1.0)...")
-    ta_agent = task_arithmetic(base_agent, rec_agent, tgt_agent, lambda_A=1.0, lambda_B=1.0)
-    
+
+    print(f"Performing Weight Averaging (alpha={args.alpha})...")
+    avg_agent = weight_averaging(rec_agent, tgt_agent, alpha=args.alpha)
+
+    print(f"Performing Task Arithmetic (lambda_rec={args.lambda_a}, lambda_tgt={args.lambda_b})...")
+    ta_agent = task_arithmetic(base_agent, rec_agent, tgt_agent, lambda_A=args.lambda_a, lambda_B=args.lambda_b)
+
     # Save checkpoints with obs_rms from the target checkpoint
-    tgt_checkpoint = torch.load(tgt_ckpt, map_location=device)
+    tgt_checkpoint = torch.load(tgt_ckpt, map_location=device, weights_only=False)
     obs_rms = tgt_checkpoint.get("obs_rms", None)
-    
+
     avg_ckpt = {
         "algo": "sac",
         "actor_state_dict": avg_agent.state_dict(),
@@ -106,7 +122,7 @@ if __name__ == "__main__":
         "actor_state_dict": ta_agent.state_dict(),
         "obs_rms": obs_rms
     }
-    
-    torch.save(avg_ckpt, "merged_avg_model.pt")
-    torch.save(ta_ckpt, "merged_ta_model.pt")
-    print("Saved merged_avg_model.pt and merged_ta_model.pt")
+
+    torch.save(avg_ckpt, args.out_avg)
+    torch.save(ta_ckpt, args.out_ta)
+    print(f"Saved {args.out_avg} and {args.out_ta}")

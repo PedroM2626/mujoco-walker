@@ -1,3 +1,10 @@
+"""Benchmark das estratégias de merging da Fase 3 (ragdoll target-phase).
+
+Compara Hardcoded Supervisor vs MoE vs Weight Averaging vs Task Arithmetic.
+O paper usou `--num-episodes 1000` (~4M steps); o default é 5 para smoke test.
+ Fame: checkpoints em `checkpoints/walker_{recovery,target}_v1/` + `merged_*.pt`.
+"""
+import argparse
 import mock_wrappers
 import os
 import torch
@@ -10,7 +17,8 @@ from train_moe_gate import MoEGate
 import matplotlib.pyplot as plt
 
 def load_agent(checkpoint_path, device, input_dim=46):
-    checkpoint = torch.load(checkpoint_path, map_location=device)
+    # Checkpoint local (pode conter RunningMeanStd em obs_rms).
+    checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
     action_space = gym.spaces.Box(-1.0, 1.0, shape=(17,))
     agent = SACAgent(input_dim, action_space).to(device)
     state_dict = checkpoint.get("actor_state_dict", checkpoint)
@@ -70,24 +78,40 @@ def evaluate_paradigm(env_name, paradigm_name, device, rec_agent=None, tgt_agent
     return np.mean(total_rewards), np.mean(survivals)
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Benchmark merging Fase 3.")
+    parser.add_argument("--num-episodes", type=int, default=5,
+                        help="Episódios por paradigma (paper: 1000).")
+    parser.add_argument("--rec-ckpt", default="checkpoints/walker_recovery_v1/sac_ckpt_20000000.pt")
+    parser.add_argument("--tgt-ckpt", default="checkpoints/walker_target_v1/sac_ckpt_40000000.pt")
+    parser.add_argument("--avg-ckpt", default="merged_avg_model.pt")
+    parser.add_argument("--ta-ckpt", default="merged_ta_model.pt")
+    parser.add_argument("--gate-ckpt", default="moe_gate.pt")
+    args = parser.parse_args()
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    
+
     print("Loading models...")
-    rec_ckpt = "checkpoints/walker_recovery_v1/sac_ckpt_20000000.pt"
-    tgt_ckpt = "checkpoints/walker_target_v1/sac_ckpt_40000000.pt"
-    
+    rec_ckpt = args.rec_ckpt
+    tgt_ckpt = args.tgt_ckpt
+
+    for p in (rec_ckpt, tgt_ckpt, args.avg_ckpt, args.ta_ckpt, args.gate_ckpt):
+        if not os.path.exists(p):
+            print(f"Checkpoint ausente: {p}")
+            print("Treine a Fase 3 ou informe --rec-ckpt/--tgt-ckpt/--avg-ckpt/--ta-ckpt/--gate-ckpt.")
+            raise SystemExit(2)
+
     rec_agent = load_agent(rec_ckpt, device, input_dim=46)
     tgt_agent = load_agent(tgt_ckpt, device, input_dim=49)
-    avg_agent = load_agent("merged_avg_model.pt", device, input_dim=49)
-    ta_agent = load_agent("merged_ta_model.pt", device, input_dim=49)
-    
+    avg_agent = load_agent(args.avg_ckpt, device, input_dim=49)
+    ta_agent = load_agent(args.ta_ckpt, device, input_dim=49)
+
     moe_gate = MoEGate().to(device)
-    moe_gate.load_state_dict(torch.load("moe_gate.pt", weights_only=True))
+    moe_gate.load_state_dict(torch.load(args.gate_ckpt, map_location=device, weights_only=True))
     moe_gate.eval()
-    
+
     results = {}
-    
-    num_ep = 1000
+
+    num_ep = args.num_episodes
     r, s = evaluate_paradigm("WalkerRagdoll-v0", "Hardcoded Supervisor", device, rec_agent=rec_agent, tgt_agent=tgt_agent, num_episodes=num_ep)
     results["Hardcoded Supervisor"] = {"Reward": r, "Survival Rate": s}
     

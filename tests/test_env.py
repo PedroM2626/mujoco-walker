@@ -10,7 +10,7 @@ import torch
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 import envs.walker_ragdoll_env
-from train_walker import SACAgent, PPOAgent, get_obs_rms, load_actor_initialization, make_env, set_obs_rms
+from train_walker import SACAgent, PPOAgent, get_obs_rms, load_actor_initialization, make_env, set_obs_rms, wrap_normalize_observation, wrap_transform_observation
 from utils.checkpoint import save_checkpoint, load_checkpoint, force_delete_run, find_latest_checkpoint
 
 
@@ -183,8 +183,8 @@ class TestMakeEnv(unittest.TestCase):
         envs = gym.vector.SyncVectorEnv(
             [make_env("WalkerRagdoll-v0", 0, False, "test_run")]
         )
-        envs = gym.wrappers.NormalizeObservation(envs)
-        envs = gym.wrappers.TransformObservation(envs, lambda obs: np.clip(obs, -10, 10))
+        envs = wrap_normalize_observation(envs)
+        envs = wrap_transform_observation(envs, lambda obs: np.clip(obs, -10, 10))
 
         try:
             obs_rms = get_obs_rms(envs)

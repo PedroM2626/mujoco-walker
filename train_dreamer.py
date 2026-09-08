@@ -18,6 +18,8 @@ from train_walker import (
     get_checkpoint_dir,
     get_rng_state,
     set_rng_state,
+    wrap_normalize_observation,
+    wrap_transform_observation,
     ENV_VERSION,
     start_mlflow_run,
     log_mlflow_metrics,
@@ -372,8 +374,8 @@ def train_dreamer():
             for i in range(args.num_envs)
         ]
     )
-    envs = gym.wrappers.NormalizeObservation(envs)
-    envs = gym.wrappers.TransformObservation(envs, lambda obs: np.clip(obs, -10, 10))
+    envs = wrap_normalize_observation(envs)
+    envs = wrap_transform_observation(envs, lambda obs: np.clip(obs, -10, 10))
 
     obs_dim = int(np.prod(envs.single_observation_space.shape))
     action_dim = int(np.prod(envs.single_action_space.shape))
@@ -393,11 +395,7 @@ def train_dreamer():
     restored_obs_rms = None
     ckpt_dir = get_checkpoint_dir(args.run_id)
 
-    # Setup WandB
-            mode="offline",
-            dir=".",
-        )
-
+    # Setup WandB (removido: tracking canônico é MLflow + TensorBoard; wandb não é dependência)
     # Setup MLflow
     mlf_run = start_mlflow_run(args, run_name, "dreamer")
 
@@ -408,7 +406,7 @@ def train_dreamer():
             files.sort(key=lambda x: int(x.split("_")[-1].split(".")[0]))
             ckpt_path = os.path.join(ckpt_dir, files[-1])
             print(f"[CHECKPOINT] Loading from {ckpt_path}")
-            checkpoint = torch.load(ckpt_path, map_location=device)
+            checkpoint = torch.load(ckpt_path, map_location=device, weights_only=False)
             model.load_state_dict(checkpoint["model_state_dict"])
             actor.load_state_dict(checkpoint["actor_state_dict"])
             critic.load_state_dict(checkpoint["critic_state_dict"])
@@ -583,7 +581,6 @@ def train_dreamer():
                     writer.add_scalar("losses/actor_loss", actor_loss.item(), global_step)
                     writer.add_scalar("losses/critic_loss", critic_loss.item(), global_step)
                     writer.add_scalar("charts/SPS", int(global_step / (time.time() - start_time)), global_step)
-                        }, step=global_step)
                     log_mlflow_metrics(mlf_run, {
                         "rec_loss": rec_loss.item(),
                         "reward_loss": reward_loss.item(),

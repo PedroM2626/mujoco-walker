@@ -1,3 +1,10 @@
+"""Corrida multi-agente do ragdoll customizado (Fases 1-3, WalkerRagdoll-v0).
+
+NÃO confundir com `openai_walker/play_race.py`, que é a corrida offline da
+Fase 4 no `Walker2d-v5` padronizado. Este script compara checkpoints
+SAC/PPO/TD3/ARS lado a lado no mesmo XML (`build_race_xml`).
+Uso: python play_race.py --checkpoints a.pt b.pt --names A B [--headless]
+"""
 import mock_wrappers
 import os
 import sys
@@ -121,10 +128,10 @@ def load_agent(ckpt_path, device):
     
     if ckpt_path == "hardcoded":
         rec_agent = SACAgent(46, gym.spaces.Box(-1.0, 1.0, shape=(17,))).to(device)
-        rec_agent.load_state_dict(torch.load("checkpoints/walker_recovery_v1/sac_ckpt_20000000.pt", map_location=device).get("actor_state_dict"))
+        rec_agent.load_state_dict(torch.load("checkpoints/walker_recovery_v1/sac_ckpt_20000000.pt", map_location=device, weights_only=False).get("actor_state_dict"))
         rec_agent.eval()
-        
-        tgt_ckpt = torch.load("checkpoints/walker_target_v1/sac_ckpt_40000000.pt", map_location=device)
+
+        tgt_ckpt = torch.load("checkpoints/walker_target_v1/sac_ckpt_40000000.pt", map_location=device, weights_only=False)
         tgt_agent = SACAgent(49, gym.spaces.Box(-1.0, 1.0, shape=(17,))).to(device)
         tgt_agent.load_state_dict(tgt_ckpt.get("actor_state_dict"))
         tgt_agent.eval()
@@ -135,10 +142,10 @@ def load_agent(ckpt_path, device):
     if ckpt_path == "moe":
         from train_moe_gate import MoEGate
         rec_agent = SACAgent(46, gym.spaces.Box(-1.0, 1.0, shape=(17,))).to(device)
-        rec_agent.load_state_dict(torch.load("checkpoints/walker_recovery_v1/sac_ckpt_20000000.pt", map_location=device).get("actor_state_dict"))
+        rec_agent.load_state_dict(torch.load("checkpoints/walker_recovery_v1/sac_ckpt_20000000.pt", map_location=device, weights_only=False).get("actor_state_dict"))
         rec_agent.eval()
-        
-        tgt_ckpt = torch.load("checkpoints/walker_target_v1/sac_ckpt_40000000.pt", map_location=device)
+
+        tgt_ckpt = torch.load("checkpoints/walker_target_v1/sac_ckpt_40000000.pt", map_location=device, weights_only=False)
         tgt_agent = SACAgent(49, gym.spaces.Box(-1.0, 1.0, shape=(17,))).to(device)
         tgt_agent.load_state_dict(tgt_ckpt.get("actor_state_dict"))
         tgt_agent.eval()
@@ -150,7 +157,7 @@ def load_agent(ckpt_path, device):
         agent = MoERaceAgent(rec_agent, tgt_agent, gate)
         return agent, "sac", 49, tgt_ckpt.get("obs_rms"), "target", 0.0
         
-    checkpoint = torch.load(ckpt_path, map_location=device)
+    checkpoint = torch.load(ckpt_path, map_location=device, weights_only=False)
     
     # Identify algorithm
     algo = checkpoint.get("algo", "sac")
@@ -409,9 +416,16 @@ def main():
     parser.add_argument("--headless", action="store_true", help="Run in console headless mode without open window")
     parser.add_argument("--max-steps", type=int, default=2500, help="Maximum simulation steps")
     parser.add_argument("--lane-distance", type=float, default=1.8, help="Lateral space between lanes")
+    parser.add_argument("--device", default="auto", choices=["auto", "cpu", "cuda"],
+                        help="Compute device (auto = cuda if available, else cpu)")
     args = parser.parse_args()
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if args.device == "cpu":
+        device = torch.device("cpu")
+    elif args.device == "cuda":
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    else:
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"[RACE] Running race evaluation on device: {device}")
 
     # Resolve checkpoints and load agents

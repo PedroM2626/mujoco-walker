@@ -4,9 +4,39 @@ import time
 import torch
 import numpy as np
 import pickle
+import os
+import sys
 
-# Import the network architecture
-from train import WalkerTeacherNet
+# Import the network architecture (canônica em openai_walker/train.py; fallback local)
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+try:
+    from train import WalkerTeacherNet
+except Exception:
+    try:
+        from openai_walker.train import WalkerTeacherNet
+    except Exception:
+        import torch.nn as nn
+
+        class WalkerTeacherNet(nn.Module):
+            def __init__(self, input_dim, output_dim):
+                super().__init__()
+                self.net = nn.Sequential(
+                    nn.Linear(input_dim, 1024),
+                    nn.LayerNorm(1024),
+                    nn.Mish(),
+                    nn.Linear(1024, 512),
+                    nn.LayerNorm(512),
+                    nn.Mish(),
+                    nn.Linear(512, 512),
+                    nn.LayerNorm(512),
+                    nn.Mish(),
+                    nn.Linear(512, output_dim),
+                )
+
+            def forward(self, x):
+                return self.net(x)
+
 from collections import deque
 
 def main():

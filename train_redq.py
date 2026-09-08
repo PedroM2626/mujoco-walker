@@ -23,6 +23,8 @@ from train_walker import (
     restore_replay_buffer,
     adapt_obs_rms,
     set_obs_rms,
+    wrap_normalize_observation,
+    wrap_transform_observation,
     get_rng_state,
     set_rng_state,
     ENV_VERSION,
@@ -156,8 +158,8 @@ def train_redq():
             for i in range(args.num_envs)
         ]
     )
-    envs = gym.wrappers.NormalizeObservation(envs)
-    envs = gym.wrappers.TransformObservation(envs, lambda obs: np.clip(obs, -10, 10))
+    envs = wrap_normalize_observation(envs)
+    envs = wrap_transform_observation(envs, lambda obs: np.clip(obs, -10, 10))
 
     obs_dim = int(np.prod(envs.single_observation_space.shape))
     action_dim = int(np.prod(envs.single_action_space.shape))
@@ -181,11 +183,7 @@ def train_redq():
 
     ckpt_dir = get_checkpoint_dir(args.run_id)
     
-    # Setup WandB
-            mode="offline",
-            dir=".",
-        )
-
+    # Setup WandB (removido: tracking canônico é MLflow + TensorBoard; wandb não é dependência)
     # Setup MLflow
     mlf_run = start_mlflow_run(args, run_name, "redq")
 
@@ -342,7 +340,6 @@ def train_redq():
                     writer.add_scalar("losses/qf_loss", qf_loss.item(), global_step)
                     writer.add_scalar("losses/alpha", log_alpha.exp().item(), global_step)
                     writer.add_scalar("charts/SPS", int(global_step / (time.time() - start_time)), global_step)
-                        }, step=global_step)
                     log_mlflow_metrics(mlf_run, {
                         "qf_loss": qf_loss.item(),
                         "alpha": log_alpha.exp().item(),

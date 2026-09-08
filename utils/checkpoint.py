@@ -74,7 +74,8 @@ def load_checkpoint(agent, optimizer, run_id, envs=None, global_step=None, base_
         return None, 0
 
     print(f"[CHECKPOINT] Loading from {checkpoint_path}")
-    checkpoint = torch.load(checkpoint_path, map_location="cpu")
+    # Checkpoint local (pode conter RunningMeanStd em obs_rms).
+    checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
 
     agent.load_state_dict(checkpoint["agent_state_dict"])
     if optimizer is not None and "optimizer_state_dict" in checkpoint:

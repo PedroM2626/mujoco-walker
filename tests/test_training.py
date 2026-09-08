@@ -100,7 +100,7 @@ class TestTrainingIntegration(unittest.TestCase):
         ckpt_path = os.path.join("checkpoints", self.run_id, "sac_ckpt_1024.pt")
         self.assertTrue(os.path.exists(ckpt_path), "Resumed checkpoint not created")
 
-        checkpoint = torch.load(ckpt_path, map_location="cpu")
+        checkpoint = torch.load(ckpt_path, map_location="cpu", weights_only=False)
         self.assertEqual(checkpoint["global_step"], 1024)
         self.assertIn("replay_buffer", checkpoint)
         self.assertGreaterEqual(checkpoint["replay_buffer"]["pos"], 0)

@@ -18,6 +18,7 @@ from train_walker import (
     latest_sac_checkpoint, latest_ppo_checkpoint, latest_checkpoint_any,
     load_torch_checkpoint,
     RecoverySupervisor,
+    wrap_clip_action,
 )
 from utils.checkpoint import get_checkpoint_dir
 
@@ -71,7 +72,7 @@ def make_base_env(env_id, reset_mode="mixed", task_phase="recovery"):
     )
     env = gym.wrappers.FlattenObservation(env)
     env = gym.wrappers.RecordEpisodeStatistics(env)
-    env = gym.wrappers.ClipAction(env)
+    env = wrap_clip_action(env)
     return env
 
 

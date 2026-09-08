@@ -1,8 +1,15 @@
+"""Grande corrida offline da Fase 4 (Walker2d-v5, com GUI).
+
+NÃO confundir com `play_race.py` da raiz, que é a corrida multi-agente do
+ragdoll customizado (Fases 1-3). Para servidores sem display, use a
+contraparte headless `evaluate_all.py --episodes N`.
+"""
 import gymnasium as gym
 import torch
 import torch.nn as nn
 import time
 import os
+import numpy as np
 from stable_baselines3 import SAC
 from train_irl_airl import SACActor as AIRLActor
 from train_offline_bcq import VAE, PerturbationNetwork
@@ -279,6 +286,25 @@ def main():
         pqr.load_state_dict(torch.load("pqr_policy.pt", map_location=device))
         pqr.eval()
         scores["Deep PQR"] = evaluate_model(env, "Deep PQR", pqr, device)
+
+    # 15. Extra Trees Cloner (sklearn, CPU). Opt-in automático se o .pkl existir.
+    if os.path.exists("extratrees_model.pkl"):
+        try:
+            import joblib
+
+            et_model = joblib.load("extratrees_model.pkl")
+
+            class ExtraTreesWrapper(nn.Module):
+                def forward(self, state):
+                    obs = state.cpu().numpy()
+                    if obs.ndim == 1:
+                        obs = obs.reshape(1, -1)
+                    action = np.asarray(et_model.predict(obs)).reshape(-1)
+                    return torch.FloatTensor(action).to(device)
+
+            scores["Extra Trees Cloner"] = evaluate_model(env, "Extra Trees Cloner", ExtraTreesWrapper().to(device), device)
+        except Exception as e:
+            print(f"[Extra Trees Cloner] skipped: {e}")
 
     env.close()
 

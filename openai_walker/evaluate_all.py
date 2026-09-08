@@ -1,242 +1,260 @@
-import mujoco
+"""Avaliador headless da Fase 4 (Walker2d-v5, strictly offline + offline-to-online).
+
+Compatibilidade histórica: este arquivo já foi um avaliador do ragdoll da
+Fase 2 (obs 188 -> ação 17, arquivos `teacher_model.pt`/`scaler.pkl`) que não
+existem mais. Foi reescrito como contraparte headless (sem GUI) do
+`play_race.py` canônico da Fase 4 (obs 17 -> ação 6, `bc_model.pt`,
+`iql_full_ckpt.pt`, ...).
+
+Uso:
+    cd openai_walker
+    python evaluate_all.py --episodes 2
+    python evaluate_all.py --episodes 1 --models bc iql cql
+"""
+
+import argparse
+import os
+import sys
+
+import gymnasium as gym
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import numpy as np
 import torch
 import torch.nn as nn
-import numpy as np
-import pickle
-import pandas as pd
-import matplotlib.pyplot as plt
-import os
 
-# Definitions of architectures
-class WalkerTeacherNet(nn.Module):
-    def __init__(self, input_dim, output_dim):
-        super(WalkerTeacherNet, self).__init__()
-        self.net = nn.Sequential(
-            nn.Linear(input_dim, 1024),
-            nn.LayerNorm(1024),
-            nn.Mish(),
-            nn.Linear(1024, 512),
-            nn.LayerNorm(512),
-            nn.Mish(),
-            nn.Linear(512, 512),
-            nn.LayerNorm(512),
-            nn.Mish(),
-            nn.Linear(512, output_dim)
-        )
-    def forward(self, x):
-        return self.net(x)
+HERE = os.path.dirname(os.path.abspath(__file__))
+if HERE not in sys.path:
+    sys.path.insert(0, HERE)
 
-class PolicyNet(nn.Module):
-    def __init__(self, input_dim, output_dim, max_action=1.0):
-        super(PolicyNet, self).__init__()
-        self.net = nn.Sequential(
-            nn.Linear(input_dim, 1024),
-            nn.LayerNorm(1024),
-            nn.Mish(),
-            nn.Linear(1024, 512),
-            nn.LayerNorm(512),
-            nn.Mish(),
-            nn.Linear(512, 512),
-            nn.LayerNorm(512),
-            nn.Mish()
-        )
-        self.mean_layer = nn.Linear(512, output_dim)
-        self.log_std_layer = nn.Parameter(torch.zeros(1, output_dim))
-        self.max_action = max_action
+# Reusa as arquiteturas canônicas do play_race para não divergir.
+from play_race import (  # noqa: E402
+    BCPolicy,
+    SACActor,
+    GAILActor,
+    PolicyNetIQL,
+)
 
-    def forward(self, x):
-        features = self.net(x)
-        mean = self.mean_layer(features)
-        return mean, None # Ignoring std for deterministic evaluation
 
-    def get_action(self, x, deterministic=True):
-        mean, _ = self.forward(x)
-        return torch.tanh(mean) * self.max_action
+def parse_args():
+    p = argparse.ArgumentParser(description="Eval headless Fase 4 (Walker2d-v5).")
+    p.add_argument("--episodes", type=int, default=2)
+    p.add_argument("--out", default=os.path.join(HERE, "comparison.png"))
+    p.add_argument(
+        "--models",
+        nargs="*",
+        default=None,
+        help="Subseto: bc iql cql bc_sac_naive bc_sac_reg bc_sac_con iql_sac cql_sac gail airl bcq dt maxent pqr teacher",
+    )
+    p.add_argument("--seed", type=int, default=0)
+    return p.parse_args()
 
-def evaluate_model(model, scaler, model_type, num_episodes=1000, max_steps=1000):
-    xml_path = "../walker_ragdoll.xml"
-    model_mj = mujoco.MjModel.from_xml_path(xml_path)
-    data = mujoco.MjData(model_mj)
 
-    # Re-create observation feature selection logic
-    qpos_cols_no_xy_len = model_mj.nq - 2
-    qvel_cols_len = model_mj.nv
-    base_obs_len = 2 + qpos_cols_no_xy_len + qvel_cols_len # rel_tx, rel_ty + qpos + qvel
-    history_len = 3
-    input_dim = base_obs_len * (history_len + 1)
-    
-    print(f"\n--- Evaluating {model_type} ---")
-    
-    episode_rewards = []
-    episode_survivals = []
-    
-    # Store Z heights to plot a recovery chart
-    all_z_heights = []
+def _load(path, map_location="cpu"):
+    return torch.load(path, map_location=map_location, weights_only=True)
 
-    for ep in range(num_episodes):
-        mujoco.mj_resetData(model_mj, data)
-        target_pos = np.random.uniform(-5.0, 5.0, size=2)
-        data.mocap_pos[0, 0:2] = target_pos
-        
-        obs_history = []
-        total_reward = 0
-        
-        for step in range(max_steps):
-            def quaternion_to_yaw(qw, qx, qy, qz):
-                return np.arctan2(2.0 * (qw * qz + qx * qy), 1.0 - 2.0 * (qy * qy + qz * qz))
-                
-            yaw = quaternion_to_yaw(data.qpos[3], data.qpos[4], data.qpos[5], data.qpos[6])
-            rel_tx_global = target_pos[0] - data.qpos[0]
-            rel_ty_global = target_pos[1] - data.qpos[1]
-            
-            rel_tx = rel_tx_global * np.cos(yaw) + rel_ty_global * np.sin(yaw)
-            rel_ty = -rel_tx_global * np.sin(yaw) + rel_ty_global * np.cos(yaw)
-            
-            qpos_no_xy = data.qpos[2:].copy()
-            qvel = data.qvel.copy()
-            
-            obs = np.concatenate([[rel_tx, rel_ty], qpos_no_xy, qvel])
-            obs_history.append(obs)
-            
-            if len(obs_history) > history_len + 1:
-                obs_history.pop(0)
-                
-            if len(obs_history) < history_len + 1:
-                padded_history = [obs_history[0]] * (history_len + 1 - len(obs_history)) + obs_history
-            else:
-                padded_history = obs_history
-                
-            # Flatten history: t, t-1, t-2, t-3
-            # The dataset was [t, t-1, t-2, t-3]
-            stacked_obs = np.concatenate([padded_history[-1], padded_history[-2], padded_history[-3], padded_history[-4]])
-            
-            # Normalize
-            stacked_obs_scaled = scaler.transform(stacked_obs.reshape(1, -1))
-            
+
+def build_candidates(state_dim, action_dim, max_action, device, only=None):
+    """Retorna [(nome, modelo_torch_ou_wrapper, kwargs_eval)] só p/ artefatos existentes."""
+    cands = []
+
+    def want(key):
+        return only is None or key in only
+
+    def p(name):
+        return os.path.join(HERE, name)
+
+    # Teacher SB3 (lazy para não exigir SB3 se filtrado)
+    if want("teacher") and os.path.exists(p("sac_walker2d_final.zip")):
+        from stable_baselines3 import SAC
+
+        teacher = SAC.load(p("sac_walker2d_final.zip"), device=device)
+
+        class TeacherWrapper(nn.Module):
+            def forward(self, state):
+                action, _ = teacher.predict(state.cpu().numpy(), deterministic=True)
+                return torch.FloatTensor(action).to(device)
+
+        cands.append(("Teacher (Upper Bound)", TeacherWrapper(), {}))
+
+    if want("bc") and os.path.exists(p("bc_model.pt")):
+        m = BCPolicy(state_dim, action_dim).to(device)
+        m.load_state_dict(_load(p("bc_model.pt")))
+        m.eval()
+        cands.append(("BC", m, {}))
+
+    if want("iql") and os.path.exists(p("iql_full_ckpt.pt")):
+        m = PolicyNetIQL(state_dim, action_dim, max_action).to(device)
+        ckpt = _load(p("iql_full_ckpt.pt"))
+        m.load_state_dict(ckpt["policy"] if isinstance(ckpt, dict) and "policy" in ckpt else ckpt)
+        m.eval()
+        cands.append(("IQL", m, {}))
+
+    if want("cql") and os.path.exists(p("cql_full_ckpt.pt")):
+        m = PolicyNetIQL(state_dim, action_dim, max_action).to(device)
+        ckpt = _load(p("cql_full_ckpt.pt"))
+        m.load_state_dict(ckpt["policy"] if isinstance(ckpt, dict) and "policy" in ckpt else ckpt)
+        m.eval()
+        cands.append(("CQL", m, {}))
+
+    for key, label, fname in (
+        ("bc_sac_naive", "BC+SAC (Naive)", "bc_sac_naive_model.pt"),
+        ("bc_sac_reg", "BC+SAC (Regularized)", "bc_sac_regularized_model.pt"),
+        ("bc_sac_con", "BC+SAC (Constrained)", "bc_sac_constrained_model.pt"),
+    ):
+        if want(key) and os.path.exists(p(fname)):
+            m = SACActor(state_dim, action_dim, max_action).to(device)
+            m.load_state_dict(_load(p(fname)))
+            m.eval()
+            cands.append((label, m, {}))
+
+    for key, label, fname in (
+        ("iql_sac", "IQL+SAC", "iql_sac_model.pt"),
+        ("cql_sac", "CQL+SAC", "cql_sac_model.pt"),
+    ):
+        if want(key) and os.path.exists(p(fname)):
+            m = PolicyNetIQL(state_dim, action_dim, max_action).to(device)
+            m.load_state_dict(_load(p(fname)))
+            m.eval()
+            cands.append((label, m, {}))
+
+    if want("gail") and os.path.exists(p("gail_model.pt")):
+        m = GAILActor(state_dim, action_dim, max_action).to(device)
+        m.load_state_dict(_load(p("gail_model.pt")))
+        m.eval()
+        cands.append(("GAIL", m, {"is_gail": True}))
+
+    if want("airl") and os.path.exists(p("airl_model.pt")):
+        from train_irl_airl import SACActor as AIRLActor
+
+        m = AIRLActor(state_dim, action_dim, max_action).to(device)
+        m.load_state_dict(_load(p("airl_model.pt")))
+        m.eval()
+        cands.append(("AIRL", m, {"is_airl": True}))
+
+    if want("maxent") and os.path.exists(p("maxent_model.pt")):
+        from train_irl_maxent import SACActor as MaxEntActor
+
+        m = MaxEntActor(state_dim, action_dim, max_action).to(device)
+        m.load_state_dict(_load(p("maxent_model.pt")))
+        m.eval()
+        cands.append(("MaxEnt", m, {"is_maxent": True}))
+
+    if want("pqr") and os.path.exists(p("pqr_policy.pt")):
+        from train_irl_pqr import PolicyNet as PQRPolicy
+
+        m = PQRPolicy(state_dim, action_dim, max_action).to(device)
+        m.load_state_dict(_load(p("pqr_policy.pt")))
+        m.eval()
+        cands.append(("PQR", m, {}))
+
+    if want("bcq") and os.path.exists(p("bcq_vae.pt")) and os.path.exists(p("bcq_perturbation.pt")):
+        from train_offline_bcq import VAE, PerturbationNetwork
+
+        vae = VAE(state_dim, action_dim, action_dim * 2, max_action).to(device)
+        vae.load_state_dict(_load(p("bcq_vae.pt")))
+        pert = PerturbationNetwork(state_dim, action_dim, max_action).to(device)
+        pert.load_state_dict(_load(p("bcq_perturbation.pt")))
+        vae.eval()
+        pert.eval()
+
+        class BCQWrapper(nn.Module):
+            def forward(self, state):
+                return pert(state, vae.decode(state))
+
+        cands.append(("BCQ", BCQWrapper().to(device), {}))
+
+    if want("dt") and os.path.exists(p("dt_model.pt")):
+        from train_offline_dt import DecisionTransformer
+
+        m = DecisionTransformer(state_dim, action_dim, hidden_size=128, max_length=20).to(device)
+        m.load_state_dict(_load(p("dt_model.pt")))
+        m.eval()
+        cands.append(("DT", m, {"is_dt": True}))
+
+    return cands
+
+
+def evaluate_headless(env, model, device, episodes, seed=0, is_gail=False, is_airl=False,
+                      is_dt=False, is_maxent=False, dt_context=20):
+    from play_race import evaluate_model as gui_evaluate  # noqa: F401  (referência canônica)
+
+    rewards = []
+    for ep in range(episodes):
+        obs, _ = env.reset(seed=seed + ep)
+        done = False
+        ep_r = 0.0
+        if is_dt:
+            state_seq = torch.zeros((1, dt_context, env.observation_space.shape[0]), dtype=torch.float32, device=device)
+            action_seq = torch.zeros((1, dt_context, env.action_space.shape[0]), dtype=torch.float32, device=device)
+            rtg_seq = torch.zeros((1, dt_context, 1), dtype=torch.float32, device=device)
+            rtg = 4000.0
+        while not done:
             with torch.no_grad():
-                tensor_obs = torch.tensor(stacked_obs_scaled, dtype=torch.float32)
-                if model_type == 'BC':
-                    action = model(tensor_obs).numpy()[0]
+                if is_dt:
+                    state_seq[0, :-1] = state_seq[0, 1:].clone()
+                    state_seq[0, -1] = torch.FloatTensor(obs).to(device)
+                    rtg_seq[0, :-1] = rtg_seq[0, 1:].clone()
+                    rtg_seq[0, -1] = torch.tensor([rtg], dtype=torch.float32).to(device)
+                    timesteps = torch.arange(0, dt_context, device=device).unsqueeze(0)
+                    action = model(state_seq, action_seq, rtg_seq, timesteps)[0, -1].cpu().numpy().flatten()
+                    action_seq[0, :-1] = action_seq[0, 1:].clone()
+                    action_seq[0, -1] = torch.FloatTensor(action).to(device)
                 else:
-                    action = model.get_action(tensor_obs, deterministic=True).numpy()[0]
-                    
-            data.ctrl[:] = action
-            mujoco.mj_step(model_mj, data)
-            
-            # Record Z height
-            if ep == 0:
-                all_z_heights.append(data.qpos[2])
-            
-            # Very simple reward for evaluation: survive + move towards target
-            dist_to_target = np.sqrt(rel_tx_global**2 + rel_ty_global**2)
-            reward = -dist_to_target * 0.01 + (data.qpos[2] > 0.4) * 1.0
-            total_reward += reward
-            
-            # Terminate early if the robot falls
-            if data.qpos[2] < 0.2: # Hard fall
-                break
-                
-        episode_rewards.append(total_reward)
-        episode_survivals.append(step + 1)
-        print(f"Episode {ep+1} | Reward: {total_reward:.2f} | Survival: {step+1}/{max_steps}")
-        
-    return np.mean(episode_rewards), all_z_heights
+                    s = torch.FloatTensor(obs).unsqueeze(0).to(device)
+                    if is_airl or is_maxent:
+                        mean, _ = model(s)
+                        action = (torch.tanh(mean) * model.max_action).cpu().numpy().flatten()
+                    else:
+                        action = model(s).squeeze(0).cpu().numpy()
+            obs, r, term, trunc, _ = env.step(action)
+            ep_r += r
+            if is_dt:
+                rtg -= r
+            done = term or trunc
+        rewards.append(ep_r)
+    return float(np.mean(rewards)), rewards
+
 
 def main():
+    args = parse_args()
+    env = gym.make("Walker2d-v5")
+    state_dim = int(np.prod(env.observation_space.shape))
+    action_dim = int(np.prod(env.action_space.shape))
+    max_action = float(env.action_space.high[0])
+    device = torch.device("cpu")
+
+    cands = build_candidates(state_dim, action_dim, max_action, device, only=args.models)
+    if not cands:
+        print("Nenhum artefato encontrado em openai_walker/.")
+        print("Treine ao menos um modelo (ex: python train_bc.py) ou rode o pipeline via run_all.bat.")
+        print("Referência canônica com GUI: python play_race.py")
+        sys.exit(2)
+
     results = {}
-    z_heights_dict = {}
-    
-    # 1. Evaluate BC
-    print("Loading BC...")
-    with open("scaler.pkl", "rb") as f:
-        scaler_bc = pickle.load(f)
-    bc_model = WalkerTeacherNet(188, 17)
-    bc_model.load_state_dict(torch.load("teacher_model.pt", weights_only=True))
-    bc_model.eval()
-    avg_r, z_bc = evaluate_model(bc_model, scaler_bc, "BC")
-    results['BC'] = avg_r
-    z_heights_dict['BC'] = z_bc
-    
-    # 2. Evaluate IQL
-    print("Loading IQL...")
-    if os.path.exists("scaler_iql.pkl") and os.path.exists("iql_model.pt"):
-        with open("scaler_iql.pkl", "rb") as f:
-            scaler_iql = pickle.load(f)
-        iql_model = PolicyNet(188, 17)
-        iql_model.load_state_dict(torch.load("iql_model.pt", weights_only=True))
-        iql_model.eval()
-        avg_r, z_iql = evaluate_model(iql_model, scaler_iql, "IQL")
-        results['IQL'] = avg_r
-        z_heights_dict['IQL'] = z_iql
-    else:
-        print("IQL model not found.")
-        
-    # 3. Evaluate CQL
-    print("Loading CQL...")
-    if os.path.exists("scaler_cql.pkl") and os.path.exists("cql_model.pt"):
-        with open("scaler_cql.pkl", "rb") as f:
-            scaler_cql = pickle.load(f)
-        cql_model = PolicyNet(188, 17)
-        cql_model.load_state_dict(torch.load("cql_model.pt", weights_only=True))
-        cql_model.eval()
-        avg_r, z_cql = evaluate_model(cql_model, scaler_cql, "CQL")
-        results['CQL'] = avg_r
-        z_heights_dict['CQL'] = z_cql
-    else:
-        print("CQL model not found.")
-        
-    # 4. Evaluate BC+SAC
-    print("Loading BC+SAC...")
-    if os.path.exists("bc_sac_model.pt"):
-        bc_sac_model = PolicyNet(188, 17)
-        bc_sac_model.load_state_dict(torch.load("bc_sac_model.pt", weights_only=True))
-        bc_sac_model.eval()
-        avg_r, z_bc_sac = evaluate_model(bc_sac_model, scaler_bc, "BC+SAC")
-        results['BC+SAC'] = avg_r
-        z_heights_dict['BC+SAC'] = z_bc_sac
-    else:
-        print("BC+SAC model not found.")
+    for name, model, kw in cands:
+        avg, per_ep = evaluate_headless(env, model, device, args.episodes, seed=args.seed, **kw)
+        results[name] = (avg, per_ep)
+        print(f"{name}: {avg:.2f} avg over {args.episodes} ep")
 
-    # 5. Evaluate IQL+SAC
-    print("Loading IQL+SAC...")
-    if os.path.exists("iql_sac_model.pt"):
-        iql_sac_model = PolicyNet(188, 17)
-        iql_sac_model.load_state_dict(torch.load("iql_sac_model.pt", weights_only=True))
-        iql_sac_model.eval()
-        avg_r, z_iql_sac = evaluate_model(iql_sac_model, scaler_bc, "IQL+SAC")
-        results['IQL+SAC'] = avg_r
-        z_heights_dict['IQL+SAC'] = z_iql_sac
-    else:
-        print("IQL+SAC model not found.")
+    env.close()
 
-    # 6. Evaluate CQL+SAC
-    print("Loading CQL+SAC...")
-    if os.path.exists("cql_sac_model.pt"):
-        cql_sac_model = PolicyNet(188, 17)
-        cql_sac_model.load_state_dict(torch.load("cql_sac_model.pt", weights_only=True))
-        cql_sac_model.eval()
-        avg_r, z_cql_sac = evaluate_model(cql_sac_model, scaler_bc, "CQL+SAC")
-        results['CQL+SAC'] = avg_r
-        z_heights_dict['CQL+SAC'] = z_cql_sac
-    else:
-        print("CQL+SAC model not found.")
-        
-    print("\n=== FINAL RESULTS ===")
-    for k, v in results.items():
-        print(f"{k}: {v:.2f} Avg Reward")
-        
-    # Plot Z heights
-    plt.figure(figsize=(12, 6))
-    for k, z in z_heights_dict.items():
-        plt.plot(z, label=k, alpha=0.7)
-    plt.axhline(y=0.4, color='r', linestyle='--', label='Fall Threshold')
-    plt.title('Agent Height (Recovery Comparison) - First Episode')
-    plt.xlabel('Steps (Drop every 200 steps)')
-    plt.ylabel('Height (m)')
-    plt.legend()
+    print("\n=== FINAL RESULTS (headless) ===")
+    for k, (avg, _) in sorted(results.items(), key=lambda kv: kv[1][0], reverse=True):
+        print(f"{k}: {avg:.2f} Avg Reward")
+
+    plt.figure(figsize=(10, 5))
+    labels = list(results.keys())
+    avgs = [results[k][0] for k in labels]
+    plt.bar(labels, avgs)
+    plt.xticks(rotation=30, ha="right")
+    plt.ylabel("Avg Reward")
+    plt.title(f"Walker2d-v5 headless eval ({args.episodes} ep/model)")
     plt.tight_layout()
-    plt.savefig('comparison.png')
-    print("Saved comparison.png")
+    plt.savefig(args.out)
+    print(f"Saved {args.out}")
+
 
 if __name__ == "__main__":
     main()

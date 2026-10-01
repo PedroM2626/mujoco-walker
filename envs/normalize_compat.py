@@ -88,6 +88,17 @@ def install():
     sys.modules["gym"].wrappers = sys.modules["gym.wrappers"]
     sys.modules["gym.wrappers"].normalize = sys.modules["gym.wrappers.normalize"]
 
+    # Two merged checkpoints embed objects that name `mock_wrappers.RunningMeanStd`,
+    # because they were saved while that module held stub classes. Alias the real ones
+    # here too, so those artifacts load no matter what is on sys.path. The stub module
+    # itself survives as a thin re-export of this file.
+    if "mock_wrappers" not in sys.modules:
+        legacy = types.ModuleType("mock_wrappers")
+        legacy.__doc__ = "Alias of envs.normalize_compat, kept for checkpoint unpickling."
+        for attr, obj in classes.items():
+            setattr(legacy, attr, obj)
+        sys.modules["mock_wrappers"] = legacy
+
     return classes
 
 

@@ -19,21 +19,6 @@ EPSILON = 1e-8
 CLIP = 10.0
 
 
-def frozen_normalize(obs, obs_rms):
-    """Aplicar a normalização salva no checkpoint, sem atualizar as estatísticas.
-
-    Idêntico a `play.FrozenNormalizeObservation`. Sem isto o agente recebe estados
-    crus enquanto foi treinado com estados normalizados — e os números medidos aqui
-    passam a descrever uma política diferente da que `play.py` executa.
-    """
-    if obs_rms is None:
-        return np.asarray(obs, dtype=np.float64)
-    normalized = (np.asarray(obs, dtype=np.float64) - obs_rms.mean) / np.sqrt(
-        obs_rms.var + EPSILON
-    )
-    return np.clip(normalized, -CLIP, CLIP)
-
-
 def load_agent(checkpoint_path, device, input_dim=46):
     # Checkpoint local (pode conter RunningMeanStd em obs_rms).
     checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
@@ -49,7 +34,23 @@ def load_agent(checkpoint_path, device, input_dim=46):
 
 
 def _policy_input(agent, obs, obs_rms, dim, device):
-    array = frozen_normalize(obs, obs_rms)[:dim]
+    """Slice to the policy's own observation width *before* normalising.
+
+    The recovery expert takes 46 dims and the target expert 49, while the rollout always
+    produces 49; the saved obs_rms matches each policy, so normalising the 49-wide vector
+    with a 46-wide mean is a shape error, not a policy input.
+    """
+    array = np.asarray(obs, dtype=np.float64)
+    if array.shape[0] > dim:
+        array = array[:dim]
+    if obs_rms is not None:
+        mean = np.asarray(obs_rms.mean, dtype=np.float64)
+        var = np.asarray(obs_rms.var, dtype=np.float64)
+        if mean.shape[0] != array.shape[0]:
+            raise ValueError(
+                f"obs_rms has {mean.shape[0]} dims but the policy takes {array.shape[0]}"
+            )
+        array = np.clip((array - mean) / np.sqrt(var + EPSILON), -CLIP, CLIP)
     return torch.FloatTensor(array).unsqueeze(0).to(device)
 
 

@@ -222,46 +222,66 @@ class DreamerCritic(nn.Module):
         return self.net(state)
 
 class SequenceReplayBuffer:
-    """Replay buffer that stores sequences of transitions."""
-    def __init__(self, capacity, obs_shape, action_shape, device):
-        self.capacity = capacity
+    """Replay buffer holding one contiguous stream of transitions per environment.
+
+    Sequences are sampled as contiguous windows, so each environment needs an unbroken
+    run of rows. The first version stored a single interleaved stream and therefore only
+    ever recorded `obs[0]` - which silently threw away num_envs-1 of every collected
+    batch while the training budget counted all of them. Adding all envs to that flat
+    stream would have spliced unrelated episodes into one "sequence", so the storage is
+    now per-environment: the same sample semantics, but every transition is used.
+    """
+
+    def __init__(self, capacity, num_envs, obs_shape, action_shape, device):
+        self.num_envs = max(1, int(num_envs))
+        self.horizon = max(2, int(capacity) // self.num_envs)
+        self.capacity = self.horizon * self.num_envs
         self.device = device
-        
-        self.obs = np.zeros((capacity, *obs_shape), dtype=np.float32)
-        self.actions = np.zeros((capacity, *action_shape), dtype=np.float32)
-        self.rewards = np.zeros((capacity, 1), dtype=np.float32)
-        self.dones = np.zeros((capacity, 1), dtype=np.bool_)
-        
-        self.idx = 0
-        self.size = 0
+
+        self.obs = np.zeros((self.num_envs, self.horizon, *obs_shape), dtype=np.float32)
+        self.actions = np.zeros((self.num_envs, self.horizon, *action_shape), dtype=np.float32)
+        self.rewards = np.zeros((self.num_envs, self.horizon, 1), dtype=np.float32)
+        self.dones = np.zeros((self.num_envs, self.horizon, 1), dtype=np.bool_)
+
+        self.idx = 0        # column that the next add() writes
+        self.filled = 0     # columns written so far (0..horizon)
+        self.size = 0       # total transitions, kept for logging/compat
 
     def add(self, obs, action, reward, done):
-        self.obs[self.idx] = obs
-        self.actions[self.idx] = action
-        self.rewards[self.idx] = reward
-        self.dones[self.idx] = done
-        
-        self.idx = (self.idx + 1) % self.capacity
-        self.size = min(self.size + 1, self.capacity)
+        """Append one column of transitions for every environment at once."""
+        self.obs[:, self.idx] = obs
+        self.actions[:, self.idx] = action
+        self.rewards[:, self.idx] = np.asarray(reward).reshape(-1, 1)
+        self.dones[:, self.idx] = np.asarray(done).reshape(-1, 1)
+
+        self.idx = (self.idx + 1) % self.horizon
+        self.filled = min(self.filled + 1, self.horizon)
+        self.size = min(self.size + self.num_envs, self.capacity)
 
     def sample(self, batch_size, seq_len):
         # We need to sample sequences of length `seq_len`
         obs_batch, action_batch, reward_batch, done_batch = [], [], [], []
-        
+
         for _ in range(batch_size):
-            # Pick a random starting index
+            # Pick a random environment and a window inside its written region
             valid = False
             while not valid:
-                start_idx = np.random.randint(0, self.size - seq_len)
-                # Check that the sequence does not wrap around the buffer boundary
-                if (start_idx + seq_len) <= self.size and start_idx < self.idx <= (start_idx + seq_len):
+                env_no = int(np.random.randint(self.num_envs))
+                if self.filled <= seq_len:
+                    start, end = 0, max(2, self.filled)
+                else:
+                    start = int(np.random.randint(0, self.filled - seq_len))
+                    end = start + seq_len
+                # Skip windows that wrap over the write head
+                if start <= self.idx < end:
                     continue
                 valid = True
-                
-            obs_batch.append(self.obs[start_idx : start_idx + seq_len])
-            action_batch.append(self.actions[start_idx : start_idx + seq_len - 1])
-            reward_batch.append(self.rewards[start_idx : start_idx + seq_len - 1])
-            done_batch.append(self.dones[start_idx : start_idx + seq_len - 1])
+
+            obs_batch.append(self.obs[env_no, start:end])
+            action_batch.append(self.actions[env_no, start:end - 1])
+            reward_batch.append(self.rewards[env_no, start:end - 1])
+            done_batch.append(self.dones[env_no, start:end - 1])
+
             
         # Transpose batches to match sequence-first shape (L, B, dim)
         obs_t = torch.as_tensor(np.array(obs_batch), device=self.device).permute(1, 0, 2)
@@ -375,7 +395,7 @@ def train_dreamer():
     actor_opt = optim.Adam(actor.parameters(), lr=args.learning_rate)
     critic_opt = optim.Adam(critic.parameters(), lr=args.learning_rate)
 
-    rb = SequenceReplayBuffer(args.buffer_size, envs.single_observation_space.shape, envs.single_action_space.shape, device)
+    rb = SequenceReplayBuffer(args.buffer_size, args.num_envs, envs.single_observation_space.shape, envs.single_action_space.shape, device)
     global_step = 0
     restored_obs_rms = None
     ckpt_dir = get_checkpoint_dir(args.run_id)
@@ -439,8 +459,9 @@ def train_dreamer():
                         h_eval[idx] = 0.0
                         z_eval[idx] = 0.0
 
-            # Store in sequence replay buffer (we record first env's trajectory to simplify sequential alignment)
-            rb.add(obs[0], actions[0], rewards[0], terminations[0] or truncations[0])
+            # Store in sequence replay buffer (one column per env; each env keeps its own
+            # contiguous stream so sampled sequences never splice two episodes together)
+            rb.add(obs, actions, rewards, np.logical_or(terminations, truncations))
 
             # Record episode returns
             for info in infos.get("final_info", []):
@@ -456,7 +477,9 @@ def train_dreamer():
             global_step += args.num_envs
 
             # 2. Update World Model and Actor/Critic
-            if global_step >= 5000 and rb.size > args.seq_len + 10:
+            # A sequence needs seq_len contiguous rows inside ONE env's stream, so the
+            # gate is on rows written per env (rb.filled), not total transitions.
+            if global_step >= 5000 and rb.filled > args.seq_len + 10:
                 # Sample a sequence batch (L, B, dim)
                 obs_seq, action_seq, reward_seq, done_seq = rb.sample(args.batch_size, args.seq_len)
                 

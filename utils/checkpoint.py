@@ -132,18 +132,55 @@ def cleanup_old_checkpoints(ckpt_dir, keep_last_n=3):
             pass
 
 
-def force_delete_run(run_id, ckpt_base="checkpoints", run_base="runs"):
-    """Delete all data for a run (checkpoints and all timestamped logs)."""
+def _dir_is_in_use(directory):
+    """True if some other process still holds a file open inside `directory`.
+
+    TensorBoard's writer keeps its event file open, and on Windows opening it for append from
+    a second process fails. Checking is much cheaper than the alternative: deleting the
+    directory out from under a live run makes that run die with a FileNotFoundError from
+    inside the writer thread, several hundred steps and one wasted training run later.
+    """
+    for root, _dirs, files in os.walk(directory):
+        for name in files:
+            path = os.path.join(root, name)
+            try:
+                with open(path, "ab"):
+                    pass
+            except PermissionError:
+                return True
+            except OSError:
+                continue
+    return False
+
+
+def force_delete_run(run_id, run_name=None, ckpt_base="checkpoints", run_base="runs"):
+    """Delete a run's data before a fresh start.
+
+    `run_name` is the caller's own `<run_id>__<seed>` log directory. It used to be ignored:
+    the function globbed `runs/<run_id>__*` and deleted every match, so starting seed 8
+    destroyed seed 7's tensorboard logs - and two processes launched with the same run id
+    killed each other outright. Without `run_name` the old behaviour is kept for callers that
+    really mean "the whole run id", but it now skips directories another process is writing.
+    """
     ckpt_dir = get_checkpoint_dir(run_id, ckpt_base)
-    
+
     # Delete checkpoints
     if os.path.exists(ckpt_dir):
-        shutil.rmtree(ckpt_dir)
-        print(f"[FORCE] Deleted checkpoints: {ckpt_dir}")
+        if _dir_is_in_use(ckpt_dir):
+            print(f"[FORCE] {ckpt_dir} is open by another process - leaving it alone.")
+        else:
+            shutil.rmtree(ckpt_dir)
+            print(f"[FORCE] Deleted checkpoints: {ckpt_dir}")
 
-    # Delete all runs matching the pattern run_id__*
-    run_pattern = os.path.join(run_base, f"{run_id}__*")
-    for d in glob.glob(run_pattern):
-        if os.path.isdir(d):
-            shutil.rmtree(d)
-            print(f"[FORCE] Deleted log directory: {d}")
+    # Delete this process's own log directory, or every directory of the run when asked for
+    targets = [os.path.join(run_base, run_name)] if run_name \
+        else glob.glob(os.path.join(run_base, f"{run_id}__*"))
+    for d in targets:
+        if not os.path.isdir(d):
+            continue
+        if _dir_is_in_use(d):
+            print(f"[FORCE] {d} is open by another process - leaving it alone. "
+                  "Use a distinct --run-id per concurrent run.")
+            continue
+        shutil.rmtree(d)
+        print(f"[FORCE] Deleted log directory: {d}")

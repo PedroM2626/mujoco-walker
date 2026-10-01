@@ -71,7 +71,12 @@ def build_policy(path, device):
             if rms:
                 x = np.clip((x - np.asarray(rms["mean"])) /
                             np.sqrt(np.asarray(rms["var"]) + EPSILON), -CLIP, CLIP)
-            return np.clip(x @ weights.T + bias, -1.0, 1.0)
+            # tanh, not clip: train_ars.run_episode acts with np.tanh(w @ obs + b), and its own
+            # periodic evaluation (line 231, update_normalizer=False) is the reference this
+            # scorer has to reproduce. Clipping keeps the gain at 1 through the linear region
+            # where tanh has already compressed it - and a linear policy is only as good as
+            # its gain.
+            return np.tanh(x @ weights.T + bias)
         return algo, phase, int(weights.shape[1]), ars_policy, _noop_reset
 
     if algo == "dreamer":

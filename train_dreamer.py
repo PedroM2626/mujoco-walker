@@ -372,7 +372,7 @@ def train_dreamer():
     start_time = time.time()
 
     if not args.resume or args.force:
-        force_delete_run(args.run_id)
+        force_delete_run(args.run_id, run_name)
 
     random.seed(args.seed)
     np.random.seed(args.seed)

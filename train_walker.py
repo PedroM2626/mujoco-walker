@@ -1165,7 +1165,7 @@ def train_ppo(start_time=None):
     run_name = f"{args.run_id}__{args.seed}"
 
     if not args.resume or args.force:
-        force_delete_run(args.run_id)
+        force_delete_run(args.run_id, run_name)
 
     random.seed(args.seed)
     np.random.seed(args.seed)
@@ -1394,7 +1394,7 @@ def train_td3(start_time=None):
     run_name = f"{args.run_id}__{args.seed}"
 
     if not args.resume or args.force:
-        force_delete_run(args.run_id)
+        force_delete_run(args.run_id, run_name)
 
     random.seed(args.seed)
     np.random.seed(args.seed)
@@ -1619,7 +1619,7 @@ def train(start_time=None):
     run_name = f"{args.run_id}__{args.seed}"
 
     if not args.resume or args.force:
-        force_delete_run(args.run_id)
+        force_delete_run(args.run_id, run_name)
 
     random.seed(args.seed)
     np.random.seed(args.seed)

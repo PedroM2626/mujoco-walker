@@ -1,6 +1,7 @@
 """Unit and integration tests for the Walker Ragdoll environment and SAC training."""
 
 import os
+import shutil
 import sys
 import unittest
 import numpy as np
@@ -169,6 +170,45 @@ class TestCheckpoint(unittest.TestCase):
 
         latest = find_latest_checkpoint(os.path.join(self.base_dir, self.run_id))
         self.assertIn("ckpt_2000.pt", latest)
+
+
+class TestForceDeleteRunScope(unittest.TestCase):
+    """A fresh start must not destroy a sibling run's logs.
+
+    force_delete_run() used to glob `runs/<run_id>__*` and delete every match, so a second
+    launch with the same --run-id and a different seed removed the first one's tensorboard
+    directory while it was still being written - the live run then died inside the writer
+    thread with FileNotFoundError.
+    """
+
+    base = "test_run_logs"
+
+    def _make(self, name):
+        path = os.path.join(self.base, name)
+        os.makedirs(path, exist_ok=True)
+        with open(os.path.join(path, "events.out.tfevents.probe"), "wb") as handle:
+            handle.write(b"x")
+        return path
+
+    def tearDown(self):
+        shutil.rmtree(self.base, ignore_errors=True)
+        shutil.rmtree("test_checkpoints/shared_run", ignore_errors=True)
+
+    def test_only_the_callers_log_directory_is_removed(self):
+        mine = self._make("shared_run__7")
+        sibling = self._make("shared_run__8")
+        force_delete_run("shared_run", "shared_run__7",
+                         ckpt_base="test_checkpoints", run_base=self.base)
+        self.assertFalse(os.path.isdir(mine), "this run's own log dir should be cleared")
+        self.assertTrue(os.path.isdir(sibling),
+                        "another seed's log dir belongs to another run")
+
+    def test_glob_mode_still_clears_every_directory_of_the_run(self):
+        for name in ("shared_run__7", "shared_run__8", "shared_run__9"):
+            self._make(name)
+        force_delete_run("shared_run", ckpt_base="test_checkpoints", run_base=self.base)
+        self.assertEqual([d for d in os.listdir(self.base)], [],
+                         "without run_name the caller means the whole run id")
 
 
 class TestMakeEnv(unittest.TestCase):

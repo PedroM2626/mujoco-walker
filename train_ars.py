@@ -116,7 +116,7 @@ def train_ars():
     run_name = f"{args.run_id}__{args.seed}"
 
     if not args.resume or args.force:
-        force_delete_run(args.run_id)
+        force_delete_run(args.run_id, run_name)
 
     random.seed(args.seed)
     np.random.seed(args.seed)

@@ -35,3 +35,6 @@ env/
 *mlrun*
 *.db
 *.png
+.venv-mjx/
+temp_race_env.xml
+bench_*.json

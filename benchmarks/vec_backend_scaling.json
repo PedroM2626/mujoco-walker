@@ -1,0 +1,24 @@
+{
+  "machine": "Windows 11, Intel i9-14900HX (24 cores / 32 logical), RTX 4070 Laptop (unused by these runs)",
+  "python": "3.8.10 venv, mujoco 3.2.3, gymnasium 0.29.1, numpy 1.24.4",
+  "protocol": "WalkerRagdoll-v0, task_phase=recovery, reset_mode=mixed, random actions in [-1,1], 3s per measurement, envs_per_worker=1, sparse_info=true",
+  "env_stack": "train_walker.make_env (FlattenObservation + RecordEpisodeStatistics + ClipAction)",
+
+  "single_env_reference_us_per_step": 698.9,
+
+  "full_trainer_stack": [
+    {"num_envs": 2,  "sync_us_per_vec_step": 1297.6, "sync_env_steps_per_s": 1541, "parallel_us_per_vec_step": 1051.7, "parallel_env_steps_per_s": 1902, "speedup": 1.23},
+    {"num_envs": 4,  "sync_us_per_vec_step": 2632.9, "sync_env_steps_per_s": 1519, "parallel_us_per_vec_step": 2188.2, "parallel_env_steps_per_s": 1828, "speedup": 1.20},
+    {"num_envs": 8,  "sync_us_per_vec_step": 5523.1, "sync_env_steps_per_s": 1448, "parallel_us_per_vec_step": 2996.2, "parallel_env_steps_per_s": 2670, "speedup": 1.84},
+    {"num_envs": 16, "sync_us_per_vec_step": 10678.8, "sync_env_steps_per_s": 1498, "parallel_us_per_vec_step": 4099.0, "parallel_env_steps_per_s": 3903, "speedup": 2.61},
+    {"num_envs": 32, "sync_us_per_vec_step": 21865.5, "sync_env_steps_per_s": 1463, "parallel_us_per_vec_step": 4780.7, "parallel_env_steps_per_s": 6694, "speedup": 4.57}
+  ],
+
+  "notes": [
+    "SyncVectorEnv throughput is flat in num_envs: stepping happens in the trainer thread, so 32 envs cost 32x the wall clock of one env and return the same ~1.5k steps/s.",
+    "The parallel backend's speedup grows with num_envs and only becomes worth the ~1s/worker startup from about 8-16 envs. This is why --vec-backend defaults to sync.",
+    "envs_per_worker was swept 1..8 at n=32 (light stack): 242, 220, 220, 190, 180, 184 vector steps/s. Grouping does not help, so one worker per env is the default.",
+    "sparse_info (omit the per-step info dict) moved n=32 from 151 to 210 vector steps/s on the light stack.",
+    "A single env spends ~40% of its step time in MuJoCo physics at RK4 dt=0.002 with frame_skip=5; the remaining Python in the reward path was reduced ~4x by the throughput rewrite."
+  ]
+}

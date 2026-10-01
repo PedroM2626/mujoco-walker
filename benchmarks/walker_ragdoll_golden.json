@@ -1,0 +1,37 @@
+{
+  "recovery": {
+    "reward_sum": 413.9354477,
+    "obs_sum": -2100.90239415,
+    "first_rewards": [146.8402790598, 148.9795942415, 150.1131207864],
+    "obs_dim": 46,
+    "max_z": 1.260208
+  },
+  "balance": {
+    "reward_sum": 353.69511546,
+    "obs_sum": -2100.90239415,
+    "first_rewards": [153.7849935475, 165.5495266299, 168.4661611676],
+    "obs_dim": 46,
+    "max_z": 1.260208
+  },
+  "walk": {
+    "reward_sum": 680.79009429,
+    "obs_sum": -2100.90239415,
+    "first_rewards": [165.4382075419, 172.4262817992, 174.9346534721],
+    "obs_dim": 46,
+    "max_z": 1.260208
+  },
+  "target": {
+    "reward_sum": 598.45921857,
+    "obs_sum": -588.6748439,
+    "first_rewards": [160.091262753, 169.116383086, 171.6701492434],
+    "obs_dim": 49,
+    "max_z": 1.260208
+  },
+  "_provenance": {
+    "reset_mode": "upright",
+    "reset_seed": 1234,
+    "action_generator": "np.random.default_rng(99).normal(0, 0.25, 17)",
+    "steps": 300,
+    "recorded_against": "env rewrote for throughput; values verified equal to the pre-rewrite implementation to <1e-7 accumulated"
+  }
+}

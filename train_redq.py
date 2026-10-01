@@ -14,6 +14,8 @@ from torch.utils.tensorboard import SummaryWriter
 # Import utilities and environment from train_walker
 from train_walker import (
     make_env,
+    add_vec_env_args,
+    build_vec_env,
     SACAgent,
     SoftQNetwork,
     ReplayBuffer,
@@ -64,6 +66,7 @@ def parse_redq_args():
     parser.add_argument("--init-from-checkpoint-step", type=int, default=0)
     parser.add_argument("--allow-mismatched-env-version", action="store_true", default=False)
     parser.add_argument("--save-replay-buffer", action="store_true", default=False)
+    add_vec_env_args(parser)
     
     # REDQ specific arguments
     parser.add_argument("--ensemble-size", type=int, default=10, help="Number of Q-networks in ensemble (N)")
@@ -139,25 +142,7 @@ def train_redq():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
 
-    env_id = "WalkerRagdoll-v0"
-    envs = gym.vector.SyncVectorEnv(
-        [
-            make_env(
-                env_id,
-                i,
-                False,
-                run_name,
-                reset_mode=args.reset_mode,
-                fixed_reset_probability=args.fixed_reset_probability,
-                upright_reset_probability=args.upright_reset_probability,
-                fallen_velocity_scale=args.fallen_velocity_scale,
-                task_phase=args.task_phase,
-                target_forward_velocity=args.target_forward_velocity,
-                terminate_when_unhealthy=(args.task_phase == "target"),
-            )
-            for i in range(args.num_envs)
-        ]
-    )
+    envs = build_vec_env(args, run_name, capture_video=False)
     envs = wrap_normalize_observation(envs)
     envs = wrap_transform_observation(envs, lambda obs: np.clip(obs, -10, 10))
 

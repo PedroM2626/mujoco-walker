@@ -1,0 +1,32 @@
+{
+  "measured_on": "2026-10-01, Windows 11, i9-14900HX, RTX 4070 Laptop (not used), Python 3.8.10, mujoco 3.2.3, gymnasium 0.29.1",
+  "command": "python bench_env.py --seconds 4 --task-phase recovery",
+  "phases": {
+    "before": {
+      "note": "commit 5920805, env reward path as originally written",
+      "physics_mj_step_per_s": 13966,
+      "single_env_steps_per_s": 1080,
+      "sync_vec_n32_copy_true_vec_steps_per_s": 31,
+      "sync_vec_n32_copy_false_vec_steps_per_s": 32,
+      "sync_vec_n32_env_steps_per_s": 1024
+    },
+    "after_env_python_rewrite": {
+      "note": "same physics, same rewards (verified equal to <4e-13), Python hot path rewritten",
+      "physics_mj_step_per_s": 14403,
+      "single_env_steps_per_s": 1560,
+      "sync_vec_n32_copy_true_vec_steps_per_s": 45,
+      "sync_vec_n32_copy_false_vec_steps_per_s": 48,
+      "sync_vec_n32_env_steps_per_s": 1536,
+      "speedup_vs_before": 1.5
+    },
+    "after_parallel_backend": {
+      "note": "envs_per_worker=1, sparse_info=true, n=32",
+      "parallel_vec_n32_sparse_vec_steps_per_s": 229,
+      "parallel_vec_n32_env_steps_per_s": 7328,
+      "speedup_vs_before": 7.2,
+      "caveat": "with the full make_env wrapper stack the same n=32 point measures 6694 env-steps/s (see vec_backend_scaling.json); the light stack used here understates child-side cost"
+    }
+  },
+  "equivalence_check": "the rewritten env was compared against the pre-change class (extracted with git show) over 4 task phases x 5 reset modes x 3 seeds x 400 steps: max |obs diff| 1.8e-15, max |reward diff| 3.6e-13, zero mismatches. tests/test_env_golden.py now pins the resulting behaviour.",
+  "physics_unchanged": "walker_ragdoll.xml still compiles RK4 at timestep=0.002 with frame_skip=5. Euler would be 2.1x faster in physics but diverges from RK4 (max |dq| 1.96 over 2000 actions), which would invalidate every trained checkpoint, so it was not enabled."
+}

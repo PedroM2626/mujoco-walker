@@ -69,6 +69,34 @@ def parse_bool(value):
     return str(value).strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
+def add_vec_env_args(parser):
+    """Vector-env backend flags, shared by the ragdoll trainers.
+
+    Measured on this machine (i9-14900HX, full make_env stack, env-steps/s):
+    sync is flat at ~1.5k regardless of num_envs because it steps every env in the
+    trainer thread; parallel reaches ~1.9k at 2 envs and ~6.6k at 32, but each worker
+    costs about a second to start. So the serial backend stays the default for short
+    runs and small num_envs, where spawning would lose more than it saves.
+    """
+    parser.add_argument(
+        "--vec-backend",
+        type=str,
+        default=get_env_or_default("VEC_BACKEND", "sync"),
+        choices=["sync", "parallel"],
+        help="sync steps every env in the trainer thread; parallel runs one worker "
+             "process per env. Both execute the identical env-step budget. Parallel "
+             "pays off from about --num-envs 16 and up.",
+    )
+    parser.add_argument(
+        "--vec-dense-info",
+        action="store_true",
+        default=False,
+        help="Ship the per-step env info dict across the parallel backend's pipes. "
+             "Costs about 30%% of rollout throughput; only needed if the loop reads "
+             "infos keys on non-terminal steps.",
+    )
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description="SAC / PPO / TD3 Walker Ragdoll Training")
     parser.add_argument("--algo", type=str, default=get_env_or_default("ALGO", ENV_VARS["ALGO"]), choices=["sac", "ppo", "td3"], help="Training algorithm.")
@@ -170,6 +198,8 @@ def parse_args():
     parser.add_argument("--autotune", action="store_true", default=True)
     parser.add_argument("--no-autotune", dest="autotune", action="store_false")
     parser.add_argument("--capture-video", action="store_true", default=False)
+    add_vec_env_args(parser)
+
     parser.add_argument("--allow-mismatched-env-version", action="store_true", default=False)
     parser.add_argument("--use-supervisor-in-training", action="store_true", default=False, help="Use recovery supervisor during target phase training")
     # PPO-specific arguments
@@ -238,6 +268,49 @@ def make_env(
         return env
 
     return thunk
+
+
+def env_common_kwargs(args):
+    """The env kwargs every trainer passes to make_env, in one place."""
+    return {
+        "reset_mode": args.reset_mode,
+        "fixed_reset_probability": args.fixed_reset_probability,
+        "upright_reset_probability": args.upright_reset_probability,
+        "fallen_velocity_scale": args.fallen_velocity_scale,
+        "task_phase": args.task_phase,
+        "target_forward_velocity": args.target_forward_velocity,
+        "terminate_when_unhealthy": args.task_phase == "target",
+    }
+
+
+def build_vec_env(args, run_name, num_envs=None, capture_video=None):
+    """Vectorised env with the trainer's wrapper stack, serial or process-parallel.
+
+    Both backends build exactly the same sub-environments through make_env and step
+    the same number of env steps per vector step, so the training budget is unchanged;
+    only the wall clock to collect it moves. The parallel backend needs an importable
+    spec instead of a closure because spawn pickles the launch arguments.
+    """
+    num_envs = args.num_envs if num_envs is None else num_envs
+    capture_video = getattr(args, "capture_video", False) if capture_video is None else capture_video
+    env_id = "WalkerRagdoll-v0"
+    kwargs = env_common_kwargs(args)
+
+    if getattr(args, "vec_backend", "sync") == "sync" or num_envs == 1:
+        return gym.vector.SyncVectorEnv(
+            [
+                (lambda i=i: make_env(env_id, i, capture_video, run_name, **kwargs)())
+                for i in range(num_envs)
+            ]
+        )
+
+    from envs.parallel_vector_env import ParallelVectorEnv
+
+    specs = [
+        ("train_walker", "make_env", (env_id, i, capture_video, run_name), kwargs)
+        for i in range(num_envs)
+    ]
+    return ParallelVectorEnv(specs, sparse_info=not getattr(args, "vec_dense_info", False))
 
 
 def layer_init(layer):
@@ -1011,18 +1084,7 @@ def train_ppo(start_time=None):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
 
-    env_id = "WalkerRagdoll-v0"
-    envs = gym.vector.SyncVectorEnv([
-        make_env(env_id, i, args.capture_video, run_name,
-                 reset_mode=args.reset_mode,
-                 fixed_reset_probability=args.fixed_reset_probability,
-                 upright_reset_probability=args.upright_reset_probability,
-                 fallen_velocity_scale=args.fallen_velocity_scale,
-                 task_phase=args.task_phase,
-                 target_forward_velocity=args.target_forward_velocity,
-                 terminate_when_unhealthy=(args.task_phase == "target"))
-        for i in range(args.num_envs)
-    ])
+    envs = build_vec_env(args, run_name)
     envs = wrap_normalize_observation(envs)
     envs = wrap_transform_observation(envs, lambda obs: np.clip(obs, -10, 10))
     envs = wrap_normalize_reward(envs, gamma=args.gamma)
@@ -1251,25 +1313,7 @@ def train_td3(start_time=None):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
 
-    env_id = "WalkerRagdoll-v0"
-    envs = gym.vector.SyncVectorEnv(
-        [
-            make_env(
-                env_id,
-                i,
-                args.capture_video,
-                run_name,
-                reset_mode=args.reset_mode,
-                fixed_reset_probability=args.fixed_reset_probability,
-                upright_reset_probability=args.upright_reset_probability,
-                fallen_velocity_scale=args.fallen_velocity_scale,
-                task_phase=args.task_phase,
-                target_forward_velocity=args.target_forward_velocity,
-                terminate_when_unhealthy=(args.task_phase == "target"),
-            )
-            for i in range(args.num_envs)
-        ]
-    )
+    envs = build_vec_env(args, run_name)
     envs = wrap_normalize_observation(envs)
     envs = wrap_transform_observation(envs, lambda obs: np.clip(obs, -10, 10))
 
@@ -1489,25 +1533,7 @@ def train(start_time=None):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
 
-    env_id = "WalkerRagdoll-v0"
-    envs = gym.vector.SyncVectorEnv(
-        [
-            make_env(
-                env_id,
-                i,
-                args.capture_video,
-                run_name,
-                reset_mode=args.reset_mode,
-                fixed_reset_probability=args.fixed_reset_probability,
-                upright_reset_probability=args.upright_reset_probability,
-                fallen_velocity_scale=args.fallen_velocity_scale,
-                task_phase=args.task_phase,
-                target_forward_velocity=args.target_forward_velocity,
-                terminate_when_unhealthy=(args.task_phase == "target"),
-            )
-            for i in range(args.num_envs)
-        ]
-    )
+    envs = build_vec_env(args, run_name)
     envs = wrap_normalize_observation(envs)
     envs = wrap_transform_observation(envs, lambda obs: np.clip(obs, -10, 10))
 

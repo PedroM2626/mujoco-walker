@@ -14,6 +14,8 @@ from torch.utils.tensorboard import SummaryWriter
 # Import utilities and environment from train_walker
 from train_walker import (
     make_env,
+    add_vec_env_args,
+    build_vec_env,
     force_delete_run,
     get_checkpoint_dir,
     get_rng_state,
@@ -287,6 +289,7 @@ def parse_dreamer_args():
     parser.add_argument("--fallen-velocity-scale", type=float, default=0.35)
     parser.add_argument("--task-phase", type=str, default="target")
     parser.add_argument("--target-forward-velocity", type=float, default=0.8)
+    add_vec_env_args(parser)
     
     # DreamerV3 specific hyperparameters
     parser.add_argument("--seq-len", type=int, default=50, help="World model sequence batch training length (L)")
@@ -355,25 +358,7 @@ def train_dreamer():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
 
-    env_id = "WalkerRagdoll-v0"
-    envs = gym.vector.SyncVectorEnv(
-        [
-            make_env(
-                env_id,
-                i,
-                False,
-                run_name,
-                reset_mode=args.reset_mode,
-                fixed_reset_probability=args.fixed_reset_probability,
-                upright_reset_probability=args.upright_reset_probability,
-                fallen_velocity_scale=args.fallen_velocity_scale,
-                task_phase=args.task_phase,
-                target_forward_velocity=args.target_forward_velocity,
-                terminate_when_unhealthy=(args.task_phase == "target"),
-            )
-            for i in range(args.num_envs)
-        ]
-    )
+    envs = build_vec_env(args, run_name, capture_video=False)
     envs = wrap_normalize_observation(envs)
     envs = wrap_transform_observation(envs, lambda obs: np.clip(obs, -10, 10))
 

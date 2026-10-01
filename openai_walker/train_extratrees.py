@@ -32,8 +32,12 @@ def train_extratrees(out_path=None):
     start_time = time.time()
     
     # n_estimators=100 is usually enough for Extra Trees
-    # n_jobs=-1 uses all CPU cores
-    model = ExtraTreesRegressor(n_estimators=100, random_state=42, n_jobs=-1)
+    # n_jobs=1, not -1: with -1 the threaded reduction inside predict() is not reproducible,
+    # and two predict calls on the *same* input differ by ~3e-16. Walker2d-v5 is chaotic enough
+    # to turn that into 0.17 on an episode return, which made the Extra Trees row vary between
+    # identical runs. The trees themselves are unchanged (random_state fixes each estimator's
+    # seed), only the summation order was not.
+    model = ExtraTreesRegressor(n_estimators=100, random_state=42, n_jobs=1)
     model.fit(X, y)
     
     end_time = time.time()

@@ -232,10 +232,9 @@ that is now a tested statement rather than an inference from the std.
 |:---|---:|---:|---:|---:|:---|
 | **Behavioral Cloning (BC)** | **3529.44** | 649.73 | 1638.67 | 4085.63 | Statistically tied with the teacher: paired over the same 50 seeded episodes the gap is +12.49 with a 95% CI of [-231.49, +265.05] (paired-t p=0.92). Cloning the expert recovers essentially all of it. |
 | **Teacher (Online SAC)** | 3516.95 | 724.62 | 1511.13 | 4011.47 | The upper bound - and indistinguishable from BC. |
-| **Extra Trees Cloner (sklearn)** | 3092.22 | 1034.38 | 953.80 | 3992.76 | Third, on the same 50-episode seeded protocol as every row above (seed 2026; trained in 6.3 s). |
+| **Extra Trees Cloner (sklearn)** | 3092.22 | 1034.38 | 953.80 | 3992.76 | Third, on the same 50-episode seeded protocol as every row above (seed 2026; trained in 6.3 s). The nesting shows how far to trust it: the first 20 episodes of *this* run average 3362.4146, and two separate fresh 20-episode runs at the same seed returned 3362.4230 and 3362.4146 - same model, same resets, 0.008 apart in the mean and up to 0.17 on one episode. The cause is measured: `Walker2d-v5` rollouts under a fixed action are bit-identical across trials, but this model's `predict` on the **same input** differs between repeated calls by 5.6e-16 (2.8e-16 for a freshly fit 100-tree forest with the same settings), and the chaotic simulator amplifies that. It is `n_jobs=-1`'s threaded reduction, not the sklearn version gap: a forest fit with `n_jobs=1` reproduces bit-exactly (0.00e+00 over repeated calls and uneven batch splits), so `train_extratrees.py` now uses `n_jobs=1`. The rows here were measured against the artifact as it sits on disk (2026-06-28, `n_jobs=-1`), so trust them to ~1e-5 relative, not to the second decimal. What moved the row's *level* is sample size: episodes 21-50 average 2912.10. |
 | **BC+SAC (Regularized)** | 2784.29 | 816.62 | 1259.66 | 4019.63 | The offline-to-online hybrid finishes **below** plain BC: fine-tuning on top of cloning did not pay for itself. |
 | **Batch-Constrained Q-learning (BCQ)** | 2732.60 | 1066.23 | 1273.22 | 4049.40 | Best strictly-offline method that is not plain imitation. This row moved: it was 2838.27 before `evaluate_all.py` started seeding the policy-side RNG, and BCQ draws its action through a sampled VAE, so the same protocol used to return 2838.27 and 2715.22 on two consecutive runs. It is now 5th, one place behind BC+SAC (Regularized) by 51.69 - a difference this protocol cannot resolve either way. |
-| **Extra Trees Cloner (sklearn)** | 3092.22 | 1034.38 | 953.80 | 3992.76 | Third, on the same 50-episode seeded protocol as every row above (seed 2026; trained in 6.3 s). The nesting tells you how much to trust it: the first 20 episodes of *this* run average 3362.4146, while two separate fresh 20-episode runs at the same seed returned 3362.4230 and 3362.4146 - same model, same resets, agreeing to 0.008 on the mean and differing by up to 0.17 on one episode. The seeded protocol therefore reproduces to about 1e-5 relative, not exactly (the model predicts with `n_jobs=-1`, so the reduction over its 100 trees is the likely cause; not proven). What moved the row's *level* is sample size: episodes 21-50 average 2912.10. |
 | **Decision Transformer (DT)** | 1927.23 | 1101.18 | 933.58 | 3700.39 | Widest spread in the table; conditioned on Return-To-Go, 10 epochs of training. |
 | **BC+SAC (Naive)** | 1290.57 | 476.50 | 516.50 | 2502.59 | Unregularised: the fresh critic's gradients overwrite the cloned policy. |
 | **Inverse RL (GAIL)** | 998.07 | 0.37 | 997.31 | 998.74 | Near-zero variance - converged onto a fixed, mediocre gait; the discriminator starves the actor. |
@@ -485,9 +484,10 @@ docker build -t mujoco-walker-rl .
 docker run -it --rm mujoco-walker-rl bash
 ```
 The image installs `requirements.txt` only, so it covers Phases 1-3; add
-`requirements-phase4.txt` inside the container for the offline benchmark, and note that
-GPU-accelerated MJX needs a Linux/CUDA container (`jaxlib` ships no CUDA wheels for
-Windows).
+`requirements-phase4.txt` inside the container for the offline benchmark. GPU-accelerated MJX
+needs a Linux/CUDA container (`jaxlib` ships no CUDA wheels for native Windows) - that is
+`Dockerfile.mjx`, built with `docker build -f Dockerfile.mjx -t mujoco-walker-mjx .` and run
+with `--gpus all`.
 
 ### Option 2: Native Virtual Environment
 ```bash
@@ -521,6 +521,19 @@ Two facts to keep in mind:
   of the Phase-4 dataset, and every table here is measured against it. If the repo ever
   needs to shed it, migrate with `git lfs migrate import --include=...` and a force-push -
   that rewrites published history, so it needs every clone to re-fetch.
+
+Everything under `checkpoints/` is local and ignored, so it never affected the clone size.
+The working directory here was 31 GB, of which 12.8 GB was `checkpoints/walker_recovery_v1`:
+twenty hourly checkpoints from the same 20M-step run, and only two of them are referenced by
+any script - `sac_ckpt_20000000.pt` (the recovery expert in every Phase-3 number) and
+`sac_ckpt_1000000.pt` (`merge_models.py --base-ckpt`, the transfer-learning starting point).
+The other eighteen were deleted on 2026-10-01, freeing 11.4 GB; `checkpoints/` went from
+12,853 MB to 1,454 MB, and the Phase-3 evaluation reproduces its four strategy means exactly
+afterwards (36496.42 / 31237.52 / -8015.85 / -30245.87 at two episodes, seed 11), so the
+surviving set is sufficient. `checkpoints/Humanoid_Curriculum_v1` (3.8 MB, four files,
+referenced by nothing) went with it: it was the residue of a Humanoid claim that this README
+no longer makes. What is *not* recoverable this way is the deleted steps - regenerating them
+means re-running the 20M-step recovery training.
 
 ## ✅ Running the tests
 

@@ -166,6 +166,7 @@ the picture is stable. Regenerate with `python summarize_benchmarks.py`.
 | **Teacher (Online SAC)** | 3516.95 | 724.62 | 1511.13 | 4011.47 | The upper bound - and indistinguishable from BC. |
 | **Batch-Constrained Q-learning (BCQ)** | 2838.27 | 1063.11 | 1236.20 | 3990.51 | Best strictly-offline method that is not plain imitation; its min of 1236 shows what one unlucky episode costs. |
 | **BC+SAC (Regularized)** | 2784.29 | 816.62 | 1259.66 | 4019.63 | The offline-to-online hybrid finishes **below** plain BC: fine-tuning on top of cloning did not pay for itself. |
+| **Extra Trees Cloner (sklearn)** | 3362.42 | 831.35 | 1672.75 | 3965.86 | Third, on its own 20-episode seeded run (seed 2026; trained in 6.3 s). The tracked artifact was trained with sklearn 1.3.2 and loaded with 1.5.2, so it was retrained under 1.5.2 to test whether that distorted the number: 3362.41 vs 3362.42. It did not. |
 | **Decision Transformer (DT)** | 1927.23 | 1101.18 | 933.58 | 3700.39 | Widest spread in the table; conditioned on Return-To-Go, 10 epochs of training. |
 | **BC+SAC (Naive)** | 1290.57 | 476.50 | 516.50 | 2502.59 | Unregularised: the fresh critic's gradients overwrite the cloned policy. |
 | **Inverse RL (GAIL)** | 998.07 | 0.37 | 997.31 | 998.74 | Near-zero variance - converged onto a fixed, mediocre gait; the discriminator starves the actor. |
@@ -185,7 +186,10 @@ What this measurement changes, stated plainly:
    one unlucky draw, and every other n=1 number inherits that risk.
 3. **Std of 500-1100 is the same order as the gaps between neighbours**, so BC/Teacher and
    BCQ/BC+SAC-Reg should be read as pairs this protocol cannot separate.
-4. **PQR is absent because it was never saved, not because it is slow.** `train_irl_pqr.py`
+4. **Extra Trees belongs in the table, not in a footnote.** Its 831-point std puts it in the
+   same band as BCQ and BC+SAC-Reg, and its min/max of 1673/3966 is the in-distribution vs
+   extrapolation split the retired "~2522, memorised the manifold" line was hiding.
+5. **PQR is absent because it was never saved, not because it is slow.** `train_irl_pqr.py`
    exists and an MLflow run `Deep_PQR_IRL` is in the database, but it is still marked RUNNING
    with 0 metrics - the process died before writing `pqr_policy.pt`. `iql_sac_model.pt` is
    missing the same way, after 653 metrics.

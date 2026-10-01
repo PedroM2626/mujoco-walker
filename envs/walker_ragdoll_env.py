@@ -202,6 +202,7 @@ class WalkerRagdollEnv(MujocoEnv, gym.utils.EzPickle):
         self._geom_is_foot = [geom_bodyid[g] in foot_body_ids for g in range(self.model.ngeom)]
         self._geom_is_floor = [g == self._floor_geom_id for g in range(self.model.ngeom)]
         self._compute_impact = self._impact_cost_weight != 0.0
+        self._ever_healthy = False
         # Scratch buffers so _get_obs allocates once per step instead of four times.
         self._scalar_buf = np.empty(1, dtype=np.float64)
         self._target_obs_buf = np.empty(3, dtype=np.float64)
@@ -230,9 +231,26 @@ class WalkerRagdollEnv(MujocoEnv, gym.utils.EzPickle):
         min_z, max_z = self._healthy_z_range
         return min_z < z < max_z
 
+    def _latch_health(self):
+        """Record that this episode has reached a standing pose at least once.
+
+        Called from step() rather than as a side effect of is_healthy: terminated()
+        short-circuits on the latch, so a latch that only is_healthy could set would
+        never be set.
+        """
+        if self.is_healthy:
+            self._ever_healthy = True
+        return self._ever_healthy
+
     @property
     def terminated(self):
-        return not self.is_healthy if self._terminate_when_unhealthy else False
+        if not self._terminate_when_unhealthy:
+            return False
+        # Starting on the floor is the task, not a failure. `mixed`/`fallen` resets put
+        # torso z at 0.25-0.65 while healthy_z_range starts at 1.0, so without this
+        # latch every one of those episodes ended after a single step and collected the
+        # -500 fall penalty. Only a robot that stood up and then lost it has fallen.
+        return self._ever_healthy and not self.is_healthy
 
     def control_cost(self, action):
         return self._ctrl_cost_weight * float(np.dot(action, action))
@@ -480,8 +498,12 @@ class WalkerRagdollEnv(MujocoEnv, gym.utils.EzPickle):
             - stillness_penalty
             - lateral_drift_penalty
         )
+        # Update the standing latch, then ask the property: it is the property that
+        # honours terminate_when_unhealthy, so the penalty must not be computed from
+        # the latch directly or a fall would cost 500 even with termination disabled.
+        self._latch_health()
         terminated = self.terminated
-        if terminated and not self.is_healthy:
+        if terminated:
             reward -= 500.0
 
         observation = self._get_obs(upright_raw)
@@ -626,6 +648,7 @@ class WalkerRagdollEnv(MujocoEnv, gym.utils.EzPickle):
             qvel += self.np_random.normal(scale=0.08, size=self.model.nv)
 
         self.set_state(qpos, qvel)
+        self._ever_healthy = False
         # Always resample a new target on episode reset
         self._sample_target()
         self._set_target_marker()

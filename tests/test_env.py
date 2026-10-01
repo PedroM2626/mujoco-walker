@@ -198,5 +198,53 @@ class TestMakeEnv(unittest.TestCase):
             envs.close()
 
 
+class TestFallenStartIsNotAFall(unittest.TestCase):
+    """terminate_when_unhealthy must not punish the curriculum's own starting poses."""
+
+    def _run(self, reset_mode, steps=6):
+        env = gym.make(
+            "WalkerRagdoll-v0", reset_mode=reset_mode, task_phase="target",
+            terminate_when_unhealthy=True,
+        )
+        try:
+            env.reset(seed=3)
+            z0 = float(env.unwrapped.data.qpos[2])
+            rewards, dones = [], []
+            for _ in range(steps):
+                _, reward, terminated, _, _ = env.step(np.zeros(17, np.float32))
+                rewards.append(reward)
+                dones.append(terminated)
+            return z0, rewards, dones, env.unwrapped._ever_healthy
+        finally:
+            env.close()
+
+    def test_fallen_start_does_not_terminate_immediately(self):
+        z0, rewards, dones, ever_healthy = self._run("fallen")
+        self.assertLess(z0, 1.0, "fallen reset should start below the healthy z range")
+        self.assertFalse(dones[0], "a fallen start terminated on the very first step")
+        self.assertFalse(ever_healthy, "no fall can be reported before the robot has stood")
+        self.assertGreater(rewards[0], -400.0, "the -500 fall penalty fired on a reset pose")
+
+    def test_upright_reset_start_is_inside_healthy_range(self):
+        env = gym.make("WalkerRagdoll-v0", reset_mode="upright", terminate_when_unhealthy=True)
+        try:
+            env.reset(seed=3)
+            self.assertGreater(float(env.unwrapped.data.qpos[2]), 1.0)
+            self.assertTrue(env.unwrapped.is_healthy)
+        finally:
+            env.close()
+
+    def test_default_backend_never_terminates_on_health(self):
+        env = gym.make("WalkerRagdoll-v0", reset_mode="fallen")
+        try:
+            env.reset(seed=3)
+            for _ in range(20):
+                _, _, terminated, truncated, _ = env.step(np.zeros(17, np.float32))
+                self.assertFalse(terminated)
+                self.assertFalse(truncated)
+        finally:
+            env.close()
+
+
 if __name__ == "__main__":
     unittest.main()

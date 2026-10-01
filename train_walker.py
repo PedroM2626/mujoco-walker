@@ -61,6 +61,32 @@ ENV_VARS = {
 }
 
 
+def load_dotenv(path=".env"):
+    """Populate os.environ from a .env file, without overriding real environment vars.
+
+    Every hyperparameter below already reads os.environ, but nothing ever put the
+    contents of .env there, so the committed .env silently had no effect and every run
+    used the hardcoded defaults instead. No python-dotenv dependency: the file is a flat
+    KEY=VALUE list.
+    """
+    if not os.path.isfile(path):
+        return {}
+    loaded = {}
+    with open(path, "r", encoding="utf-8") as handle:
+        for line in handle:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            key, value = key.strip(), value.strip().strip('"').strip("'")
+            loaded[key] = value
+            os.environ.setdefault(key, value)
+    return loaded
+
+
+load_dotenv()
+
+
 def get_env_or_default(key, default):
     return os.environ.get(key, default)
 
@@ -72,20 +98,27 @@ def parse_bool(value):
 def add_vec_env_args(parser):
     """Vector-env backend flags, shared by the ragdoll trainers.
 
-    Measured on this machine (i9-14900HX, full make_env stack, env-steps/s):
-    sync is flat at ~1.5k regardless of num_envs because it steps every env in the
-    trainer thread; parallel reaches ~1.9k at 2 envs and ~6.6k at 32, but each worker
-    costs about a second to start. So the serial backend stays the default for short
-    runs and small num_envs, where spawning would lose more than it saves.
+    Measured on this machine (i9-14900HX, full make_env stack, env-steps/s): sync is
+    flat at ~1.5k regardless of num_envs because it steps every env in the trainer
+    thread, while parallel reaches ~1.9k at 2 envs, ~2.7k at 8 and ~6.7k at 32 — but
+    each worker costs about a second to start. So "auto" only switches to parallel once
+    there are enough envs to amortise the spawn, and small runs keep the serial backend
+    that was always faster for them.
     """
     parser.add_argument(
         "--vec-backend",
         type=str,
-        default=get_env_or_default("VEC_BACKEND", "sync"),
-        choices=["sync", "parallel"],
+        default=get_env_or_default("VEC_BACKEND", "auto"),
+        choices=["auto", "sync", "parallel"],
         help="sync steps every env in the trainer thread; parallel runs one worker "
-             "process per env. Both execute the identical env-step budget. Parallel "
-             "pays off from about --num-envs 16 and up.",
+             "process per env; auto picks parallel from --vec-parallel-threshold envs "
+             "upward. All of them execute the identical env-step budget.",
+    )
+    parser.add_argument(
+        "--vec-parallel-threshold",
+        type=int,
+        default=int(get_env_or_default("VEC_PARALLEL_THRESHOLD", "16")),
+        help="With --vec-backend auto, use the parallel backend at or above this many envs.",
     )
     parser.add_argument(
         "--vec-dense-info",
@@ -296,7 +329,15 @@ def build_vec_env(args, run_name, num_envs=None, capture_video=None):
     env_id = "WalkerRagdoll-v0"
     kwargs = env_common_kwargs(args)
 
-    if getattr(args, "vec_backend", "sync") == "sync" or num_envs == 1:
+    backend = getattr(args, "vec_backend", "auto")
+    if backend == "auto":
+        backend = (
+            "parallel"
+            if num_envs >= getattr(args, "vec_parallel_threshold", 16) and not capture_video
+            else "sync"
+        )
+
+    if backend == "sync" or num_envs == 1:
         return gym.vector.SyncVectorEnv(
             [
                 (lambda i=i: make_env(env_id, i, capture_video, run_name, **kwargs)())
@@ -1461,12 +1502,17 @@ def train_td3(start_time=None):
                 qf_loss.backward()
                 q_optimizer.step()
 
-                if global_step % args.policy_frequency < args.num_envs and global_step > args.actor_learning_starts:
+                # The actor must update every policy_frequency *gradient* steps, and
+                # there is one gradient step per vector step. `% policy_frequency <
+                # num_envs` was always true whenever policy_frequency <= num_envs
+                # (2 < 32 here), so the actor and targets were updated on every step.
+                if global_step % (args.policy_frequency * args.num_envs) == 0 and global_step > args.actor_learning_starts:
                     actor_loss = -qf1(batch.obs, actor(batch.obs)).mean()
                     actor_optimizer.zero_grad()
                     actor_loss.backward()
                     actor_optimizer.step()
 
+                if global_step % (args.target_network_frequency * args.num_envs) == 0:
                     for param, target_param in zip(actor.parameters(), actor_target.parameters()):
                         target_param.data.copy_(args.tau * param.data + (1 - args.tau) * target_param.data)
                     for param, target_param in zip(qf1.parameters(), qf1_target.parameters()):

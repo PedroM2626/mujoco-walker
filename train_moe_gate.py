@@ -1,4 +1,4 @@
-import mock_wrappers
+from envs import normalize_compat  # noqa: F401  pickle shim for checkpoint obs_rms; import before torch.load
 import os
 import gymnasium as gym
 import gymnasium.wrappers

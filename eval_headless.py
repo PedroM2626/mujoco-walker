@@ -50,6 +50,15 @@ def parse_args():
     p.add_argument("--xml", default=os.path.join(REPO_ROOT, "walker_ragdoll.xml"))
     p.add_argument("--out", default=os.path.join(REPO_ROOT, "trajectory.png"))
     p.add_argument("--steps", type=int, default=1500)
+    p.add_argument(
+        "--frame-skip",
+        type=int,
+        default=5,
+        help="Physics substeps per policy action. WalkerRagdollEnv uses frame_skip=5 at "
+             "timestep=0.002, i.e. one action every 0.01s. Stepping once per action would "
+             "run the policy at 5x its trained action rate and 5x slower simulated time, "
+             "so the trajectory would not describe the policy that was actually trained.",
+    )
     p.add_argument("--seed", type=int, default=0)
     return p.parse_args()
 
@@ -156,7 +165,7 @@ def main():
             last_action = action.copy()
 
         d.ctrl[:] = action
-        mujoco.mj_step(m, d)
+        mujoco.mj_step(m, d, nstep=args.frame_skip)
 
     # Plotting
     plt.figure(figsize=(12, 5))

@@ -59,7 +59,9 @@ class TestRewardMathGolden(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         with open(GOLDEN_PATH) as handle:
-            cls.golden = json.load(handle)
+            cls.golden = {
+                key: value for key, value in json.load(handle).items() if not key.startswith("_")
+            }
 
     def test_every_phase_matches_golden(self):
         for phase, expected in self.golden.items():

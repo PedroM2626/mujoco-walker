@@ -164,6 +164,7 @@ def train_redq():
 
     rb = ReplayBuffer(args.buffer_size, envs.single_observation_space.shape, envs.single_action_space.shape, device)
     global_step = 0
+    gradient_steps = 0
     restored_obs_rms = None
 
     ckpt_dir = get_checkpoint_dir(args.run_id)
@@ -262,6 +263,7 @@ def train_redq():
             if global_step >= args.learning_starts:
                 # Perform G updates per env step (utd_ratio)
                 for _ in range(args.utd_ratio):
+                    gradient_steps += 1
                     batch = rb.sample(args.batch_size)
                     
                     with torch.no_grad():
@@ -290,7 +292,12 @@ def train_redq():
                     q_optimizer.step()
 
                     # Delayed Actor and Alpha Updates
-                    if global_step % args.policy_frequency == 0:
+                    # `global_step` is constant inside the UTD loop, so gating on it
+                    # made the condition evaluate the same way for all G iterations:
+                    # with policy_frequency=2 and num_envs=16 it was always true and the
+                    # actor was updated G times per env step instead of every 2 gradient
+                    # steps. Gate on the gradient-step counter instead.
+                    if gradient_steps % args.policy_frequency == 0:
                         pi, log_pi, _ = actor.get_action(batch.obs)
                         
                         # Update actor to maximize the mean Q-value of all critics in the ensemble

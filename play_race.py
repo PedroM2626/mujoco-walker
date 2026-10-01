@@ -5,7 +5,7 @@ Fase 4 no `Walker2d-v5` padronizado. Este script compara checkpoints
 SAC/PPO/TD3/ARS lado a lado no mesmo XML (`build_race_xml`).
 Uso: python play_race.py --checkpoints a.pt b.pt --names A B [--headless]
 """
-import mock_wrappers
+from envs import normalize_compat  # noqa: F401  pickle shim for checkpoint obs_rms; import before torch.load
 import os
 import sys
 import argparse

@@ -21,23 +21,25 @@ NUM_ENVS = 4
 N_STEPS = 1050
 
 
-def _env_kwargs(task_phase):
-    # Termination on unhealthy z, unlike the default, so episodes actually end.
+def _env_kwargs(task_phase, reset_mode="upright"):
+    # Start standing, then terminate on unhealthy z: with the fallen start the env can
+    # not become unhealthy at all (it starts there), so no episode would ever end and
+    # the autoreset path would go untested.
     return {
-        "reset_mode": "mixed",
+        "reset_mode": reset_mode,
         "task_phase": task_phase,
         "target_forward_velocity": 0.8,
         "terminate_when_unhealthy": True,
     }
 
 
-def _specs(run_name, task_phase):
+def _specs(run_name, task_phase, reset_mode="upright"):
     return [
         (
             "train_walker",
             "make_env",
             ("WalkerRagdoll-v0", i, False, run_name),
-            _env_kwargs(task_phase),
+            _env_kwargs(task_phase, reset_mode),
         )
         for i in range(NUM_ENVS)
     ]
@@ -168,7 +170,7 @@ class TestParallelMatchesSync(unittest.TestCase):
             env.reset(seed=1)
             rng = np.random.default_rng(11)
             partial = False
-            for _ in range(300):
+            for _ in range(600):
                 a = rng.uniform(-1, 1, size=(NUM_ENVS, 17)).astype(np.float32)
                 _, _, te, tr, infos = env.step(a)
                 finished = np.logical_or(te, tr)

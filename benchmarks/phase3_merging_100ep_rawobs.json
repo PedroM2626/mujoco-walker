@@ -1,0 +1,53 @@
+{
+  "protocol": "evaluate_merging.py --num-episodes 100 --seed 11 --raw-obs (obs_rms deliberately ignored: this arm reproduces the pre-fix harness, so it is a measurement of the bug, not a score)",
+  "models": {
+    "Hardcoded Supervisor": {
+      "episodes": 100,
+      "mean": -11691.9,
+      "median": -13517.23,
+      "std": 5692.71,
+      "min": -15429.64,
+      "max": 23529.44,
+      "q25": -14294.27,
+      "q75": -12688.21,
+      "falls_per_episode": 0.17,
+      "standing_at_end_pct": 0.0
+    },
+    "Mixture of Experts": {
+      "episodes": 100,
+      "mean": -11782.31,
+      "median": -13717.1,
+      "std": 5013.25,
+      "min": -14761.28,
+      "max": 8975.87,
+      "q25": -14304.22,
+      "q75": -12762.43,
+      "falls_per_episode": 0.17,
+      "standing_at_end_pct": 0.0
+    },
+    "Weight Averaging": {
+      "episodes": 100,
+      "mean": -11591.29,
+      "median": -13027.97,
+      "std": 4286.4,
+      "min": -20476.05,
+      "max": 8000.9,
+      "q25": -13202.17,
+      "q75": -12490.13,
+      "falls_per_episode": 0.17,
+      "standing_at_end_pct": 0.0
+    },
+    "Task Arithmetic": {
+      "episodes": 100,
+      "mean": -17166.98,
+      "median": -17680.86,
+      "std": 4425.99,
+      "min": -23957.1,
+      "max": -742.87,
+      "q25": -20831.81,
+      "q75": -13735.86,
+      "falls_per_episode": 0.24,
+      "standing_at_end_pct": 0.0
+    }
+  }
+}

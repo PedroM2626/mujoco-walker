@@ -1,96 +1,96 @@
 {
-  "protocol": "evaluate_all.py --episodes 20 --seed 2026 (headless, seeded per episode)",
+  "protocol": "evaluate_all.py --episodes 50 --seed 2026 (headless, seeded per episode)",
   "models": {
     "BC": {
       "mean": 3529.44,
       "std": 649.73,
       "min": 1638.67,
       "max": 4085.63,
-      "episodes": 20
+      "episodes": 50
     },
     "Teacher (Upper Bound)": {
       "mean": 3516.95,
       "std": 724.62,
       "min": 1511.13,
       "max": 4011.47,
-      "episodes": 20
+      "episodes": 50
     },
     "BCQ": {
       "mean": 2838.27,
       "std": 1063.11,
       "min": 1236.2,
       "max": 3990.51,
-      "episodes": 20
+      "episodes": 50
     },
     "BC+SAC (Regularized)": {
       "mean": 2784.29,
       "std": 816.62,
       "min": 1259.66,
       "max": 4019.63,
-      "episodes": 20
+      "episodes": 50
     },
     "DT": {
       "mean": 1927.23,
       "std": 1101.18,
       "min": 933.58,
       "max": 3700.39,
-      "episodes": 20
+      "episodes": 50
     },
     "BC+SAC (Naive)": {
       "mean": 1290.57,
       "std": 476.5,
       "min": 516.5,
       "max": 2502.59,
-      "episodes": 20
+      "episodes": 50
     },
     "GAIL": {
       "mean": 998.07,
       "std": 0.37,
       "min": 997.31,
       "max": 998.74,
-      "episodes": 20
+      "episodes": 50
     },
     "CQL+SAC": {
       "mean": 407.99,
       "std": 5.93,
       "min": 395.03,
       "max": 424.7,
-      "episodes": 20
+      "episodes": 50
     },
     "CQL": {
       "mean": 321.01,
       "std": 7.1,
       "min": 310.32,
       "max": 339.21,
-      "episodes": 20
+      "episodes": 50
     },
     "MaxEnt": {
       "mean": 279.33,
       "std": 34.47,
       "min": 197.38,
       "max": 354.7,
-      "episodes": 20
+      "episodes": 50
     },
     "BC+SAC (Constrained)": {
       "mean": 146.65,
       "std": 112.59,
       "min": -1.66,
       "max": 542.12,
-      "episodes": 20
+      "episodes": 50
     },
     "IQL": {
       "mean": 4.44,
       "std": 124.42,
       "min": -18.23,
       "max": 874.28,
-      "episodes": 20
+      "episodes": 50
     },
     "AIRL": {
       "mean": -6.33,
       "std": 0.05,
       "min": -6.47,
       "max": -6.19,
-      "episodes": 20
+      "episodes": 50
     }
   }
 }

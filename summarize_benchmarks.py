@@ -26,12 +26,12 @@ def _stats(values):
     }
 
 
-def phase3(path="eval_phase3_20ep.log", seed=7):
+def phase3(path="eval_phase3_20ep.log", seed=7, flags="", desc=None,
+           out="benchmarks/phase3_merging_20ep.json"):
     text = open(os.path.join(ROOT, path), encoding="utf-8", errors="replace").read()
     blocks = re.split(r"--- Evaluating (.+?) ---", text)[1:]
-    out = {"protocol": f"evaluate_merging.py --num-episodes 20 --seed {seed} (corrected harness: "
-                       "seeded resets, checkpoint obs_rms applied, survival read from env health)",
-           "models": {}}
+    out_data = {"protocol": None, "models": {}}
+    counts = set()
     for i in range(0, len(blocks) - 1, 2):
         name, body = blocks[i], blocks[i + 1]
         rewards = [float(v) for v in re.findall(r"Reward:\s*(-?[\d.]+)", body)]
@@ -46,38 +46,75 @@ def phase3(path="eval_phase3_20ep.log", seed=7):
             )
         if not rewards:
             continue
+        counts.add(len(rewards))
         entry = _stats(rewards)
         entry["falls_per_episode"] = round(float(np.mean(falls)), 2) if falls else None
         entry["standing_at_end_pct"] = round(
             100.0 * sum(1 for s in standing if s.lower() == "true") / max(1, len(standing)), 1
         )
-        out["models"][name] = entry
-    return out
+        out_data["models"][name] = entry
+    if len(counts) > 1:
+        raise SystemExit(f"{path}: strategies ran different episode counts {sorted(counts)}")
+    # Derived from the log rather than restated: a hand-written protocol string is how the
+    # 100-episode file ended up labelled `--num-episodes 20`.
+    out_data["protocol"] = (
+        f"evaluate_merging.py --num-episodes {counts.pop() if counts else 0} --seed {seed}{flags} "
+        + (desc or "(corrected harness: seeded resets, checkpoint obs_rms applied, survival "
+                   "read from env health)")
+    )
+    return out_data, out
 
 
-def phase4(path=os.path.join("openai_walker", "eval_phase4_20ep.log"), seed=123):
+def phase4(path=os.path.join("openai_walker", "eval_phase4_20ep.log"), seed=None,
+           out="benchmarks/phase4_race_20ep.json"):
     text = open(os.path.join(ROOT, path), encoding="utf-8", errors="replace").read()
     rows = re.findall(
         r"^(.+?): (-?[\d.]+) Avg Reward \| std ([\d.]+) \| min (-?[\d.]+) \| max (-?[\d.]+)$",
         text, re.M,
     )
-    out = {"protocol": f"evaluate_all.py --episodes 20 --seed {seed} (headless, seeded per episode)",
-           "models": {}}
+    # The log's own header carries the protocol; restating it by hand is how the 50-episode
+    # file got labelled `--episodes 20`.
+    header = re.search(r"FINAL RESULTS \(headless, (\d+) episodes, seed (\d+)\)", text)
+    if not header:
+        raise SystemExit(f"{path}: no 'FINAL RESULTS (headless, N episodes, seed S)' header")
+    episodes, logged_seed = int(header.group(1)), int(header.group(2))
+    if seed is not None and seed != logged_seed:
+        raise SystemExit(f"{path}: header says seed {logged_seed}, caller said {seed}")
+    out_data = {"protocol": f"evaluate_all.py --episodes {episodes} --seed {logged_seed} "
+                            "(headless, seeded per episode)", "models": {}}
     for name, mean, std, mn, mx in rows:
-        out["models"][name.strip()] = {
+        out_data["models"][name.strip()] = {
             "mean": float(mean), "std": float(std), "min": float(mn), "max": float(mx),
-            "episodes": 20,
+            "episodes": episodes,
         }
-    return out
+    return out_data, out
+
+
+BENCHMARKS = [
+    phase3,
+    lambda: phase3("eval_phase3_100ep.log", seed=11,
+                   out="benchmarks/phase3_merging_100ep.json"),
+    lambda: phase3("eval_phase3_100ep_rawobs.log", seed=11, flags=" --raw-obs",
+                   desc="(obs_rms deliberately ignored: this arm reproduces the pre-fix "
+                        "harness, so it is a measurement of the bug, not a score)",
+                   out="benchmarks/phase3_merging_100ep_rawobs.json"),
+    phase4,
+    lambda: phase4(os.path.join("openai_walker", "eval_phase4_50ep.log"), seed=2026,
+                   out="benchmarks/phase4_race_50ep.json"),
+]
 
 
 if __name__ == "__main__":
     os.makedirs(os.path.join(ROOT, "benchmarks"), exist_ok=True)
-    for builder, target in ((phase3, "benchmarks/phase3_merging_20ep.json"),
-                            (phase4, "benchmarks/phase4_race_20ep.json")):
-        data = builder()
+    for builder in BENCHMARKS:
+        try:
+            data, target = builder()
+        except FileNotFoundError as e:
+            print(f"skipped: {e}")
+            continue
         with open(os.path.join(ROOT, target), "w", encoding="utf-8") as handle:
             json.dump(data, handle, indent=2, ensure_ascii=False)
         print(f"{target}: {len(data['models'])} models")
         for name, s in data["models"].items():
-            print(f"   {name:32s} mean={s['mean']:>10} median={s.get('median','-'):>10} std={s['std']}")
+            print(f"   {name:32s} mean={s['mean']:>10} median={s.get('median', '-'):>10} "
+                  f"std={s['std']}")

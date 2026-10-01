@@ -99,27 +99,64 @@ ordering. Evidence: `benchmarks/phase3_merging_100ep.json`, recomputed with
 
 Read this table before citing it:
 
-1. **The mean is carried by outliers.** Std is 2-3x the mean, and only the supervisor's
-   median is positive (831.31); MoE's median is -4391.54. Rank by median here, or run many
-   more episodes.
-2. **The previously published ordering was a bug, not a finding.** The retired table put
-   Weight Averaging second ("highly robust, counter to intuition") and MoE third, on
-   un-normalised observations. Once each policy gets the inputs it was trained on, Weight
-   Averaging is **last** at both n=20 and n=100. That reversal is the point of fixing the
-   harness, and it held when the sample was multiplied by five - it is not noise.
-3. **"100% survival" was never observable.** The old script defined survival as
+1. **The mean is carried by outliers.** The supervisor's std (31259.57) is 2.3x its mean and
+   MoE's (32424.26) is 3.5x, while only the supervisor's median is positive (831.31) against
+   MoE's -4391.54. Delete the single best episode and the supervisor
+   falls from 13549.68 to 12239.87, MoE from 9199.76 to 8042.06; delete the best five and they
+   become 8889.50 and 4437.68. 32% of supervisor episodes score above +20k while 28% score
+   below -10k, so this is a bimodal task: rank by median, or say which one you mean.
+2. **The previously published ordering was one specific line of code, and it has now been
+   reproduced rather than asserted.** The retired table (`git show 32da152:README.md`) read
+   -11191.88 / -11692.61 / -11763.92 / -16958.91 for supervisor / weight averaging / MoE /
+   task arithmetic, which ranked Weight Averaging second ("highly robust, counter to
+   intuition"). The cause was in `evaluate_merging.py`: it called
+   `single_agent.get_action(obs_49)` on raw observations and never applied the `obs_rms`
+   pickled inside each checkpoint. Re-running the *corrected* script with `--raw-obs` - which
+   now exists solely to reproduce that input path - at the same 100 episodes and seed 11:
+
+   | Merging strategy | corrected (`obs_rms`) | raw obs = old harness | retired publication |
+   |:---|---:|---:|---:|
+   | Hardcoded Supervisor | 13549.68 | -11691.90 | -11191.88 |
+   | Weight Averaging (50/50) | -18313.84 | -11591.29 | -11692.61 |
+   | Mixture of Experts | 9199.76 | -11782.31 | -11763.92 |
+   | Task Arithmetic | -17410.69 | -17166.98 | -16958.91 |
+
+   Every raw-obs value lands within 501 points of the number that was published from it, on a
+   table whose whole spread is 5,767 points, and Task Arithmetic stays last in both. The old
+   table is that bug, measured; evidence in `benchmarks/phase3_merging_100ep_rawobs.json`.
+3. **Why that one line reorders rather than merely rescales: the input error is not uniform
+   across the four paradigms.** On 200 real observations from a seeded rollout, feeding raw
+   instead of normalised observations changes the deterministic action by:
+
+   | Network | mean &#124;Δaction&#124; on a [-1,1] scale | correlation of raw vs correct |
+   |:---|---:|---:|
+   | recovery expert (46 dims) | 0.726 | 0.18 |
+   | target expert (49 dims) | 0.613 | 0.39 |
+   | weight-averaged merge | 0.219 | 0.86 |
+   | task-arithmetic merge | 0.510 | 0.54 |
+
+   The MoE *gate* agreed with itself 96.0% of steps either way, so the router was not the
+   problem - its experts were. The two paradigms that depend on the experts (supervisor, MoE)
+   were being driven as different policies and sank into the same band as the merged ones;
+   weight averaging and task arithmetic, bad under both input paths, kept their place. That is
+   how a benchmark where all four score about -11k becomes one where two score +9k to +13k.
+4. **"100% survival" was never observable.** The old script defined survival as
    "`env.terminated` never became True", while these runs use
    `terminate_when_unhealthy=False`, so `terminated` is False by construction and no
    strategy could ever have been reported as dying. Real falls are 1.31 per episode for the
    supervisor and 0.17 for Weight Averaging - the merged policies fall least because they
-   do almost nothing, and finish upright 0% of the time.
-4. MoE tracks the supervisor with fewer falls (0.92 against 1.31); Task Arithmetic stays
-   clearly degraded.
+   do almost nothing, and finish upright 0% of the time. The same signature shows up in the
+   raw arm: its best supervisor episode scores 23,529 against 143,220 for the corrected one,
+   because a raw-observation supervisor never gets a long walk at all (1% of episodes above
+   +20k, against 32%).
+5. MoE tracks the supervisor with fewer falls (0.92 against 1.31); Task Arithmetic stays
+   clearly degraded in every arm.
 
-To regenerate: `python evaluate_merging.py --num-episodes 100 --seed 11`. The old artifacts
-were unreachable from `play.py`; it now takes `--checkpoint` for the root-level merged
-models and `--moe --gate/--recovery/--target` for the router, which the README had claimed
-for a script containing no MoE code.
+To regenerate: `python evaluate_merging.py --num-episodes 100 --seed 11` (add `--raw-obs` for
+the reproduction arm), then `python summarize_benchmarks.py`. The old artifacts were
+unreachable from `play.py`; it now takes `--checkpoint` for the root-level merged models and
+`--moe --gate/--recovery/--target` for the router, which the README had claimed for a script
+containing no MoE code.
 
 ### 🔴 Phase 4: Offline RL & Offline-to-Online Benchmarking (`openai_walker/` folder)
 We migrated to the standardized `Walker2d-v5` Gymnasium environment to conduct a massive benchmark on learning *strictly from static datasets*, without querying the environment.
@@ -183,7 +220,10 @@ What this measurement changes, stated plainly:
    expert", not "an offline method beat the teacher". At n=1 BCQ looked like the winner; at
    n=50 it is clearly behind both.
 2. **The single-episode record misreported BC by about 2x** (1728.81 against 3529.44). It was
-   one unlucky draw, and every other n=1 number inherits that risk.
+   one unlucky draw, and every other n=1 number inherits that risk. Unlike Phase 3 there is no
+   wrong-input path behind this: `evaluate_all.py` applied each model's `scaler_*.pkl` then and
+   applies it now, so the shift is sample size alone - CQL (315.37 → 321.01) and BC+SAC Naive
+   (1369.87 → 1290.57) barely moved.
 3. **Std of 500-1100 is the same order as the gaps between neighbours**, so BC/Teacher and
    BCQ/BC+SAC-Reg should be read as pairs this protocol cannot separate.
 4. **Extra Trees belongs in the table, not in a footnote.** Its 831-point std puts it in the

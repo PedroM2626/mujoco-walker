@@ -138,6 +138,10 @@ if __name__ == "__main__":
     parser.add_argument("--avg-ckpt", default="merged_avg_model.pt")
     parser.add_argument("--ta-ckpt", default="merged_ta_model.pt")
     parser.add_argument("--gate-ckpt", default="moe_gate.pt")
+    parser.add_argument("--raw-obs", action="store_true",
+                        help="Ignora o obs_rms dos checkpoints e alimenta observacoes cruas, "
+                             "que e exatamente o que este script fazia antes da correcao. "
+                             "Serve para medir o efeito da correcao, nao para pontuar.")
     args = parser.parse_args()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -163,6 +167,9 @@ if __name__ == "__main__":
 
     results = {}
     num_ep = args.num_episodes
+    if args.raw_obs:
+        print("[RAW-OBS] obs_rms ignorado para todos os checkpoints (harness antigo).")
+        rec_rms = tgt_rms = avg_rms = ta_rms = None
     shared = dict(num_episodes=num_ep, seed=args.seed, rec_rms=rec_rms, tgt_rms=tgt_rms)
 
     paradigms = [

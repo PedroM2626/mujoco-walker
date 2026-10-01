@@ -13,8 +13,11 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import gymnasium as gym  # noqa: E402
-from envs.parallel_vector_env import ParallelVectorEnv  # noqa: E402
+from envs.parallel_vector_env import ParallelVectorEnv, _sync_vector_env_compatible  # noqa: E402
 from train_walker import make_env  # noqa: E402
+
+# The parallel backend subclasses the SyncVectorEnv hook API that gymnasium 1.0 removed.
+SUPPORTED = _sync_vector_env_compatible()
 
 NUM_ENVS = 4
 # Long enough that TimeLimit truncation fires, so the autoreset path is covered.
@@ -63,6 +66,14 @@ def _assert_infos_close(case, a, b, msg):
 
 
 class TestParallelMatchesSync(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        if not SUPPORTED:
+            raise unittest.SkipTest(
+                f"gymnasium {gym.__version__} removed SyncVectorEnv.reset_wait/step_wait; "
+                "the parallel backend targets gymnasium>=0.29.1,<1.0"
+            )
+
     def _compare(self, task_phase="recovery", sparse_info=False):
         sync = gym.vector.SyncVectorEnv(
             [

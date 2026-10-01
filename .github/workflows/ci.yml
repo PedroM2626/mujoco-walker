@@ -1,0 +1,74 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  ragdoll-suite:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      # MuJoCo's wheel ships its own binaries; these cover the GL paths the
+      # rendering-based scripts touch if they are ever added here.
+      - name: System libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libosmesa6 libgl1 libglx-mesa0
+          echo "MUJOCO_GL=osmesa" >> "$GITHUB_ENV"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          # CPU wheels: the runner has no GPU and the tests never train.
+          pip install --index-url https://download.pytorch.org/whl/cpu torch
+          pip install -r requirements.txt
+
+      - name: Unit tests (env, golden reward math, parallel vec parity, checkpoints, race)
+        run: python -m unittest discover -s tests -t . -v
+
+      - name: Environment throughput smoke (no assertions, catches crashes)
+        run: python bench_env.py --mode env --seconds 3
+
+      # The Phase-4 scripts need gymnasium>=1.0 for Walker2d-v5 and cannot share the
+      # interpreter above, so they get their own install and only an import check here.
+  phase4-imports:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install Phase 4 dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install --index-url https://download.pytorch.org/whl/cpu torch
+          pip install -r requirements-phase4.txt
+      - name: Walker2d-v5 and trainer modules import
+        run: |
+          python - <<'PY'
+          import gymnasium as gym
+          env = gym.make("Walker2d-v5")
+          assert env.observation_space.shape == (17,), env.observation_space
+          assert env.action_space.shape == (6,), env.action_space
+          env.close()
+
+          import sys, os
+          sys.path.insert(0, "openai_walker")
+          import stable_baselines3
+          for module in ("train_bc", "train_iql", "train_cql", "train_offline_bcq",
+                         "train_offline_dt", "train_irl_gail", "evaluate_all"):
+              __import__(module)
+              print("import ok:", module)
+          print("gymnasium", gym.__version__, "| sb3", stable_baselines3.__version__)
+          PY

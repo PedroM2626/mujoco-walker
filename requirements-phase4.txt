@@ -1,0 +1,24 @@
+# Runtime dependencies for Phase 4 (openai_walker/: Walker2d-v5 offline + imitation RL).
+# Install: pip install -r requirements-phase4.txt   (needs Python 3.10+)
+#
+# Separate from requirements.txt on purpose. Every Phase-4 script calls
+# gym.make("Walker2d-v5"), which only exists from gymnasium 1.0, and train_teacher.py /
+# the offline-to-online variants import stable_baselines3. Neither is satisfiable by the
+# committed .venv (Python 3.8, gymnasium 0.29.1, no SB3), which is why that whole phase
+# could not be run from this repo as checked in.
+#
+# Verified against: .venv-phase4 (Python 3.11.9) with torch 2.5.1+cu121,
+# gymnasium 1.0.0, stable-baselines3 2.4.0, mujoco 3.3.x.
+gymnasium[mujoco]>=1.0.0
+stable-baselines3>=2.2.1
+torch>=2.2.0
+numpy>=1.26.4
+mujoco>=3.2.3
+mlflow>=2.10.2
+pandas>=2.2.0
+scikit-learn>=1.3.2
+matplotlib>=3.7.5
+tqdm>=4.66.1
+joblib>=1.3.0
+scipy>=1.11.4
+pytest>=7.4.0

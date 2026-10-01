@@ -1,0 +1,47 @@
+# MJX (JAX) path for WalkerRagdoll-v0 - verified working combination.
+#
+# WHY THESE EXACT PINS
+#   mujoco and mujoco-mjx must be the SAME version: mjx ships as a separate
+#   distribution that imports mujoco's private enums. 3.2.7 + 3.2.7 works;
+#   3.3.5 + 3.3.5 fails at import with
+#   "mjtDisableBit has no attribute mjDSBL_PASSIVE", and the repo's main .venv
+#   (mujoco 3.2.3) has no mujoco.mjx module at all.
+#   Verified on 2026-10-01 in .venv-mjx (Python 3.11.9, Windows) and in
+#   WSL2 Ubuntu-24.04 (Python 3.12.3).
+#
+# WINDOWS (native, CPU ONLY)
+#   python -m venv .venv-mjx
+#   .venv-mjx\Scripts\pip install -r requirements-mjx.txt
+#   jax.default_backend() -> "cpu".  jaxlib publishes no CUDA wheels for native
+#   Windows, so GPU MJX is not available in this venv no matter what is installed.
+#
+# GPU MJX (Linux or WSL2)
+#   The same pins plus the CUDA 12 plugin; this is what bench_mjx.py used to get
+#   jax.devices() == [CudaDevice(id=0)] on the RTX 4070 Laptop:
+#       wsl.exe -d Ubuntu-24.04
+#       python3 -m venv ~/venv-mjx
+#       ~/venv-mjx/bin/pip install -r requirements-mjx.txt
+#       ~/venv-mjx/bin/pip install "jax-cuda12-plugin[with-cuda]==0.10.2" "jax-cuda12-pjrt==0.10.2"
+#       (equivalently: pip install "jax[cuda12]==0.10.2")
+#   On an 8 GB card, cap the allocator or JAX's 75% preallocation fails and it
+#   retries down while the desktop compositor holds VRAM:
+#       XLA_PYTHON_CLIENT_MEM_FRACTION=0.6
+#   The repo Dockerfile (python:3.11-slim) has no CUDA base and no JAX deps; use
+#   an nvidia/cuda image or WSL2 for GPU numbers.
+#
+# DO NOT install flax/orbax here: on Windows their nested site-packages paths
+# exceed MAX_PATH and pip dies with OSError [Errno 123] before it finishes.
+# MJX does not need them - only the physics, not a JAX policy stack.
+#
+# NOTE ON EXPECTATIONS (measured 2026-10-01, see benchmarks/mjx_*.json):
+# MJX is dense - all 138 geom pairs of walker_ragdoll.xml are collision-tested and
+# solved every step - so it costs far more than MuJoCo-C for this 23-DOF model on
+# CPU, and it does not beat the committed process-parallel env on GPU at nworld<=1024
+# either.  Read those tables before wiring an MJX env into a trainer.
+
+mujoco==3.2.7
+mujoco-mjx==3.2.7
+jax==0.10.2
+jaxlib==0.10.2
+numpy
+opt_einsum

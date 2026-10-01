@@ -1,19 +1,26 @@
-# Dependências de runtime do projeto (Fases 1-4).
-# Instalação: pip install -r requirements.txt
-# Testado com: Python 3.13, gymnasium 1.0, torch 2.6, SB3 2.8, mlflow 3.8,
-# mujoco 3.8, scikit-learn 1.7, matplotlib 3.10.
-# Faixas com lower-bound para não quebrar em interpretadores novos
-# (pins exatos antigos como torch==2.1.0/numpy==1.26.4 são incompatíveis com 3.12+).
-gymnasium[mujoco]>=0.29.1
+# Runtime dependencies for Phases 1-3 (root directory: WalkerRagdoll-v0).
+# Install: pip install -r requirements.txt
+#
+# Verified in .venv: Python 3.8.10, gymnasium 0.29.1, mujoco 3.2.3, torch 2.4.1+cpu,
+# numpy 1.24.4, mlflow 2.17.2, scikit-learn 1.3.2, matplotlib 3.7.5.
+#
+# Do NOT use this file for Phase 4 (openai_walker/): those scripts make Walker2d-v5,
+# which does not exist before gymnasium 1.0. Use requirements-phase4.txt there.
+# Splitting the two is deliberate - the ragdoll tests and trained checkpoints are pinned
+# to the 0.29 wrapper API, and bumping this file would move that ground under them.
+#
+# Ranges are lower-bounds only so newer interpreters still resolve; exact old pins such as
+# torch==2.1.0 / numpy==1.26.4 are not installable on Python 3.12+.
+gymnasium[mujoco]>=0.29.1,<1.0
 torch>=2.1.0
-stable-baselines3>=2.2.1
-mlflow>=2.10.2
 numpy>=1.26.4
+mujoco>=3.2.3
+mlflow>=2.10.2
 pandas>=2.2.0
 scipy>=1.11.4
 tqdm>=4.66.1
 tensorboard>=2.15.1
-mujoco>=3.2.3
 scikit-learn>=1.3.2
 matplotlib>=3.7.5
 joblib>=1.3.0
+pytest>=7.4.0

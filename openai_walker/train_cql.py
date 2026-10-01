@@ -6,11 +6,12 @@ from torch.utils.data import DataLoader, TensorDataset
 import pandas as pd
 import numpy as np
 import mlflow
+from mlflow_backend import set_uri
 import os
 import pickle
 from sklearn.preprocessing import StandardScaler
 
-mlflow.set_tracking_uri("sqlite:///mlruns.db")
+set_uri()
 mlflow.set_experiment("Walker_Behavioral_Cloning")
 
 class PolicyNet(nn.Module):

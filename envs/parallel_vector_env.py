@@ -45,6 +45,18 @@ EnvSpec = tuple
 STEP, RESET, GETATTR, SETATTR, CALL, CLOSE = "step", "reset", "getattr", "setattr", "call", "close"
 
 
+def _sync_vector_env_compatible():
+    """True when gym.vector.SyncVectorEnv still exposes the hooks this class overrides.
+
+    gymnasium 1.0 deleted reset_wait/step_wait (and dropped action_space from the
+    constructor), so a subclass that overrides them would silently stop intercepting
+    anything: the envs would be stepped serially and the speedup would vanish without an
+    error. Detect it once, up front, and say so.
+    """
+    sync = getattr(getattr(gym, "vector", None), "SyncVectorEnv", None)
+    return sync is not None and hasattr(sync, "reset_wait") and hasattr(sync, "step_wait")
+
+
 def _default_context():
     if sys.platform == "win32":
         return mp.get_context("spawn")
@@ -249,6 +261,14 @@ class ParallelVectorEnv(gym.vector.SyncVectorEnv):
     def __init__(self, env_specs, observation_space=None, action_space=None, copy=True,
                  mp_context=None, worker_timeout=300.0, sparse_info=False,
                  envs_per_worker=None):
+        if not _sync_vector_env_compatible():
+            raise RuntimeError(
+                "ParallelVectorEnv extends gym.vector.SyncVectorEnv.reset_wait/step_wait, "
+                "which gymnasium 1.0 removed (its constructor also dropped action_space). "
+                f"Installed gymnasium is {gym.__version__}. Use --vec-backend sync, or "
+                "install gymnasium>=0.29.1,<1.0 (requirements.txt)."
+            )
+
         context = mp_context or _default_context()
         self._specs = list(env_specs)
         self.worker_timeout = float(worker_timeout)

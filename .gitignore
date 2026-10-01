@@ -38,3 +38,4 @@ env/
 .venv-mjx/
 temp_race_env.xml
 bench_*.json
+.venv-phase4/

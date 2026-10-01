@@ -351,7 +351,18 @@ def build_vec_env(args, run_name, num_envs=None, capture_video=None):
         ("train_walker", "make_env", (env_id, i, capture_video, run_name), kwargs)
         for i in range(num_envs)
     ]
-    return ParallelVectorEnv(specs, sparse_info=not getattr(args, "vec_dense_info", False))
+    try:
+        return ParallelVectorEnv(specs, sparse_info=not getattr(args, "vec_dense_info", False))
+    except RuntimeError as error:
+        # gymnasium>=1.0 dropped the SyncVectorEnv hooks the parallel backend extends.
+        # Falling back keeps the run going on either version; the budget is identical.
+        print(f"[VEC] parallel backend unavailable ({error}); using SyncVectorEnv.")
+        return gym.vector.SyncVectorEnv(
+            [
+                (lambda i=i: make_env(env_id, i, capture_video, run_name, **kwargs)())
+                for i in range(num_envs)
+            ]
+        )
 
 
 def layer_init(layer):
@@ -723,7 +734,8 @@ def start_mlflow_run(args, run_name, algo_name):
     if _mlflow is None:
         return None
     try:
-        tracking_uri = os.environ.get("MLFLOW_TRACKING_URI", "sqlite:///mlruns.db")
+        from utils.mlflow_uri import tracking_uri as _resolve_tracking_uri
+        tracking_uri = os.environ.get("MLFLOW_TRACKING_URI") or _resolve_tracking_uri()
         _mlflow.set_tracking_uri(tracking_uri)
         experiment = getattr(args, "mlflow_experiment", None) or os.environ.get("MLFLOW_EXPERIMENT", "walker-ragdoll")
         _mlflow.set_experiment(experiment)

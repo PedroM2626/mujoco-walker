@@ -1,0 +1,98 @@
+{
+  "machine": "Windows 10, Intel64 Family 6 Model 183 Stepping 1, GenuineIntel",
+  "backend": "MJX on JAX CPU (jaxlib has no CUDA wheel for native Windows)",
+  "protocol": "WalkerRagdoll model, frame_skip=5, dt/action=0.010s, ctrl U(-0.5,0.5), 4.0s steady-state per size, nconmax=512 njmax=4096",
+  "dtype": "float32",
+  "results": [
+    {
+      "backend": "MuJoCo C, single thread, in-process",
+      "frame_skip": 5,
+      "standing": {
+        "policy_actions_per_s": 2736.4714471258058,
+        "us_per_policy_action": 365.43410714200166,
+        "mj_step_equivalent_per_s": 13682.357235629028,
+        "ncon": 0,
+        "nefc": 0
+      },
+      "fallen": {
+        "policy_actions_per_s": 1839.5756307918143,
+        "us_per_policy_action": 543.6036351327218,
+        "mj_step_equivalent_per_s": 9197.878153959071,
+        "ncon": 3,
+        "nefc": 13
+      },
+      "mj_step_per_s": 13682.357235629028,
+      "env_steps_per_s_n1": 2736.4714471258058,
+      "us_per_policy_action": 365.43410714200166
+    },
+    {
+      "nworld": 32,
+      "frame_skip": 5,
+      "dt_per_action": 0.01,
+      "mjx_static_contact_slots": 138,
+      "dtype": "float32",
+      "compile_mode": "fori_loop",
+      "integrator": "1",
+      "postconstraint_for_cfrc_ext": true,
+      "jax_backend": "cpu",
+      "jax_devices": "[CpuDevice(id=0)]",
+      "compile_s": 38.20869369999855,
+      "actions_per_s": 0.9862347274183306,
+      "env_steps_per_s": 31.55951127738658,
+      "us_per_env_step": 31686.168749911303,
+      "us_per_vector_step": 1013957.3999971617,
+      "vector_steps_per_s": 0.9862347274183306,
+      "measured_s": 5.0697869999858085,
+      "status": "ok",
+      "mjx_single_step_physics_per_s_n1": 161.87658212126715
+    },
+    {
+      "nworld": 128,
+      "frame_skip": 5,
+      "dt_per_action": 0.01,
+      "mjx_static_contact_slots": 138,
+      "dtype": "float32",
+      "compile_mode": "fori_loop",
+      "integrator": "1",
+      "postconstraint_for_cfrc_ext": true,
+      "jax_backend": "cpu",
+      "jax_devices": "[CpuDevice(id=0)]",
+      "compile_s": 35.668400300026406,
+      "actions_per_s": 0.17926560260607596,
+      "env_steps_per_s": 22.945997133577723,
+      "us_per_env_step": 43580.58593743408,
+      "us_per_vector_step": 5578314.999991562,
+      "vector_steps_per_s": 0.17926560260607596,
+      "measured_s": 5.578314999991562,
+      "status": "ok",
+      "mjx_single_step_physics_per_s_n1": 180.78466329065026
+    }
+  ],
+  "cpu_reference": {
+    "source": "benchmarks/vec_backend_scaling.json + bench_env.py, measured 2026-10-01",
+    "mj_step_per_s_single_thread": 14000.0,
+    "env_step_us_single_thread": 698.9,
+    "parallel_vec_env_steps_per_s_n32": 6694.0,
+    "note": "parallel path is 32 worker processes; ~130us of serial parent-side pickle work per env per vector step is the ceiling"
+  },
+  "cpu_parallel_env_steps_per_s_n32": 6694.0,
+  "verdict": {
+    "question": "Does MJX beat envs/parallel_vector_env.py (MuJoCo-C worker processes) for WalkerRagdoll-v0?",
+    "answer": "NO on this hardware, at every batch size measured, on CPU and on GPU.",
+    "committed_path_env_steps_per_s_n32": 6694.0,
+    "committed_path_re_measured_n32": 7029.0,
+    "go_no_go_bar_3x": 20082.0,
+    "best_mjx_cpu_env_steps_per_s": 31.6,
+    "best_mjx_gpu_env_steps_per_s_as_configured": 1275.0,
+    "best_mjx_gpu_env_steps_per_s_relaxed_euler": 4338.0,
+    "why": [
+      "MJX is dense: walker_ragdoll.xml has 138 geom pairs and all 138 are collision-tested and solved every mj_step, while MuJoCo-C measured ncon=3 in the same fallen state. The solver works on ~46x more constraint rows than the sparse path needs.",
+      "The committed model is RK4, which costs 4 force evaluations per mj_step: measured at nworld=512 on the RTX 4070 Laptop, RK4+postconstraint gives 935 env-steps/s and Euler gives 3,828, so RK4 alone is a ~4x tax. Switching integrator changes the dynamics, so it is not a free tuning knob.",
+      "mjx.rne_postconstraint, needed for cfrc_ext/impact_cost, costs ~24% at nworld=512 (935 -> 1,231 env-steps/s without it). mjx.step does not compute cfrc_ext, exactly like mj_step.",
+      "MJX-CPU throughput is flat-to-worse with batch size (31.6 env-steps/s at nworld=32, 22.9 at 128): a vmap'd XLA graph on one CPU device does not gain from more worlds, it just divides the same throughput.",
+      "MJX-GPU saturates near 1,275 env-steps/s from nworld=512 onward; even the relaxed-Euler best case at nworld=1024 reaches only 4,338, still 1.5x below the committed CPU path."
+    ],
+    "gpu_status": "Measured for real: WSL2 Ubuntu-24.04 with jax-cuda12-plugin on the RTX 4070 Laptop (8 GB, XLA_PYTHON_CLIENT_MEM_FRACTION=0.6). Native Windows jaxlib is CPU-only."
+  },
+  "conclusion": "MJX-CPU is ~200x slower than the committed process-parallel path; do not adopt."
+}

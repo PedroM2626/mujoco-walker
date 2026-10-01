@@ -5,12 +5,13 @@ from torch.utils.data import DataLoader, TensorDataset
 import pandas as pd
 import numpy as np
 import mlflow
+from mlflow_backend import set_uri
 import os
 import pickle
 from sklearn.preprocessing import StandardScaler
 
 # Set MLflow tracking URI to a local directory
-mlflow.set_tracking_uri("sqlite:///mlruns.db")
+set_uri()
 mlflow.set_experiment("Walker_Behavioral_Cloning")
 
 class WalkerTeacherNet(nn.Module):

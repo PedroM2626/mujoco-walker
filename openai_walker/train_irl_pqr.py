@@ -8,7 +8,7 @@ import pandas as pd
 import os
 from torch.utils.data import Dataset, DataLoader
 import mlflow
-
+from mlflow_backend import set_uri
 class ExpertDataset(Dataset):
     def __init__(self, csv_file):
         df = pd.read_csv(csv_file)
@@ -78,7 +78,7 @@ class RewardNet(nn.Module):
         return self.net(sa)
 
 def train_pqr():
-    mlflow.set_tracking_uri("sqlite:///mlruns.db")
+    set_uri()
     mlflow.set_experiment("Walker2d_Offline_to_Online")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 

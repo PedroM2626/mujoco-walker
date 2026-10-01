@@ -1,0 +1,38 @@
+# Project metadata and tooling configuration.
+#
+# This is deliberately NOT an installable package: the repo is a set of entry-point
+# scripts that expect to run from the repository root (they resolve `walker_ragdoll.xml`,
+# `checkpoints/` and `mlruns.db` relative to it), and there is no importable public
+# interface to install. Dependencies stay in the requirements files:
+#
+#   requirements.txt         Phases 1-3, root scripts, WalkerRagdoll-v0
+#   requirements-phase4.txt  Phase 4, openai_walker/, needs gymnasium>=1.0 for Walker2d-v5
+#   requirements-mjx.txt     MJX/JAX batched stepping
+#
+# Adding a [build-system] here would let `pip install -e .` succeed while quietly
+# encouraging imports from another working directory, where the relative paths break.
+
+[project]
+name = "mujoco-walker"
+version = "0.0.0"
+description = "RL and MLOps laboratory: WalkerRagdoll-v0 stand-up/walking curriculum, model merging and MoE, and a Walker2d-v5 offline/inverse-RL benchmark."
+readme = "README.md"
+requires-python = ">=3.8"
+license = { file = "LICENSE" }
+
+[tool.pytest.ini_options]
+# The suite is plain unittest and runs with `python -m unittest discover -s tests -t .`
+# from the repo root; this config only makes `pytest` behave the same when it is used.
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-p no:cacheprovider"
+filterwarnings = [
+    # gymnasium 0.29 deprecation noise from stepping a VectorEnv through single-env
+    # wrappers; the trainers do this deliberately to stay version-portable.
+    "ignore:env.*to get variables from other wrappers is deprecated:UserWarning",
+]
+
+[tool.ruff]
+line-length = 110
+target-version = "py38"
+exclude = [".venv", ".venv-mjx", ".venv-phase4", "mujoco_mpc_walker/build", "__pycache__"]

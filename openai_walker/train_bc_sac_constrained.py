@@ -5,9 +5,10 @@ import torch.nn.functional as F
 import numpy as np
 import gymnasium as gym
 import mlflow
+from mlflow_backend import set_uri
 import os
 
-mlflow.set_tracking_uri("sqlite:///mlruns.db")
+set_uri()
 mlflow.set_experiment("Walker_Offline_To_Online")
 
 class BCPolicy(nn.Module):

@@ -1,37 +1,81 @@
 {
   "recovery": {
-    "reward_sum": 413.9354477,
-    "obs_sum": -2100.90239415,
-    "first_rewards": [146.8402790598, 148.9795942415, 150.1131207864],
     "obs_dim": 46,
-    "max_z": 1.260208
+    "short": {
+      "steps": 50,
+      "reward_sum": 3806.059984134457,
+      "obs_sum": -946.7189093393429,
+      "first_rewards": [
+        146.84027905977192,
+        148.97959424150838,
+        150.11312078644374
+      ]
+    },
+    "long": {
+      "steps": 300,
+      "reward_sum": 413.9354477002207,
+      "obs_sum": -2100.90239414702
+    }
   },
   "balance": {
-    "reward_sum": 353.69511546,
-    "obs_sum": -2100.90239415,
-    "first_rewards": [153.7849935475, 165.5495266299, 168.4661611676],
     "obs_dim": 46,
-    "max_z": 1.260208
+    "short": {
+      "steps": 50,
+      "reward_sum": 3745.8196518896943,
+      "obs_sum": -946.7189093393429,
+      "first_rewards": [
+        153.78499354745824,
+        165.54952662991238,
+        168.46616116759293
+      ]
+    },
+    "long": {
+      "steps": 300,
+      "reward_sum": 353.6951154554576,
+      "obs_sum": -2100.90239414702
+    }
   },
   "walk": {
-    "reward_sum": 680.79009429,
-    "obs_sum": -2100.90239415,
-    "first_rewards": [165.4382075419, 172.4262817992, 174.9346534721],
     "obs_dim": 46,
-    "max_z": 1.260208
+    "short": {
+      "steps": 50,
+      "reward_sum": 4072.9146307200945,
+      "obs_sum": -946.7189093393429,
+      "first_rewards": [
+        165.438207541946,
+        172.4262817991957,
+        174.9346534720735
+      ]
+    },
+    "long": {
+      "steps": 300,
+      "reward_sum": 680.7900942858573,
+      "obs_sum": -2100.90239414702
+    }
   },
   "target": {
-    "reward_sum": 598.45921857,
-    "obs_sum": -588.6748439,
-    "first_rewards": [160.091262753, 169.116383086, 171.6701492434],
     "obs_dim": 49,
-    "max_z": 1.260208
+    "short": {
+      "steps": 50,
+      "reward_sum": 3990.583755003558,
+      "obs_sum": -723.3999937777022,
+      "first_rewards": [
+        160.0912627529632,
+        169.11638308603062,
+        171.67014924335524
+      ]
+    },
+    "long": {
+      "steps": 300,
+      "reward_sum": 598.4592185693213,
+      "obs_sum": -588.674843902073
+    }
   },
   "_provenance": {
     "reset_mode": "upright",
     "reset_seed": 1234,
-    "action_generator": "np.random.default_rng(99).normal(0, 0.25, 17)",
-    "steps": 300,
-    "recorded_against": "env rewrote for throughput; values verified equal to the pre-rewrite implementation to <1e-7 accumulated"
+    "action_generator": "np.random.default_rng(99).normal(0, 0.25, 17) per step",
+    "recorded_on": "Windows 11, i9-14900HX, python 3.8.10, numpy 1.24.4, mujoco 3.2.3",
+    "tolerance_policy": "short horizon is a strict regression guard; long horizon carries a loose relative tolerance because this is a contact-rich chaotic simulation and libm/BLAS differences between platforms amplify over 300 steps"
   }
 }

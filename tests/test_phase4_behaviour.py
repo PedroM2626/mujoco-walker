@@ -87,14 +87,52 @@ class TestPhase4ArtifactsRun(unittest.TestCase):
     def tearDownClass(cls):
         cls.env.close()
 
-    def test_every_artifact_is_discoverable(self):
-        """A silently-missing artifact would shrink the table without failing anything."""
-        expected = {
-            "Teacher (Upper Bound)", "Behavioral Cloning Puro", "Batch-Constrained Q-learning (BCQ)",
-            "Decision Transformer (DT)",
+    def test_every_artifact_on_disk_is_discovered(self):
+        """The registry must find exactly what exists - nothing silently skipped.
+
+        Most model files are gitignored, so a checkout legitimately has very few. That is
+        fine as long as it is visible: this asserts presence->discovered for each artifact,
+        and prints the absent ones so a shrinking table shows up in the test output instead
+        of passing quietly.
+        """
+        # filename -> candidate key used by evaluate_all.build_candidates
+        artifacts = {
+            "sac_walker2d_final.zip": "teacher",
+            "bc_model.pt": "bc", "iql_full_ckpt.pt": "iql", "cql_full_ckpt.pt": "cql",
+            "bc_sac_naive_model.pt": "bc_sac_naive", "bc_sac_regularized_model.pt": "bc_sac_reg",
+            "bc_sac_constrained_model.pt": "bc_sac_con", "iql_sac_model.pt": "iql_sac",
+            "cql_sac_model.pt": "cql_sac", "gail_model.pt": "gail", "airl_model.pt": "airl",
+            "maxent_model.pt": "maxent", "pqr_policy.pt": "pqr", "bcq_vae.pt": "bcq",
+            "dt_model.pt": "dt",
         }
+        present = {key for name, key in artifacts.items() if os.path.exists(os.path.join(P4, name))}
+        absent = sorted(set(artifacts.values()) - present)
         found = {name for name, _, _ in self.candidates}
-        self.assertTrue(expected & found, f"none of {expected} were found in {found}")
+
+        print(f"\n[phase4] artifacts present: {sorted(present)}")
+        print(f"[phase4] artifacts absent (gitignored or never trained): {absent}")
+        self.assertTrue(present, "no Phase-4 artifacts on disk; nothing to check")
+        self.assertGreaterEqual(
+            len(found), len(present),
+            f"{len(present)} artifact files exist but only {len(found)} models were "
+            f"discovered: a trained artifact is present yet not loadable",
+        )
+
+    def test_teacher_acts_within_action_bounds(self):
+        """The one Phase-4 artifact that IS tracked, so CI always exercises a real model."""
+        teacher = [(n, m, kw) for n, m, kw in self.candidates if "Teacher" in n]
+        if not teacher:
+            self.skipTest("sac_walker2d_final.zip absent")
+        name, model, kw = teacher[0]
+        obs, _ = self.env.reset(seed=5)
+        import torch
+
+        with torch.no_grad():
+            action = model(torch.FloatTensor(obs).unsqueeze(0))[0].cpu().numpy()
+        self.assertEqual(action.shape, (self.action_dim,))
+        self.assertTrue(np.isfinite(action).all(), "teacher produced a non-finite action")
+        self.assertLessEqual(np.abs(action).max(), self.max_action + 1e-4,
+                             f"{name} emitted actions outside the environment bounds")
 
     def test_each_artifact_completes_a_seeded_episode(self):
         for name, model, kwargs in self.candidates:

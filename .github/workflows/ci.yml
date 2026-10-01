@@ -1,5 +1,10 @@
 name: tests
 
+# Actions logs are not readable without authentication, which makes a red X here
+# useless to anyone outside the account. On failure each job therefore posts the
+# one-line reason to the commit status via the built-in GITHUB_TOKEN; commit
+# statuses are public, so the cause is readable from the API or the commits page.
+
 on:
   push:
     branches: [main]
@@ -31,15 +36,30 @@ jobs:
           # CPU wheels: the runner has no GPU and the tests never train.
           pip install --index-url https://download.pytorch.org/whl/cpu torch
           pip install -r requirements.txt
+          python -c "import gymnasium,numpy,mujoco,torch;print('versions:',gymnasium.__version__,numpy.__version__,mujoco.__version__,torch.__version__)"
 
       - name: Unit tests (env, golden reward math, parallel vec parity, checkpoints, race)
-        run: python -m unittest discover -s tests -t . -v
+        run: python -m unittest discover -s tests -t . -v 2>&1 | tee ragdoll-tests.log
 
       - name: Environment throughput smoke (no assertions, catches crashes)
         run: python bench_env.py --mode env --seconds 3
 
-      # The Phase-4 scripts need gymnasium>=1.0 for Walker2d-v5 and cannot share the
-      # interpreter above, so they get their own install and only an import check here.
+      - name: Report failure reason
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          REASON=$(grep -oE "(FAILED|ERROR): [^ ]+|ModuleNotFoundError.*|ImportError.*|AssertionError.*" ragdoll-tests.log | tail -3 | tr '\n|' '  ' | cut -c1-130)
+          [ -z "$REASON" ] && REASON="no test failure line found (setup or timeout)"
+          echo "::notice title=ragdoll-suite failure::$REASON"
+          curl -sS -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/statuses/${{ github.sha }}" \
+            -d "{\"state\":\"failure\",\"context\":\"ci/ragdoll-suite\",\"description\":\"$REASON\"}"
+
+  # The Phase-4 scripts need gymnasium>=1.0 for Walker2d-v5 and cannot share the
+  # interpreter above, so they get their own install.
   phase4-imports:
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -63,7 +83,7 @@ jobs:
           assert env.action_space.shape == (6,), env.action_space
           env.close()
 
-          import sys, os
+          import sys
           sys.path.insert(0, "openai_walker")
           import stable_baselines3
           for module in ("train_bc", "train_iql", "train_cql", "train_offline_bcq",
@@ -73,7 +93,22 @@ jobs:
           print("gymnasium", gym.__version__, "| sb3", stable_baselines3.__version__)
           PY
 
-      # Behavioural, not just importable: runs every Phase-4 artifact through a seeded
-      # episode, so an architecture/loader drift fails CI instead of silently scoring 0.
+      # Behavioural, not just importable. Note most model files are gitignored, so on
+      # CI this legitimately covers the tracked dataset + teacher and skips the rest;
+      # it prints what it skipped so a silent shrink of coverage is visible.
       - name: Phase 4 behavioural tests
-        run: python -m unittest tests.test_phase4_behaviour -v
+        run: python -m unittest tests.test_phase4_behaviour -v 2>&1 | tee phase4-tests.log
+
+      - name: Report failure reason
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          REASON=$(grep -oE "(FAILED|ERROR): [^ ]+|ModuleNotFoundError.*|ImportError.*|AssertionError.*" phase4-tests.log | tail -3 | tr '\n|' '  ' | cut -c1-130)
+          [ -z "$REASON" ] && REASON="no test failure line found (setup or timeout)"
+          echo "::notice title=phase4 failure::$REASON"
+          curl -sS -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/statuses/${{ github.sha }}" \
+            -d "{\"state\":\"failure\",\"context\":\"ci/phase4\",\"description\":\"$REASON\"}"

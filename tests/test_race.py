@@ -11,7 +11,7 @@ import mujoco
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from train_walker import SACAgent, PPOAgent, TD3Agent
-from play_race import build_race_xml, get_agent_observation
+from play_race_ragdoll import build_race_xml, get_agent_observation
 
 
 class TestRaceSystem(unittest.TestCase):
@@ -106,11 +106,11 @@ class TestRaceSystem(unittest.TestCase):
         os.remove(temp_xml)
 
     def test_play_race_execution(self):
-        # Run play_race.py as a subprocess in headless mode with low steps
+        # Run the race script as a subprocess in headless mode with low steps
         result = subprocess.run(
             [
                 sys.executable,
-                "play_race.py",
+                "play_race_ragdoll.py",
                 "--checkpoints", self.sac_path, self.ppo_path, self.td3_path,
                 "--names", "FastSAC", "AccuratePPO", "RobustTD3",
                 "--target-x", "5.0",
@@ -124,7 +124,7 @@ class TestRaceSystem(unittest.TestCase):
         )
         print(result.stdout)
         print(result.stderr)
-        self.assertEqual(result.returncode, 0, f"play_race.py failed with: {result.stderr}")
+        self.assertEqual(result.returncode, 0, f"play_race_ragdoll.py failed with: {result.stderr}")
         self.assertIn("FINAL RACE RESULTS", result.stdout, "Results table not found in output.")
         self.assertIn("FastSAC", result.stdout, "Custom name FastSAC not found in output.")
         self.assertIn("AccuratePPO", result.stdout, "Custom name AccuratePPO not found in output.")

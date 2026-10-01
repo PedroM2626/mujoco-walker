@@ -1,0 +1,83 @@
+"""Build machine-readable summaries of the re-measured Phase 3 and Phase 4 benchmarks.
+
+Reads the run logs, so the published numbers cannot drift from what was executed.
+Re-run after a benchmark to refresh benchmarks/*.json.
+"""
+import json
+import os
+import re
+
+import numpy as np
+
+ROOT = os.path.dirname(os.path.abspath(__file__))
+
+
+def _stats(values):
+    arr = np.asarray(values, dtype=float)
+    return {
+        "episodes": int(arr.size),
+        "mean": round(float(arr.mean()), 2),
+        "median": round(float(np.median(arr)), 2),
+        "std": round(float(arr.std()), 2),
+        "min": round(float(arr.min()), 2),
+        "max": round(float(arr.max()), 2),
+        "q25": round(float(np.percentile(arr, 25)), 2),
+        "q75": round(float(np.percentile(arr, 75)), 2),
+    }
+
+
+def phase3(path="eval_phase3_20ep.log", seed=7):
+    text = open(os.path.join(ROOT, path), encoding="utf-8", errors="replace").read()
+    blocks = re.split(r"--- Evaluating (.+?) ---", text)[1:]
+    out = {"protocol": f"evaluate_merging.py --num-episodes 20 --seed {seed} (corrected harness: "
+                       "seeded resets, checkpoint obs_rms applied, survival read from env health)",
+           "models": {}}
+    for i in range(0, len(blocks) - 1, 2):
+        name, body = blocks[i], blocks[i + 1]
+        rewards = [float(v) for v in re.findall(r"Reward:\s*(-?[\d.]+)", body)]
+        falls = [float(v) for v in re.findall(r"Quedas:\s*([\d.]+)", body)]
+        # The log is written with the OS code page, so the accented word in
+        # "Terminou de pé" arrives mangled; match up to the colon instead of the word.
+        standing = re.findall(r"Terminou\s+de\s+\S+\s*:\s*(True|False)", body)
+        if rewards and standing and len(standing) != len(rewards):
+            raise SystemExit(
+                f"{name}: {len(standing)} survival flags for {len(rewards)} episodes - "
+                "the log parser and the evaluator have diverged, fix one of them"
+            )
+        if not rewards:
+            continue
+        entry = _stats(rewards)
+        entry["falls_per_episode"] = round(float(np.mean(falls)), 2) if falls else None
+        entry["standing_at_end_pct"] = round(
+            100.0 * sum(1 for s in standing if s.lower() == "true") / max(1, len(standing)), 1
+        )
+        out["models"][name] = entry
+    return out
+
+
+def phase4(path=os.path.join("openai_walker", "eval_phase4_20ep.log"), seed=123):
+    text = open(os.path.join(ROOT, path), encoding="utf-8", errors="replace").read()
+    rows = re.findall(
+        r"^(.+?): (-?[\d.]+) Avg Reward \| std ([\d.]+) \| min (-?[\d.]+) \| max (-?[\d.]+)$",
+        text, re.M,
+    )
+    out = {"protocol": f"evaluate_all.py --episodes 20 --seed {seed} (headless, seeded per episode)",
+           "models": {}}
+    for name, mean, std, mn, mx in rows:
+        out["models"][name.strip()] = {
+            "mean": float(mean), "std": float(std), "min": float(mn), "max": float(mx),
+            "episodes": 20,
+        }
+    return out
+
+
+if __name__ == "__main__":
+    os.makedirs(os.path.join(ROOT, "benchmarks"), exist_ok=True)
+    for builder, target in ((phase3, "benchmarks/phase3_merging_20ep.json"),
+                            (phase4, "benchmarks/phase4_race_20ep.json")):
+        data = builder()
+        with open(os.path.join(ROOT, target), "w", encoding="utf-8") as handle:
+            json.dump(data, handle, indent=2, ensure_ascii=False)
+        print(f"{target}: {len(data['models'])} models")
+        for name, s in data["models"].items():
+            print(f"   {name:32s} mean={s['mean']:>10} median={s.get('median','-'):>10} std={s['std']}")

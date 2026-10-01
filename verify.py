@@ -45,6 +45,31 @@ except Exception:  # fallback local para não quebrar se o módulo mudar
             return self.net(x)
 
 
+REPRO_HELP = """
+O dataset da Fase 2 nao pode ser regerado apenas rodando o binario existente.
+
+`mujoco_mpc_walker/main.cc` ja contem o gravador de transicoes (`my_step_callback`,
+que escreve o cabecalho target_x/target_y/qpos_*/qvel_*/ctrl_*/reward/done), mas as
+linhas que o instalam em `main()` estao comentadas (~100-105). Sem descomenta-las,
+`walker_mpc.exe` abre somente a GUI interativa e nao escreve CSV. Alem disso,
+recompilar exige toolchain C++ (Visual Studio Build Tools + CMake nos caminhos que
+`build.bat` espera), que nao esta instalada nesta maquina.
+
+Passos para reproduzir:
+  1. descomente o bloco ofstream + mjcb_sensor em mujoco_mpc_walker/main.cc;
+  2. instale VS Build Tools e CMake; ajuste build.bat se estiverem em outro caminho;
+  3. rode mujoco_mpc_walker/build.bat;
+  4. rode mujoco_mpc_walker/run.bat e feche a GUI apos coletar ~15.000 transicoes
+     em mujoco_mpc_walker/build/dataset.csv;
+  5. python openai_walker/train.py   (gera teacher_model.pt e scaler.pkl);
+  6. python verify.py.
+
+Alternativa ja versionada e reproduzivel: a Fase 4 usa
+openai_walker/dataset_openai.csv (100k transicoes de um professor SAC), que esta no
+repositorio e e regeravel com `python train_teacher.py && python generate_dataset.py`.
+"""
+
+
 def parse_args():
     p = argparse.ArgumentParser(description="Verifica artefatos da Fase 2 (BC/MPC).")
     p.add_argument("--dataset", default=os.path.join(REPO_ROOT, "mujoco_mpc_walker", "build", "dataset.csv"))
@@ -63,7 +88,7 @@ def main():
         print(f"  dataset esperado em: {args.dataset}")
         print(f"  scaler esperado em:  {args.scaler}")
         print(f"  modelo esperado em:  {args.model}")
-        print("A Fase 2 (MPC+C++) foi arquivada; gere os artefatos via mujoco_mpc_walker/build.* ou use a Fase 4 (openai_walker/dataset_openai.csv).")
+        print(REPRO_HELP)
         sys.exit(2)
 
     df = pd.read_csv(args.dataset)

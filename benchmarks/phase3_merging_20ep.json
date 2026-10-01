@@ -1,0 +1,53 @@
+{
+  "protocol": "evaluate_merging.py --num-episodes 20 --seed 7 (corrected harness: seeded resets, checkpoint obs_rms applied, survival read from env health)",
+  "models": {
+    "Hardcoded Supervisor": {
+      "episodes": 20,
+      "mean": 8585.55,
+      "median": -1307.99,
+      "std": 35860.97,
+      "min": -14465.81,
+      "max": 128298.28,
+      "q25": -12685.47,
+      "q75": 6682.3,
+      "falls_per_episode": 1.0,
+      "standing_at_end_pct": 5.0
+    },
+    "Mixture of Experts": {
+      "episodes": 20,
+      "mean": 2741.24,
+      "median": -4833.61,
+      "std": 27946.03,
+      "min": -14434.78,
+      "max": 96072.79,
+      "q25": -12699.85,
+      "q75": 847.11,
+      "falls_per_episode": 0.75,
+      "standing_at_end_pct": 5.0
+    },
+    "Weight Averaging": {
+      "episodes": 20,
+      "mean": -20290.83,
+      "median": -13344.22,
+      "std": 12482.88,
+      "min": -49903.01,
+      "max": 3243.62,
+      "q25": -28806.12,
+      "q75": -13135.6,
+      "falls_per_episode": 0.1,
+      "standing_at_end_pct": 0.0
+    },
+    "Task Arithmetic": {
+      "episodes": 20,
+      "mean": -18781.05,
+      "median": -14303.47,
+      "std": 10502.82,
+      "min": -41962.82,
+      "max": -5986.73,
+      "q25": -21409.39,
+      "q75": -12148.91,
+      "falls_per_episode": 0.2,
+      "standing_at_end_pct": 0.0
+    }
+  }
+}

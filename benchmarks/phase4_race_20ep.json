@@ -1,0 +1,96 @@
+{
+  "protocol": "evaluate_all.py --episodes 20 --seed 123 (headless, seeded per episode)",
+  "models": {
+    "Teacher (Upper Bound)": {
+      "mean": 3762.8,
+      "std": 420.0,
+      "min": 1938.74,
+      "max": 3943.94,
+      "episodes": 20
+    },
+    "BC": {
+      "mean": 3681.22,
+      "std": 493.74,
+      "min": 2307.43,
+      "max": 4275.67,
+      "episodes": 20
+    },
+    "BCQ": {
+      "mean": 3004.64,
+      "std": 962.27,
+      "min": 854.52,
+      "max": 4152.96,
+      "episodes": 20
+    },
+    "BC+SAC (Regularized)": {
+      "mean": 2718.7,
+      "std": 918.77,
+      "min": 1363.63,
+      "max": 4004.96,
+      "episodes": 20
+    },
+    "DT": {
+      "mean": 1977.32,
+      "std": 1083.9,
+      "min": 961.23,
+      "max": 3700.57,
+      "episodes": 20
+    },
+    "BC+SAC (Naive)": {
+      "mean": 1118.61,
+      "std": 514.7,
+      "min": 533.66,
+      "max": 2378.1,
+      "episodes": 20
+    },
+    "GAIL": {
+      "mean": 997.97,
+      "std": 0.44,
+      "min": 997.09,
+      "max": 998.67,
+      "episodes": 20
+    },
+    "CQL+SAC": {
+      "mean": 407.44,
+      "std": 5.66,
+      "min": 399.79,
+      "max": 416.48,
+      "episodes": 20
+    },
+    "CQL": {
+      "mean": 322.58,
+      "std": 8.17,
+      "min": 309.61,
+      "max": 346.75,
+      "episodes": 20
+    },
+    "MaxEnt": {
+      "mean": 260.81,
+      "std": 40.32,
+      "min": 189.05,
+      "max": 357.04,
+      "episodes": 20
+    },
+    "BC+SAC (Constrained)": {
+      "mean": 126.7,
+      "std": 79.9,
+      "min": -1.58,
+      "max": 233.96,
+      "episodes": 20
+    },
+    "AIRL": {
+      "mean": -6.31,
+      "std": 0.05,
+      "min": -6.41,
+      "max": -6.22,
+      "episodes": 20
+    },
+    "IQL": {
+      "mean": -11.51,
+      "std": 15.42,
+      "min": -18.15,
+      "max": 54.83,
+      "episodes": 20
+    }
+  }
+}

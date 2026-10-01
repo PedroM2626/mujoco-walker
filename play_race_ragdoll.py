@@ -1,5 +1,9 @@
 """Corrida multi-agente do ragdoll customizado (Fases 1-3, WalkerRagdoll-v0).
 
+Renomeado de play_race.py: dividia o nome com `openai_walker/play_race.py`, e com
+os dois diretórios no sys.path um `import play_race` resolvia para o módulo que
+estivesse primeiro na frente da lista - silenciosamente o script errado.
+
 NÃO confundir com `openai_walker/play_race.py`, que é a corrida offline da
 Fase 4 no `Walker2d-v5` padronizado. Este script compara checkpoints
 SAC/PPO/TD3/ARS lado a lado no mesmo XML (`build_race_xml`).

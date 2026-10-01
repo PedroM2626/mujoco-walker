@@ -236,13 +236,29 @@ def main():
     for name, model, kw in cands:
         avg, per_ep = evaluate_headless(env, model, device, args.episodes, seed=args.seed, **kw)
         results[name] = (avg, per_ep)
-        print(f"{name}: {avg:.2f} avg over {args.episodes} ep")
+        arr = np.asarray(per_ep, dtype=float)
+        print(f"{name}: {avg:.2f} avg over {args.episodes} ep "
+              f"(std {arr.std():.2f}, min {arr.min():.2f}, max {arr.max():.2f})")
 
     env.close()
 
-    print("\n=== FINAL RESULTS (headless) ===")
+    print(f"\n=== FINAL RESULTS (headless, {args.episodes} episodes, seed {args.seed}) ===")
+    lines = []
     for k, (avg, _) in sorted(results.items(), key=lambda kv: kv[1][0], reverse=True):
-        print(f"{k}: {avg:.2f} Avg Reward")
+        arr = np.asarray(results[k][1], dtype=float)
+        line = (f"{k}: {avg:.2f} Avg Reward | std {arr.std():.2f} "
+                f"| min {arr.min():.2f} | max {arr.max():.2f}")
+        lines.append(line)
+        print(line)
+
+    # A separate file: final_results.txt is the historical single-episode record that the
+    # README table was corrected against, and overwriting it would destroy that evidence.
+    report = os.path.join(HERE, f"final_results_{args.episodes}ep_seed{args.seed}.txt")
+    with open(report, "w", encoding="utf-8") as handle:
+        handle.write(f"Protocol: evaluate_all.py --episodes {args.episodes} --seed {args.seed}\n")
+        handle.write("Model scores are per-episode return means with spread over episodes.\n\n")
+        handle.write("\n".join(lines) + "\n")
+    print(f"\n wrote {os.path.basename(report)}")
 
     plt.figure(figsize=(10, 5))
     labels = list(results.keys())

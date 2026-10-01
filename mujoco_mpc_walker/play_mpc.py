@@ -1,3 +1,9 @@
+"""Visualizador da política BC da Fase 2 sobre o modelo do MPC.
+
+Renomeado de `play.py` para não dividir nome com o `play.py` da raiz (visualizador do
+ragdoll das Fases 1-3), que bastava para que um `import play` resolvesse para o script
+errado conforme a ordem do sys.path.
+"""
 import mujoco
 import mujoco.viewer
 import time

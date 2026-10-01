@@ -60,30 +60,42 @@ To merge two different neural networks, they must share the same *Linear Mode Co
 
 #### 📊 Empirical Results (Phase 3 Benchmark)
 
-| Merging Strategy | Avg Reward | Survival Rate | Analysis |
-|:---|:---:|:---:|:---|
-| **Hardcoded Supervisor** | **-11191.88** | *see caveat* | 🥇 Best reward of the four. The deterministic IF/ELSE baseline that swaps policies on torso height and upright factor. |
-| **Weight Averaging (50/50)** | -11692.61 | *see caveat* | 🥈 Interpolating the parameter matrices kept the gait smoother than the arithmetic variants. |
-| **Mixture of Experts (MoE)** | -11763.92 | *see caveat* | The learned router tracked the hardcoded supervisor closely. |
-| **Task Arithmetic** | -16958.91 | *see caveat* | ⚠️ **Degradation.** Adding the isolated "recovery task vector" to the walking weights kept the robot controllable but heavily corrupted the gait. |
+Re-measured 2026-10-01 with the corrected harness: 20 episodes per strategy, seeded resets
+(`--seed 7`, episode *i* uses `7+i`), each expert fed through the `obs_rms` baked into its
+own checkpoint, and survival read from the environment's health condition instead of from
+`terminated` (which these runs never set). Evidence: `eval_phase3_20ep.log` in the run
+directory, summary in `benchmarks/phase3_merging_20ep.json`, recomputed with
+`python summarize_benchmarks.py`.
 
-⚠️ **Two problems with the column this table was praised for.** The original run was
-recorded as 1,000 episodes per model; no artifact of that run is in the repo, so the
-reward numbers above cannot be re-derived from anything committed here. And the
-"100% Survival Rate" row-by-row result was not a finding about robustness — it was a
-property of the harness: `evaluate_merging.py` defined survival as "`env.terminated` never
-became True", while these runs use `terminate_when_unhealthy=False`, so `terminated` is
-`False` by construction and **no strategy could ever have been reported as dying**. That
-script now seeds its resets, scores survival from the environment's own health condition,
-reports falls per episode, and applies the `obs_rms` baked into the checkpoints (which it
-previously ignored, meaning it had been driving a different policy than `play.py`). Re-run
-it with `--num-episodes` to regenerate this table on a protocol that can actually
-distinguish the strategies.
+| Merging Strategy | Mean Reward | Median | Std | Falls / episode | Ended standing |
+|:---|---:|---:|---:|---:|---:|
+| **Hardcoded Supervisor** | **8585.55** | **-1307.99** | 35860.97 | 1.00 | 5% |
+| **Mixture of Experts (MoE)** | 2741.24 | -4833.61 | 27946.03 | 0.75 | 5% |
+| **Task Arithmetic** | -18781.05 | -14303.47 | 10502.82 | 0.20 | 0% |
+| **Weight Averaging (50/50)** | -20290.83 | -13344.22 | 12482.88 | 0.10 | 0% |
 
-Also note that `play.py` resolves checkpoints only under `checkpoints/<run-id>/`, so the
-root-level `merged_avg_model.pt`, `merged_ta_model.pt` and `moe_gate.pt` are not reachable
-through its `--run-id` interface; use `evaluate_merging.py --avg-ckpt/--ta-ckpt/--gate-ckpt`
-or move those artifacts under `checkpoints/`.
+Read this table before citing it:
+
+1. **The spread dwarfs the mean.** Std is 3-15x the mean and every median is negative: the
+   supervisor's +8585 comes from a single 128,298-point episode out of 20. Ranking by mean
+   over 20 episodes of this task is not a stable measurement.
+2. **The previously published ordering was a bug, not a finding.** The retired table put
+   Weight Averaging second ("highly robust, counter to intuition") and MoE third, on
+   un-normalised observations. Once each policy gets the inputs it was trained on, Weight
+   Averaging is **last** and MoE is second. That reversal is the point of fixing the harness.
+3. **"100% survival" was never observable.** The old script defined survival as
+   "`env.terminated` never became True", while these runs use
+   `terminate_when_unhealthy=False` — so `terminated` is False by construction and no
+   strategy could ever have been reported as dying. Real fall counts are in the table: the
+   merged policies fall least because they do almost nothing, and finish upright 0% of the
+   time.
+4. The supervisor is the intended upper bound and still leads on both mean and median; MoE
+   tracks it with fewer falls. Task Arithmetic remains clearly degraded.
+
+To regenerate: `python evaluate_merging.py --num-episodes 20 --seed 7` (the old artifacts
+were unreachable from `play.py`; it now takes `--checkpoint` for the root-level merged
+models and `--moe --gate/--recovery/--target` for the router, which the README had claimed
+for a script containing no MoE code).
 
 ### 🔴 Phase 4: Offline RL & Offline-to-Online Benchmarking (`openai_walker/` folder)
 We migrated to the standardized `Walker2d-v5` Gymnasium environment to conduct a massive benchmark on learning *strictly from static datasets*, without querying the environment.
@@ -106,22 +118,65 @@ We migrated to the standardized `Walker2d-v5` Gymnasium environment to conduct a
 
 ## 🏆 Final Benchmark Results (Offline-to-Online Race)
 
-**These are the scores recorded in `openai_walker/final_results.txt`, the actual output of
-`play_race.py`.** An earlier version of this README carried different numbers for several
-rows (BC+SAC Regularized 4030.66, BC 3837.80, Teacher 3876.30, BC+SAC Constrained 203.54,
-CQL+SAC 394.00, GAIL 1016.41) and called BC+SAC the overall champion. The tracked artifact
-disagrees with all of that and puts BCQ first, so the table below now matches the evidence
-in the repo. If you want the older figures back, they are in the git history — they are not
-reproducible from anything committed here.
+Headline numbers are the **20 seeded episodes** below, re-measured on 2026-10-01; the
+single-episode record that shipped with the repo is kept underneath as history, because its
+per-model explanations are still the substance of this phase.
 
-Read the caveat with the table: every score is **one episode** (`play_race.py` defaults to
-`episodes=1`, reset unseeded). Walker2d returns are high-variance at n=1, so treat these as
-identities ("this model runs at all") rather than measurements. A re-run with a fixed seed
-and 50+ episodes is the honest version of this experiment and has not been done.
+An earlier version of this README quoted numbers that no artifact in the repo supports
+(BC+SAC Regularized 4030.66, BC 3837.80, Teacher 3876.30, BC+SAC Constrained 203.54, CQL+SAC
+394.00, GAIL 1016.41) and crowned BC+SAC the champion. Both the older figures and the
+"champion" claim are wrong against `openai_walker/final_results.txt`, and the
+single-episode file itself turned out to be a poor estimator once re-run with a protocol
+that can average.
+
+### Measured again, properly: 20 seeded episodes per model (2026-10-01)
+
+The single-episode record above is only an identity check, and that turned out to matter a
+lot. Re-run with `evaluate_all.py --episodes 20 --seed 123` (seeded per episode:
+episode *i* resets with `123+i`), the ranking and the magnitudes both move. Evidence:
+`openai_walker/final_results_20ep_seed123.txt`, `benchmarks/phase4_race_20ep.json`,
+recomputed with `python summarize_benchmarks.py`.
+
+| Model | Mean (20 ep) | Std | Min | Max | Reading |
+|:---|---:|---:|---:|---:|:---|
+| **Teacher (Online SAC)** | **3762.80** | 420.00 | 1938.74 | 3943.94 | Upper bound, and the only model whose score is stable. |
+| **Behavioral Cloning (BC)** | 3681.22 | 493.74 | 2307.43 | 4275.67 | **The single-episode record badly understated it** (1728.81). Cloning the teacher is nearly as good as the teacher; the n=1 draw caught a bad episode. |
+| **Extra Trees Cloner (sklearn)** | 3302.68 | 869.89 | 1248.99 | 4055.37 | Third, and now measured on the same protocol instead of a separate 5-episode run. Huge spread confirms the in-distribution/extrapolation split. Loaded with sklearn 1.5.2 although trained with 1.3.2 — treat as indicative. |
+| **Batch-Constrained Q-learning (BCQ)** | 3004.64 | 962.27 | 854.52 | 4152.96 | Best *strictly* offline model, but its min of 854 shows one unlucky episode costs a full rank. |
+| **BC+SAC (Regularized)** | 2718.70 | 918.77 | 1363.63 | 4004.96 | The hybrid finishes below plain BC on this protocol: fine-tuning on top of cloning did not pay for itself here. |
+| **Decision Transformer (DT)** | 1977.32 | 1083.90 | 961.23 | 3700.57 | Better than its n=1 score, with the widest spread in the table. |
+| **BC+SAC (Naive)** | 1118.61 | 514.70 | 533.66 | 2378.10 | Catastrophic forgetting, as described: unregularised SAC overwrote the cloned policy. |
+| **Inverse RL (GAIL)** | 997.97 | 0.44 | 997.09 | 998.67 | Almost zero variance — this policy has converged onto a fixed, mediocre gait. |
+| **CQL+SAC** | 407.44 | 5.66 | 399.79 | 416.48 | Fine-tuning a Q-function that already collapsed on the narrow dataset. |
+| **CQL Offline** | 322.58 | 8.17 | 309.61 | 346.75 | Offline RL needs diverse, overlapping data for the Bellman backup to mean anything. |
+| **MaxEnt IRL** | 260.81 | 40.32 | 189.05 | 357.04 | Linear reward model ($r = \theta^T \phi$) too weak for bipedal locomotion. |
+| **BC+SAC (Constrained)** | 126.70 | 79.90 | -1.58 | 233.96 | Hard-clipping actions to the BC policy destroyed gradient flow. |
+| **Inverse RL (AIRL)** | -6.31 | 0.05 | -6.41 | -6.22 | `NaN` gradients from deterministic actions at the `atanh` limits; rebuilt with spectral norm + clipping + $h(s)$ shaping and still flat. |
+| **IQL Offline** | -11.51 | 15.42 | -18.15 | 54.83 | Collapsed for lack of dataset diversity. |
+
+What this re-measurement changes, stated plainly:
+
+1. **The teacher is first, not BCQ.** At n=1 BCQ looked like the champion; over 20 seeded
+   episodes the online SAC teacher is ahead of every offline method, which is the expected
+   result for an upper bound and the sanity check the old table failed.
+2. **Behavioral Cloning was misreported by a factor of two** in the single-episode record,
+   and it beats every offline *value-based* method and the BC+SAC hybrids.
+3. **Variance dominates ranking at n=20 for the offline methods** (std 500-1100 vs
+   differences of similar size between neighbours). Re-run with more episodes before
+   quoting any pairwise comparison.
+4. **PQR is missing, not slow:** `train_irl_pqr.py` exists but no PQR artifact was ever
+   produced, so it is silently absent from both records.
+
+### Historical record: one unseeded episode per model (`final_results.txt`)
+
+Kept because the per-model *explanations* below are the substance of this phase, and
+because this is the file the earlier version of this README contradicted. The scores are
+single unseeded draws — compare them with the 20-episode table above rather than quoting
+them.
 
 | Model Architecture | Final Score | Analysis |
 |:---|:---:|:---|
-| **Batch-Constrained Q-learning (BCQ)** | **3897.63** | 🏆 **Top score, and the best strictly-offline model.** It beat the online teacher without taking a single environment step during training, by using a VAE to propose actions and a perturbation network to refine them, which keeps it on the data manifold instead of exploiting unseen state-action pairs. |
+| **Batch-Constrained Q-learning (BCQ)** | **3897.63** | 🏆 **Best strictly-offline model.** It beat the online teacher without taking a single environment step during training, by using a VAE to propose actions and a perturbation network to refine them, which keeps it on the data manifold instead of exploiting unseen state-action pairs. |
 | **Teacher (Online SAC)** | 3865.41 | The pure online expert that generated the dataset, and the upper bound the offline methods are measured against. |
 | **BC+SAC (Regularized)** | 3396.81 | **Best offline-to-online hybrid.** Started from BC weights, then kept exploring with SAC while a BC loss regularised the actor to prevent catastrophic forgetting. It lands below BCQ and below the teacher in this recording, so it is not the champion an earlier version of this file claimed. |
 | **Behavioral Cloning (BC)** | 1728.81 | Pure supervised cloning of the teacher. The dataset was narrow and deterministic, so cloning worked, but at roughly 45% of the teacher rather than the near-match previously reported here. |
@@ -294,6 +349,24 @@ source .venv/bin/activate # (Linux/Mac)
 
 pip install -r requirements.txt
 ```
+
+## 🧹 Repository size
+
+`.git` was **1.2 GB** while the real history is only ~28 MB. The difference was a single
+**unreachable** 1.15 GB object: `openai_walker/extratrees_model.pkl` had been `git add`ed
+(force-added past the `*.pkl` ignore rule) on 2026-06-28 and later reset, leaving the blob
+dangling — no commit ever referenced it, so `git rev-list --objects --all` did not show it
+and GitHub never received it. `git prune --expire=now && git gc --prune=now` removed it and
+`git fsck` is clean; the history is untouched and the clone is now small.
+
+Two facts to keep in mind:
+
+- `openai_walker/extratrees_model.pkl` (2.24 GB on disk) is **not** version-controlled and
+  is regenerable with `python train_extratrees.py`. Do not force-add it.
+- `openai_walker/dataset_openai.csv` (74 MB) **is** tracked, on purpose: it is the only copy
+  of the Phase-4 dataset, and every table here is measured against it. If the repo ever
+  needs to shed it, migrate with `git lfs migrate import --include=...` and a force-push -
+  that rewrites published history, so it needs every clone to re-fetch.
 
 ## ✅ Running the tests
 

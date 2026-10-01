@@ -1,6 +1,6 @@
 """Grande corrida offline da Fase 4 (Walker2d-v5, com GUI).
 
-NÃO confundir com `play_race.py` da raiz, que é a corrida multi-agente do
+NÃO confundir com `play_race_ragdoll.py` da raiz, que é a corrida multi-agente do
 ragdoll customizado (Fases 1-3). Para servidores sem display, use a
 contraparte headless `evaluate_all.py --episodes N`.
 """

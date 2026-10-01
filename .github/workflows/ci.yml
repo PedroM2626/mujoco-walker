@@ -72,3 +72,8 @@ jobs:
               print("import ok:", module)
           print("gymnasium", gym.__version__, "| sb3", stable_baselines3.__version__)
           PY
+
+      # Behavioural, not just importable: runs every Phase-4 artifact through a seeded
+      # episode, so an architecture/loader drift fails CI instead of silently scoring 0.
+      - name: Phase 4 behavioural tests
+        run: python -m unittest tests.test_phase4_behaviour -v

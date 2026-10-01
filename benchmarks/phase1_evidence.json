@@ -1,0 +1,40 @@
+{
+  "note": "Phase 1 previously had no recorded results at all. These runs are short by design (minutes, not the 1M-step budget); they show the trainers execute and receive reward, and are not comparable with the Phase 3/4 tables.",
+  "date": "2026-10-01",
+  "runs": {
+    "train_ars": {
+      "log": "ars_evidence.log",
+      "episodes_recorded": 0,
+      "steps_completed": 60384,
+      "eval_returns": {
+        "epochs_observed": 101,
+        "first": 6378.71,
+        "last": 3087.62,
+        "max": 11116.19,
+        "max_at_epoch": 23
+      }
+    },
+    "train_redq": {
+      "log": "redq_evidence.log",
+      "episodes_recorded": 184,
+      "steps_completed": 6000,
+      "episode_return": {
+        "mean": 2951.29,
+        "median": 2528.2,
+        "max": 10800.01,
+        "last10_mean": 4744.93
+      }
+    },
+    "train_dreamer": {
+      "log": "dreamer_smoke.log",
+      "episodes_recorded": 351,
+      "steps_completed": 8000,
+      "episode_return": {
+        "mean": 2041.18,
+        "median": 1615.48,
+        "max": 7205.9,
+        "last10_mean": 1373.06
+      }
+    }
+  }
+}

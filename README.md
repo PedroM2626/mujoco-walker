@@ -19,29 +19,47 @@ We implemented highly efficient online RL paradigms to train the robot from scra
 - **REDQ (`train_redq.py`):** *Randomized Ensembled Double Q-Learning*. Uses an aggressive ensemble of 10 Q-Networks and a high Update-To-Data (UTD) ratio to achieve massive sample efficiency on the Walker.
 - **ARS (`train_ars.py`):** *Augmented Random Search*. A highly parallelized gradient-free evolutionary algorithm that searches for optimal linear policies in the parameter space.
 
-⚠️ **No results are recorded for this phase.** These three are implementations, not
-measurements: they produce no checkpoints under `checkpoints/` and no table in this file,
-and they are not covered by the test suite. Two defects found while auditing them are now
-fixed — `train_redq.py` updated its actor on every one of the 20 UTD iterations instead of
-every `policy_frequency` gradient steps, and `train_dreamer.py` logged only
-`obs[0]`/`actions[0]` while stepping 4 environments, discarding 75% of the data it
-collected. Run them and record the output before citing numbers.
+**Status: implementations that now have recorded, explicitly short evidence runs.** Until
+2026-10-01 none of the three had ever been run in-repo: no checkpoints, no numbers, no test
+coverage. Two defects were found and fixed while checking them — `train_redq.py` updated its
+actor on every one of the 20 UTD iterations instead of every `policy_frequency` gradient
+steps, and `train_dreamer.py` recorded only `obs[0]`/`actions[0]` while stepping 4
+environments, throwing away three quarters of the transitions it simulated.
 
-Phase 1's main trained model is the SAC/PPO/TD3 walker in `train_walker.py`, whose
-checkpoints do exist (`checkpoints/walker_target_v1`, `walker_recovery_v1`).
+Short runs (minutes, not the 1M-step budget) are recorded in `benchmarks/phase1_evidence.json`
+and reproducible with `python summarize_phase1.py`:
+
+| Trainer | Budget | Episodes | Mean return | Max return |
+|:---|---:|---:|---:|---:|
+| `train_ars.py` | 60,384 steps | 101 eval cycles | eval peak **11116.19** at epoch 23, 3087.62 at the end | 11116.19 |
+| `train_redq.py` | 6,000 steps | 184 | 2951.29 | 10800.01 |
+| `train_dreamer.py` | 8,000 steps | 351 | 2041.18 | 7205.90 |
+
+These say "the algorithm runs and collects reward on the ragdoll", nothing more. Do not
+quote them as results: the budgets are 0.6% of the intended 1M steps, and ARS in particular
+peaked early and decayed, which at this length says nothing about the method.
+
+Phase 1's properly trained models are the SAC walkers in `checkpoints/walker_target_v1`
+(40M steps) and `checkpoints/walker_recovery_v1` (20M steps), evaluated in Phase 3 above.
 
 ### 🟡 Phase 2: MuJoCo MPC & Imitation Learning (Root Directory)
 To achieve mathematically perfect locomotion, we tapped into the official DeepMind C++ MuJoCo MPC (Model Predictive Control) planner:
 - We extracted **15,000 flawless transitions** of the MPC planner optimizing the walker's physics implicitly (`dataset.csv`).
 - **Behavioral Cloning (`train_walker.py`):** Trained a PyTorch neural network to supervise-clone the MPC's optimal torque decisions, effectively caching the heavy MPC computation into a fast neural policy.
 
-⚠️ **Not reproducible from this repository as committed.** `dataset.csv` is nowhere in the
-tree (nor in git history), and the C++ MPC binary under `mujoco_mpc_walker/build/` is not
-committed either, so there is nothing here to retrain the BC policy from. `verify.py` and
-`openai_walker/train.py` both look for that file and exit with a clear error when it is
-missing. The Phase-2 numbers below are therefore claims, not measurements you can check.
-Reproduce by building `mujoco_mpc_walker` (`build.bat` / its Dockerfile), running the
-planner to write `dataset.csv`, then `python openai_walker/train.py`.
+⚠️ **Not reproducible as committed, for a specific and fixable reason.** `dataset.csv` is
+nowhere in the tree or in git history, and the C++ collector that would produce it is
+**disabled in the source**: `mujoco_mpc_walker/main.cc` contains a complete transition
+writer (`my_step_callback`, writing
+`target_x,target_y,qpos_*,qvel_*,ctrl_*,reward,done`) but the six lines in `main()` that
+open the file and install it as `mjcb_sensor` are commented out (~lines 100-105), so the
+prebuilt `walker_mpc.exe` opens the interactive MJPC GUI and writes nothing. Regenerating
+therefore needs: uncomment that block, a C++ toolchain (Visual Studio Build Tools + CMake at
+the paths `build.bat` hard-codes — not installed on this machine), a rebuild, and a manual
+GUI collection session. `verify.py` prints exactly these steps and exits 2 until the
+artifacts exist. The versioned, reproducible alternative is Phase 4's
+`openai_walker/dataset_openai.csv` (100k SAC-teacher transitions), which every table in this
+file that quotes a number actually measured against.
 
 ### 🟠 Phase 3: Transfer Learning, Model Merging & Mixture of Experts (Root Directory)
 How do we combine a "Walking Policy" with a "Fall Recovery Policy" without catastrophic forgetting? To achieve this, we utilized a strict **Transfer Learning Curriculum** and advanced Model Merging techniques.

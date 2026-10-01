@@ -26,6 +26,9 @@ import envs.walker_ragdoll_env  # noqa: F401,E402  (registers WalkerRagdoll-v0)
 import gymnasium as gym  # noqa: E402
 import mujoco  # noqa: E402
 
+# One policy action = frame_skip mj_steps, matching WalkerRagdollEnv's default.
+FRAME_SKIP = 5
+
 
 def _time_fn(fn, make_args, seconds, warmup_steps=200):
     """Time `fn(*args)` for roughly `seconds`, returning steps/s and mean us/step."""
@@ -57,8 +60,9 @@ def bench_physics(seconds, task_phase, reset_mode):
         "label": "physics only (mj_step x1)",
         "steps_per_s": sps,
         "us_per_step": us,
-        "note": "integrator=%s timestep=%g"
-        % (mujoco.mjtIntegrator(model.opt.integrator).name, model.opt.timestep),
+        "note": "integrator=%s timestep=%g frame_skip=%d"
+        % (mujoco.mjtIntegrator(model.opt.integrator).name, model.opt.timestep, FRAME_SKIP),
+        "frame_skip": FRAME_SKIP,
     }
 
 
@@ -173,11 +177,18 @@ def main():
         print(f"{r['label']:34s} {r['steps_per_s']:>11,.0f} steps/s  {r['us_per_step']:>9.1f} us/step  {note}")
     print("-" * 78)
 
-    if len(results) > 1 and results[0]["steps_per_s"]:
-        env_only = [r for r in results if r["label"].startswith("gym env.step")]
+    if args.mode in ("all", "physics") and args.mode in ("all", "env"):
+        physics, env_only = results[0], [r for r in results if r["label"].startswith("gym env.step")]
         if env_only:
-            overhead = 1.0 - results[0]["steps_per_s"] / env_only[0]["steps_per_s"]
-            print(f"Python/reward overhead in env.step: {overhead * 100:.1f}% of wall clock")
+            # One env.step is frame_skip mj_steps, so put both on the same unit before
+            # comparing: 5 mj_step calls at X us each is the physics part of the action.
+            physics_per_action = physics["us_per_step"] * physics.get("frame_skip", FRAME_SKIP)
+            python_share = 1.0 - physics_per_action / env_only[0]["us_per_step"]
+            print(
+                f"Of one env.step: physics {physics_per_action:.0f} us "
+                f"({100 * (1 - python_share):.0f}%), Python around it {env_only[0]['us_per_step'] - physics_per_action:.0f} us "
+                f"({100 * python_share:.0f}%)"
+            )
 
     if args.json:
         with open(args.json, "w") as f:

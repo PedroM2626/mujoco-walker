@@ -238,6 +238,19 @@ env-steps/s, which is what a fixed `--total-timesteps` budget actually waits on:
 | Reward path rewritten (SyncVectorEnv, n=32) | 1,536 | **1.5x** |
 | `--vec-backend parallel`, n=32 | 6,694 | **6.5x** |
 
+⚠️ **How to read these numbers.** This is a laptop CPU whose clocks vary with power and
+thermal state, and repeat runs of the identical command have ranged ~2x apart (the sync
+n=32 configuration measured 1,408, 1,536 and 2,720 env-steps/s in three runs the same
+minute-scale window apart). The absolute column is therefore indicative; the **ratios** are
+what to trust, because each was measured back-to-back in one process against the same
+baseline. Re-measure on your own hardware with `python bench_env.py --seconds 4` before
+quoting a multiplier.
+
+What the rewrite actually bought is visible in the last line `bench_env.py` prints: the
+Python around MuJoCo in one `env.step` fell from ~46% of wall clock to **7%** (23 µs of a
+312 µs step, physics 289 µs), which is why the remaining headroom is in parallelism and
+in the integrator rather than in Python.
+
 Three things mattered, and one deliberate non-change:
 
 1. **The reward path was doing string work per step.** `floor_contact_counts` looked up

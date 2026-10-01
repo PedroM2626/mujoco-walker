@@ -340,12 +340,25 @@ pip install -r requirements-phase4.txt
 ⚠️ `numpy<2` is required with stable-baselines3 2.4.0, and pip will happily install numpy 2.x
 alongside it; SB3 then fails at import. Pin it explicitly if you hit that.
 
-⚠️ **`torch` from PyPI is a CPU-only wheel on Windows.** The committed `.venv` has
-`torch 2.4.1+cpu`, so every gradient update in the trainers runs on CPU even though the
-machine has a GPU. The trainers already select `cuda` when it is available, so installing a
-CUDA build is a pure speedup with no change to the training budget:
-`pip install --index-url https://download.pytorch.org/whl/cu121 torch` (verified working on
-this machine's RTX 4070 Laptop: `torch.cuda.is_available() -> True`).
+⚡ **`torch` from PyPI is a CPU-only wheel on Windows**, so with the original `.venv`
+(`torch 2.4.1+cpu`) every gradient update ran on CPU on a machine with an RTX 4070. The
+`.venv` here now has `torch 2.4.1+cu121`. Measured at an identical 20k-step SAC budget
+(8 envs, sync backend, updates from step 2000, same seed):
+
+| Device | Wall clock | Throughput |
+|:---|---:|---:|
+| `--device cpu` | 105 s | 190 env-steps/s |
+| `--device cuda` | 30 s | 666 env-steps/s |
+
+That is **3.5x end-to-end** at this budget, and 2.4x on the isolated update step (11.28 ms
+→ 4.75 ms per critic+actor pair at batch 512, `bench_device.py`). The
+gain shrinks as `num_envs` grows, because rollout collection becomes the dominant cost —
+which is why the env work above matters more than the device.
+
+Use `--device cpu|cuda|auto` to choose. Do **not** force CPU with
+`CUDA_VISIBLE_DEVICES=-1`: with a CUDA build of torch that segfaults partway through
+training here (reproduced twice at 20k steps with updates; the env-only path does not
+crash, and the in-process flag does not either).
 
 ### Option 1: Docker (recommended for rendering)
 Build and run the Docker container to ensure all MuJoCo rendering libraries are pre-configured:
@@ -427,6 +440,7 @@ python -m unittest discover -s tests -t .   # 32 tests: env contract, golden rew
 python bench_env.py --seconds 4             # env throughput, physics vs Python split
 python bench_mjx.py --sizes 32,128          # MJX/JAX batched stepping
 python verify.py                            # Phase-2 artifact check (exits 2 when missing)
+python bench_device.py                        # SAC update cost, CPU vs CUDA
 ```
 
 `verify.py` currently exits non-zero because `dataset.csv` is not in the repository — see the

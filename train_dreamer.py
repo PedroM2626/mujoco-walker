@@ -16,6 +16,8 @@ from train_walker import (
     make_env,
     add_vec_env_args,
     build_vec_env,
+    add_device_arg,
+    select_device,
     force_delete_run,
     get_checkpoint_dir,
     get_rng_state,
@@ -310,6 +312,7 @@ def parse_dreamer_args():
     parser.add_argument("--task-phase", type=str, default="target")
     parser.add_argument("--target-forward-velocity", type=float, default=0.8)
     add_vec_env_args(parser)
+    add_device_arg(parser)
     
     # DreamerV3 specific hyperparameters
     parser.add_argument("--seq-len", type=int, default=50, help="World model sequence batch training length (L)")
@@ -375,7 +378,7 @@ def train_dreamer():
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
     torch.backends.cudnn.deterministic = True
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = select_device(args)
     print(f"Using device: {device}")
 
     envs = build_vec_env(args, run_name, capture_video=False)

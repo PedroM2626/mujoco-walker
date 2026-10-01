@@ -1,0 +1,78 @@
+{
+  "protocol": "paired test over evaluate_all.py --episodes 50 --seed 2026 (episode i reset with seed+i for every model)",
+  "resamples": 20000,
+  "results": [
+    {
+      "pair": "BC - Teacher (Upper Bound)",
+      "episodes": 50,
+      "mean_a": 3529.44,
+      "mean_b": 3516.95,
+      "mean_difference": 12.49,
+      "std_of_difference": 906.3,
+      "bootstrap_95ci": [
+        -231.49,
+        265.05
+      ],
+      "significant_at_95": false,
+      "ties": 0,
+      "mean_only_significant": false,
+      "paired_t_p": 0.9228,
+      "wilcoxon_p": 0.278,
+      "cohens_dz": 0.014
+    },
+    {
+      "pair": "BCQ - BC+SAC (Regularized)",
+      "episodes": 50,
+      "mean_a": 2732.6,
+      "mean_b": 2784.29,
+      "mean_difference": -51.69,
+      "std_of_difference": 1334.45,
+      "bootstrap_95ci": [
+        -419.11,
+        316.8
+      ],
+      "significant_at_95": false,
+      "ties": 0,
+      "mean_only_significant": false,
+      "paired_t_p": 0.7853,
+      "wilcoxon_p": 0.7888,
+      "cohens_dz": -0.039
+    },
+    {
+      "pair": "Extra Trees - BCQ",
+      "episodes": 50,
+      "mean_a": 3092.22,
+      "mean_b": 2732.6,
+      "mean_difference": 359.62,
+      "std_of_difference": 1441.97,
+      "bootstrap_95ci": [
+        -49.05,
+        742.47
+      ],
+      "significant_at_95": false,
+      "ties": 0,
+      "mean_only_significant": false,
+      "paired_t_p": 0.0841,
+      "wilcoxon_p": 0.0248,
+      "cohens_dz": 0.249
+    },
+    {
+      "pair": "BC+SAC (Regularized) - BCQ",
+      "episodes": 50,
+      "mean_a": 2784.29,
+      "mean_b": 2732.6,
+      "mean_difference": 51.69,
+      "std_of_difference": 1334.45,
+      "bootstrap_95ci": [
+        -316.8,
+        419.11
+      ],
+      "significant_at_95": false,
+      "ties": 0,
+      "mean_only_significant": false,
+      "paired_t_p": 0.7853,
+      "wilcoxon_p": 0.7888,
+      "cohens_dz": 0.039
+    }
+  ]
+}

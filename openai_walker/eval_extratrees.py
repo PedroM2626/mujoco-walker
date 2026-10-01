@@ -8,6 +8,7 @@ was unseeded, so repeated runs did not agree with each other.
 """
 
 import argparse
+import json
 import os
 import sys
 
@@ -51,6 +52,19 @@ def evaluate_extratrees(model_path, episodes, seed):
             total.append(ep_reward)
     finally:
         env.close()
+
+    # Same paired-reset convention as evaluate_all.py: episode i is reset with seed+i, so this
+    # array can be compared episode-by-episode against every other row of the Phase-4 table.
+    out = os.path.join(HERE, f"final_episodes_extratrees_{episodes}ep_seed{seed}.json")
+    with open(out, "w", encoding="utf-8") as handle:
+        json.dump({
+            "protocol": f"eval_extratrees.py --episodes {episodes} --seed {seed}",
+            "seed": seed,
+            "episodes": episodes,
+            "note": "index i of each array is the episode reset with seed+i, shared across models",
+            "models": {"Extra Trees": [float(x) for x in total]},
+        }, handle, indent=2)
+    print(f" wrote {os.path.basename(out)}")
 
     arr = np.asarray(total)
     print("==================================================")

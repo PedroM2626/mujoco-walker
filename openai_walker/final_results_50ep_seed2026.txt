@@ -3,8 +3,8 @@ Model scores are per-episode return means with spread over episodes.
 
 BC: 3529.44 Avg Reward | std 649.73 | min 1638.67 | max 4085.63
 Teacher (Upper Bound): 3516.95 Avg Reward | std 724.62 | min 1511.13 | max 4011.47
-BCQ: 2838.27 Avg Reward | std 1063.11 | min 1236.20 | max 3990.51
 BC+SAC (Regularized): 2784.29 Avg Reward | std 816.62 | min 1259.66 | max 4019.63
+BCQ: 2732.60 Avg Reward | std 1066.23 | min 1273.22 | max 4049.40
 DT: 1927.23 Avg Reward | std 1101.18 | min 933.58 | max 3700.39
 BC+SAC (Naive): 1290.57 Avg Reward | std 476.50 | min 516.50 | max 2502.59
 GAIL: 998.07 Avg Reward | std 0.37 | min 997.31 | max 998.74

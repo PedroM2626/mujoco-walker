@@ -13,6 +13,7 @@ Uso:
 """
 
 import argparse
+import json
 import os
 import sys
 
@@ -180,6 +181,14 @@ def evaluate_headless(env, model, device, episodes, seed=0, is_gail=False, is_ai
                       is_dt=False, is_maxent=False, dt_context=20):
     from play_race import evaluate_model as gui_evaluate  # noqa: F401  (referência canônica)
 
+    # env.reset(seed=...) below pins the *environment*, but BCQ draws its action through a
+    # sampled VAE (`z = mean + std * torch.randn_like(std)` in train_offline_bcq.py), which
+    # reads torch's global RNG once per action. Unseeded, that made the score a function of
+    # the run rather than of the protocol: measured 2838.27 then 2715.22 on the same 50 seeded
+    # episodes while the other twelve models reproduced digit for digit.
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+
     rewards = []
     for ep in range(episodes):
         obs, _ = env.reset(seed=seed + ep)
@@ -259,6 +268,20 @@ def main():
         handle.write("Model scores are per-episode return means with spread over episodes.\n\n")
         handle.write("\n".join(lines) + "\n")
     print(f"\n wrote {os.path.basename(report)}")
+
+    # Per-episode returns, not just their mean: episode i uses seed+i for every model, so the
+    # arrays line up episode-by-episode and can be compared as a paired sample
+    # (paired_stats.py). Averages alone cannot tell "better" from "one lucky draw".
+    episodes_path = os.path.join(HERE, f"final_episodes_{args.episodes}ep_seed{args.seed}.json")
+    with open(episodes_path, "w", encoding="utf-8") as handle:
+        json.dump({
+            "protocol": f"evaluate_all.py --episodes {args.episodes} --seed {args.seed}",
+            "seed": args.seed,
+            "episodes": args.episodes,
+            "note": "index i of each array is the episode reset with seed+i, shared across models",
+            "models": {k: [float(x) for x in v[1]] for k, v in results.items()},
+        }, handle, indent=2)
+    print(f" wrote {os.path.basename(episodes_path)}")
 
     plt.figure(figsize=(10, 5))
     labels = list(results.keys())

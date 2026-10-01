@@ -90,6 +90,33 @@ def phase4(path=os.path.join("openai_walker", "eval_phase4_20ep.log"), seed=None
     return out_data, out
 
 
+def phase4_with_extratrees(data):
+    """Fold the Extra Trees row into the Phase-4 table.
+
+    It is trained by `train_extratrees.py` and scored by `eval_extratrees.py` rather than by
+    `evaluate_all.py`, so it never appeared in that log - which is how a competitive model
+    ended up in a footnote. The protocol matches: same environment, same seed+i per episode.
+    """
+    path = os.path.join(ROOT, "openai_walker", "eval_extratrees_50ep.log")
+    if not os.path.exists(path):
+        return data
+    text = open(path, encoding="utf-8", errors="replace").read()
+    m = re.search(r"Extra Trees: (-?[\d.]+) avg over (\d+) ep \(std ([\d.]+), "
+                  r"min (-?[\d.]+), max (-?[\d.]+)\)", text)
+    if not m:
+        return data
+    mean, episodes, std, mn, mx = m.groups()
+    if int(episodes) != next(iter(data["models"].values()))["episodes"]:
+        raise SystemExit(f"Extra Trees ran {episodes} episodes, the race ran "
+                         f"{next(iter(data['models'].values()))['episodes']}: not comparable")
+    data["models"]["Extra Trees Cloner (sklearn)"] = {
+        "mean": float(mean), "std": float(std), "min": float(mn), "max": float(mx),
+        "episodes": int(episodes),
+    }
+    data["protocol"] += " + eval_extratrees_50ep.log (same seeded protocol)"
+    return data
+
+
 BENCHMARKS = [
     phase3,
     lambda: phase3("eval_phase3_100ep.log", seed=11,
@@ -99,8 +126,10 @@ BENCHMARKS = [
                         "harness, so it is a measurement of the bug, not a score)",
                    out="benchmarks/phase3_merging_100ep_rawobs.json"),
     phase4,
-    lambda: phase4(os.path.join("openai_walker", "eval_phase4_50ep.log"), seed=2026,
-                   out="benchmarks/phase4_race_50ep.json"),
+    lambda: (phase4_with_extratrees(
+        phase4(os.path.join("openai_walker", "eval_phase4_50ep.log"), seed=2026,
+               out="benchmarks/phase4_race_50ep.json")[0]),
+        "benchmarks/phase4_race_50ep.json"),
 ]
 
 

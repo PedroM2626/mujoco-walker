@@ -1,5 +1,5 @@
 {
-  "protocol": "evaluate_all.py --episodes 50 --seed 2026 (headless, seeded per episode)",
+  "protocol": "evaluate_all.py --episodes 50 --seed 2026 (headless, seeded per episode) + eval_extratrees_50ep.log (same seeded protocol)",
   "models": {
     "BC": {
       "mean": 3529.44,
@@ -15,18 +15,18 @@
       "max": 4011.47,
       "episodes": 50
     },
-    "BCQ": {
-      "mean": 2838.27,
-      "std": 1063.11,
-      "min": 1236.2,
-      "max": 3990.51,
-      "episodes": 50
-    },
     "BC+SAC (Regularized)": {
       "mean": 2784.29,
       "std": 816.62,
       "min": 1259.66,
       "max": 4019.63,
+      "episodes": 50
+    },
+    "BCQ": {
+      "mean": 2732.6,
+      "std": 1066.23,
+      "min": 1273.22,
+      "max": 4049.4,
       "episodes": 50
     },
     "DT": {
@@ -90,6 +90,13 @@
       "std": 0.05,
       "min": -6.47,
       "max": -6.19,
+      "episodes": 50
+    },
+    "Extra Trees Cloner (sklearn)": {
+      "mean": 3092.22,
+      "std": 1034.38,
+      "min": 953.8,
+      "max": 3992.76,
       "episodes": 50
     }
   }

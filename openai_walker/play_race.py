@@ -95,13 +95,19 @@ class PolicyNetIQL(nn.Module):
 # ==========================================================
 # Evaluation Wrapper
 # ==========================================================
-def evaluate_model(env, name, model, device, episodes=1, is_gail=False, is_airl=False, is_dt=False, is_maxent=False, dt_context=20):
+def evaluate_model(env, name, model, device, episodes=1, is_gail=False, is_airl=False, is_dt=False, is_maxent=False, dt_context=20, seed=0):
     print(f"\n[{name}] Preparando para a corrida...")
     time.sleep(2)
-    
+
+    # Seeded by default: this function produced `final_results.txt` with an unseeded
+    # `env.reset()`, so its single-episode scores could not be reproduced or compared, and a
+    # policy that samples (BCQ's VAE) read torch's global RNG. See evaluate_all.py.
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+
     total_rewards = []
     for ep in range(episodes):
-        obs, _ = env.reset()
+        obs, _ = env.reset(seed=seed + ep)
         done = False
         ep_reward = 0
         

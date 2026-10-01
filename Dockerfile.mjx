@@ -1,0 +1,46 @@
+# GPU MJX (JAX) benchmark image - the CUDA counterpart of the CPU/rendering Dockerfile.
+#
+# WHY THIS EXISTS AS A SEPARATE FILE
+#   requirements-mjx.txt records that GPU MJX was measured through WSL2, because jaxlib
+#   publishes no CUDA wheels for native Windows, and that the repo's main Dockerfile
+#   (python:3.11-slim) has neither a CUDA base nor the JAX deps. This image is the third
+#   route: a CUDA container, so the numbers are reproducible on any Linux host with the
+#   NVIDIA Container Toolkit and no WSL.
+#
+# BUILD AND RUN
+#   docker build -f Dockerfile.mjx -t mujoco-walker-mjx .
+#   docker run --rm --gpus all mujoco-walker-mjx            # prints jax.devices()
+#   docker run --rm --gpus all mujoco-walker-mjx python bench_mjx.py --sizes 64,256
+#
+# STATUS: this file has not been executed here. The machine this repository was worked on
+# has no Docker daemon (`docker: command not found`), so unlike the WSL2 and native-CPU MJX
+# numbers in benchmarks/mjx_*.json, nothing from this image is a measurement. Treat the
+# pins as the tested ones from requirements-mjx.txt and the image as unverified plumbing.
+
+FROM nvidia/cuda:12.6.3-runtime-ubuntu24.04
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 python3-pip python3-venv \
+    libgl1 libosmesa6 libglfw3 \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    MUJOCO_GL=osmesa \
+    # An 8 GB card otherwise fails JAX's default 75% preallocation; raise or unset per host.
+    XLA_PYTHON_CLIENT_MEM_FRACTION=0.6
+
+WORKDIR /app
+
+# mujoco and mujoco-mjx must be the same version, and jax[cuda12] must match jax's pin:
+# see requirements-mjx.txt for the failures each of these two rules prevents.
+COPY requirements-mjx.txt .
+RUN python3 -m pip install --break-system-packages --upgrade pip \
+    && python3 -m pip install --break-system-packages -r requirements-mjx.txt \
+    && python3 -m pip install --break-system-packages "jax[cuda12]==0.10.2"
+
+# bench_mjx.py resolves walker_ragdoll.xml next to itself and imports nothing from the
+# ragdoll package, so the image carries only those two files.
+COPY walker_ragdoll.xml bench_mjx.py ./
+
+CMD ["python3", "-c", "import jax; print(jax.devices())"]

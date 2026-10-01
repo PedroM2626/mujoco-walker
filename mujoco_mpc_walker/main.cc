@@ -1,28 +1,37 @@
 #include <memory>
+#include <string>
 #include <vector>
 
+#include <absl/flags/flag.h>
 #include <absl/flags/parse.h>
 #include <mujoco/mujoco.h>
 #include "mjpc/app.h"
 #include "mjpc/task.h"
 #include "walker_task.h"
 #include "mjpc/tasks/tasks.h"
-#include <absl/flags/parse.h>
 #include <iostream>
 #include <exception>
 
 #include <fstream>
 #include <cmath>
 
+// Where to write the imitation dataset, and how many transitions to write. An empty path
+// leaves this binary behaving exactly as before: interactive viewer, nothing recorded.
+ABSL_FLAG(std::string, dataset_path, "", "CSV file for (obs, ctrl, reward, done) transitions")
+ABSL_FLAG(int, transitions, 15000, "Stop recording after this many transitions (0 = record until the window closes)")
+
 std::ofstream* dataset_out = nullptr;
 bool header_written = false;
+bool recording_done = false;
+int transitions_written = 0;
+int transitions_target = 0;
 void (*old_step_callback)(const mjModel* m, mjData* d, int stage) = nullptr;
 
 void my_step_callback(const mjModel* m, mjData* d, int stage) {
   if (old_step_callback) {
     old_step_callback(m, d, stage);
   }
-  if (dataset_out && dataset_out->is_open()) {
+  if (dataset_out && dataset_out->is_open() && !recording_done) {
     if (!header_written) {
       *dataset_out << "target_x,target_y";
       for (int i=0; i < m->nq; i++) *dataset_out << ",qpos_" << i;
@@ -80,6 +89,16 @@ void my_step_callback(const mjModel* m, mjData* d, int stage) {
         for(int j=0; j < m->nv; j++) *dataset_out << "," << d->qvel[j];
         for(int j=0; j < m->nu; j++) *dataset_out << "," << d->ctrl[j];
         *dataset_out << "," << reward << "," << (done ? 1 : 0) << "\n";
+
+        transitions_written++;
+        if (transitions_target > 0 && transitions_written >= transitions_target) {
+          // The sensor callback cannot close the app, so this stops the recording and tells the
+          // operator to close the window; the file is flushed below when main() returns.
+          recording_done = true;
+          dataset_out->flush();
+          std::cout << "[DATASET] " << transitions_written << " transitions written to "
+                    << "the output file - close the viewer window to finish." << std::endl;
+        }
       }
     }
   }
@@ -97,20 +116,39 @@ int main(int argc, char** argv) {
     tasks.push_back(std::make_shared<mjpc::WalkerTask>());
     std::cout << "Tasks initialized." << std::endl;
 
-    // std::ofstream out("dataset.csv", std::ios::app);
-    // out.seekp(0, std::ios::end);
-    // if (out.tellp() > 0) {
-    //     header_written = true;
-    // }
-    // dataset_out = &out;
-    // old_step_callback = mjcb_sensor;
-    // mjcb_sensor = my_step_callback;
+    // Recording is opt-in: with no --dataset_path this binary does what it always did.
+    const std::string dataset_path = absl::GetFlag(FLAGS_dataset_path);
+    std::ofstream out;
+    if (!dataset_path.empty()) {
+      transitions_target = absl::GetFlag(FLAGS_transitions);
+      out.open(dataset_path, std::ios::app);
+      if (!out.is_open()) {
+        std::cerr << "[DATASET] cannot open " << dataset_path << " for writing" << std::endl;
+        return 1;
+      }
+      out.seekp(0, std::ios::end);
+      if (out.tellp() > 0) {
+        header_written = true;  // resuming a file that already has a header
+      }
+      dataset_out = &out;
+      old_step_callback = mjcb_sensor;
+      mjcb_sensor = my_step_callback;
+      std::cout << "[DATASET] recording to " << dataset_path
+                << (transitions_target > 0 ? " (limit " + std::to_string(transitions_target) + ")" : "")
+                << " - drive the walker, then close the window." << std::endl;
+    }
 
     std::cout << "Starting MJPC GUI... Brinque com o alvo! Feche a janela quando terminar de coletar." << std::endl;
     mjpc::StartApp(tasks, 0);
-    
-    // out.flush();
-    // out.close();
+
+    if (dataset_out) {
+      dataset_out = nullptr;
+      mjcb_sensor = old_step_callback;
+      out.flush();
+      out.close();
+      std::cout << "[DATASET] " << transitions_written << " transitions in " << dataset_path
+                << std::endl;
+    }
   } catch (const std::exception& e) {
     std::cerr << "Exception: " << e.what() << std::endl;
     return 1;

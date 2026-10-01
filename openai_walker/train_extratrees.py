@@ -4,10 +4,14 @@ import os
 from sklearn.ensemble import ExtraTreesRegressor
 import joblib
 import time
+import sklearn
 
-def train_extratrees():
-    print("Loading dataset...")
-    csv_path = "dataset_openai.csv"
+def train_extratrees(out_path=None):
+    here = os.path.dirname(os.path.abspath(__file__))
+    out_path = out_path or os.path.join(here, "extratrees_model.pkl")
+    # Resolved next to this file: the old relative paths only worked when the process
+    # happened to be started from openai_walker/.
+    csv_path = os.path.join(here, "dataset_openai.csv")
     if not os.path.exists(csv_path):
         print(f"Dataset nao encontrado em: {csv_path}")
         print("Execute primeiro: python train_teacher.py && python generate_dataset.py")
@@ -36,8 +40,15 @@ def train_extratrees():
     print(f"Training completed in {end_time - start_time:.2f} seconds.")
     
     print("Saving model...")
-    joblib.dump(model, "extratrees_model.pkl")
-    print("Model saved to extratrees_model.pkl.")
+    joblib.dump(model, out_path)
+    print(f"Model saved to {out_path}")
 
 if __name__ == "__main__":
-    train_extratrees()
+    import argparse
+
+    ap = argparse.ArgumentParser(description="Treina Extra Trees sobre dataset_openai.csv.")
+    ap.add_argument("--out", default=None,
+                    help="Arquivo de saida (default extratrees_model.pkl ao lado do script). "
+                         "Use um nome novo para nao sobrescrever um artefato ja medido.")
+    args = ap.parse_args()
+    train_extratrees(args.out)

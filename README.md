@@ -31,13 +31,18 @@ and reproducible with `python summarize_phase1.py`:
 
 | Trainer | Budget | Episodes | Mean return | Max return |
 |:---|---:|---:|---:|---:|
-| `train_ars.py` | 60,384 steps | 101 eval cycles | eval peak **11116.19** at epoch 23, 3087.62 at the end | 11116.19 |
+| `train_ars.py` | 60,384 steps | 101 eval cycles | no trend; range 1521-6378 across epochs | 11116.19 |
 | `train_redq.py` | 6,000 steps | 184 | 2951.29 | 10800.01 |
 | `train_dreamer.py` | 8,000 steps | 351 | 2041.18 | 7205.90 |
 
 These say "the algorithm runs and collects reward on the ragdoll", nothing more. Do not
-quote them as results: the budgets are 0.6% of the intended 1M steps, and ARS in particular
-peaked early and decayed, which at this length says nothing about the method.
+quote them as results: the budgets are 0.6% of the intended 1M steps. ARS shows no learning
+trend across its 101 epochs - evaluation returns go 853.74 to 11116.19, mean 3602.54, std
+1790.17, correlation with epoch -0.09, and the fitted drift over the whole run is 0.31 std,
+i.e. inside the noise of a single-rollout evaluation. An earlier draft of this file described
+that as "peaked early and decayed", which was reading noise as signal. What the numbers do
+say: return tracks episode length (corr 0.77) and lengths stay at 13-119 steps, so the linear
+policy is surviving briefly rather than walking.
 
 Phase 1's properly trained models are the SAC walkers in `checkpoints/walker_target_v1`
 (40M steps) and `checkpoints/walker_recovery_v1` (20M steps), evaluated in Phase 3 above.
@@ -78,42 +83,43 @@ To merge two different neural networks, they must share the same *Linear Mode Co
 
 #### 📊 Empirical Results (Phase 3 Benchmark)
 
-Re-measured 2026-10-01 with the corrected harness: 20 episodes per strategy, seeded resets
-(`--seed 7`, episode *i* uses `7+i`), each expert fed through the `obs_rms` baked into its
-own checkpoint, and survival read from the environment's health condition instead of from
-`terminated` (which these runs never set). Evidence: `eval_phase3_20ep.log` in the run
-directory, summary in `benchmarks/phase3_merging_20ep.json`, recomputed with
+Re-measured 2026-10-01 with the corrected harness, **100 episodes per strategy**, seeded
+resets (`--seed 11`, episode *i* uses `11+i`), each expert fed through the `obs_rms` baked
+into its own checkpoint, and survival read from the environment's health condition instead
+of from `terminated` (which these runs never set). A 20-episode run at seed 7 gave the same
+ordering. Evidence: `benchmarks/phase3_merging_100ep.json`, recomputed with
 `python summarize_benchmarks.py`.
 
 | Merging Strategy | Mean Reward | Median | Std | Falls / episode | Ended standing |
 |:---|---:|---:|---:|---:|---:|
-| **Hardcoded Supervisor** | **8585.55** | **-1307.99** | 35860.97 | 1.00 | 5% |
-| **Mixture of Experts (MoE)** | 2741.24 | -4833.61 | 27946.03 | 0.75 | 5% |
-| **Task Arithmetic** | -18781.05 | -14303.47 | 10502.82 | 0.20 | 0% |
-| **Weight Averaging (50/50)** | -20290.83 | -13344.22 | 12482.88 | 0.10 | 0% |
+| **Hardcoded Supervisor** | **13549.68** | **831.31** | 31259.57 | 1.31 | 1% |
+| **Mixture of Experts (MoE)** | 9199.76 | -4391.54 | 32424.26 | 0.92 | 2% |
+| **Task Arithmetic** | -17410.69 | -15126.37 | 8661.12 | 0.24 | 0% |
+| **Weight Averaging (50/50)** | -18313.84 | -13297.76 | 10650.28 | 0.17 | 0% |
 
 Read this table before citing it:
 
-1. **The spread dwarfs the mean.** Std is 3-15x the mean and every median is negative: the
-   supervisor's +8585 comes from a single 128,298-point episode out of 20. Ranking by mean
-   over 20 episodes of this task is not a stable measurement.
+1. **The mean is carried by outliers.** Std is 2-3x the mean, and only the supervisor's
+   median is positive (831.31); MoE's median is -4391.54. Rank by median here, or run many
+   more episodes.
 2. **The previously published ordering was a bug, not a finding.** The retired table put
    Weight Averaging second ("highly robust, counter to intuition") and MoE third, on
    un-normalised observations. Once each policy gets the inputs it was trained on, Weight
-   Averaging is **last** and MoE is second. That reversal is the point of fixing the harness.
+   Averaging is **last** at both n=20 and n=100. That reversal is the point of fixing the
+   harness, and it held when the sample was multiplied by five - it is not noise.
 3. **"100% survival" was never observable.** The old script defined survival as
    "`env.terminated` never became True", while these runs use
-   `terminate_when_unhealthy=False` — so `terminated` is False by construction and no
-   strategy could ever have been reported as dying. Real fall counts are in the table: the
-   merged policies fall least because they do almost nothing, and finish upright 0% of the
-   time.
-4. The supervisor is the intended upper bound and still leads on both mean and median; MoE
-   tracks it with fewer falls. Task Arithmetic remains clearly degraded.
+   `terminate_when_unhealthy=False`, so `terminated` is False by construction and no
+   strategy could ever have been reported as dying. Real falls are 1.31 per episode for the
+   supervisor and 0.17 for Weight Averaging - the merged policies fall least because they
+   do almost nothing, and finish upright 0% of the time.
+4. MoE tracks the supervisor with fewer falls (0.92 against 1.31); Task Arithmetic stays
+   clearly degraded.
 
-To regenerate: `python evaluate_merging.py --num-episodes 20 --seed 7` (the old artifacts
+To regenerate: `python evaluate_merging.py --num-episodes 100 --seed 11`. The old artifacts
 were unreachable from `play.py`; it now takes `--checkpoint` for the root-level merged
 models and `--moe --gate/--recovery/--target` for the router, which the README had claimed
-for a script containing no MoE code).
+for a script containing no MoE code.
 
 ### 🔴 Phase 4: Offline RL & Offline-to-Online Benchmarking (`openai_walker/` folder)
 We migrated to the standardized `Walker2d-v5` Gymnasium environment to conduct a massive benchmark on learning *strictly from static datasets*, without querying the environment.
@@ -147,50 +153,48 @@ An earlier version of this README quoted numbers that no artifact in the repo su
 single-episode file itself turned out to be a poor estimator once re-run with a protocol
 that can average.
 
-### Measured again, properly: 20 seeded episodes per model (2026-10-01)
+### Measured properly: 50 seeded episodes per model (2026-10-01)
 
-The single-episode record above is only an identity check, and that turned out to matter a
-lot. Re-run with `evaluate_all.py --episodes 20 --seed 123` (seeded per episode:
-episode *i* resets with `123+i`), the ranking and the magnitudes both move. Evidence:
-`openai_walker/final_results_20ep_seed123.txt`, `benchmarks/phase4_race_20ep.json`,
-recomputed with `python summarize_benchmarks.py`.
+Re-run with `evaluate_all.py --episodes 50 --seed 2026` (episode *i* resets with `2026+i`).
+Evidence: `openai_walker/final_results_50ep_seed2026.txt` and
+`benchmarks/phase4_race_50ep.json`; a 20-episode run at seed 123 gave the same ordering, so
+the picture is stable. Regenerate with `python summarize_benchmarks.py`.
 
-| Model | Mean (20 ep) | Std | Min | Max | Reading |
+| Model | Mean (50 ep) | Std | Min | Max | Reading |
 |:---|---:|---:|---:|---:|:---|
-| **Teacher (Online SAC)** | **3762.80** | 420.00 | 1938.74 | 3943.94 | Upper bound, and the only model whose score is stable. |
-| **Behavioral Cloning (BC)** | 3681.22 | 493.74 | 2307.43 | 4275.67 | **The single-episode record badly understated it** (1728.81). Cloning the teacher is nearly as good as the teacher; the n=1 draw caught a bad episode. |
-| **Extra Trees Cloner (sklearn)** | 3302.68 | 869.89 | 1248.99 | 4055.37 | Third, and now measured on the same protocol instead of a separate 5-episode run. Huge spread confirms the in-distribution/extrapolation split. Loaded with sklearn 1.5.2 although trained with 1.3.2 — treat as indicative. |
-| **Batch-Constrained Q-learning (BCQ)** | 3004.64 | 962.27 | 854.52 | 4152.96 | Best *strictly* offline model, but its min of 854 shows one unlucky episode costs a full rank. |
-| **BC+SAC (Regularized)** | 2718.70 | 918.77 | 1363.63 | 4004.96 | The hybrid finishes below plain BC on this protocol: fine-tuning on top of cloning did not pay for itself here. |
-| **Decision Transformer (DT)** | 1977.32 | 1083.90 | 961.23 | 3700.57 | Better than its n=1 score, with the widest spread in the table. |
-| **BC+SAC (Naive)** | 1118.61 | 514.70 | 533.66 | 2378.10 | Catastrophic forgetting, as described: unregularised SAC overwrote the cloned policy. |
-| **Inverse RL (GAIL)** | 997.97 | 0.44 | 997.09 | 998.67 | Almost zero variance — this policy has converged onto a fixed, mediocre gait. |
-| **CQL+SAC** | 407.44 | 5.66 | 399.79 | 416.48 | Fine-tuning a Q-function that already collapsed on the narrow dataset. |
-| **CQL Offline** | 322.58 | 8.17 | 309.61 | 346.75 | Offline RL needs diverse, overlapping data for the Bellman backup to mean anything. |
-| **MaxEnt IRL** | 260.81 | 40.32 | 189.05 | 357.04 | Linear reward model ($r = \theta^T \phi$) too weak for bipedal locomotion. |
-| **BC+SAC (Constrained)** | 126.70 | 79.90 | -1.58 | 233.96 | Hard-clipping actions to the BC policy destroyed gradient flow. |
-| **Inverse RL (AIRL)** | -6.31 | 0.05 | -6.41 | -6.22 | `NaN` gradients from deterministic actions at the `atanh` limits; rebuilt with spectral norm + clipping + $h(s)$ shaping and still flat. |
-| **IQL Offline** | -11.51 | 15.42 | -18.15 | 54.83 | Collapsed for lack of dataset diversity. |
+| **Behavioral Cloning (BC)** | **3529.44** | 649.73 | 1638.67 | 4085.63 | Statistically tied with the teacher (12 points apart on ~650 std): cloning the expert recovers essentially all of it. |
+| **Teacher (Online SAC)** | 3516.95 | 724.62 | 1511.13 | 4011.47 | The upper bound - and indistinguishable from BC. |
+| **Batch-Constrained Q-learning (BCQ)** | 2838.27 | 1063.11 | 1236.20 | 3990.51 | Best strictly-offline method that is not plain imitation; its min of 1236 shows what one unlucky episode costs. |
+| **BC+SAC (Regularized)** | 2784.29 | 816.62 | 1259.66 | 4019.63 | The offline-to-online hybrid finishes **below** plain BC: fine-tuning on top of cloning did not pay for itself. |
+| **Decision Transformer (DT)** | 1927.23 | 1101.18 | 933.58 | 3700.39 | Widest spread in the table; conditioned on Return-To-Go, 10 epochs of training. |
+| **BC+SAC (Naive)** | 1290.57 | 476.50 | 516.50 | 2502.59 | Unregularised: the fresh critic's gradients overwrite the cloned policy. |
+| **Inverse RL (GAIL)** | 998.07 | 0.37 | 997.31 | 998.74 | Near-zero variance - converged onto a fixed, mediocre gait; the discriminator starves the actor. |
+| **CQL+SAC** | 407.99 | 5.93 | 395.03 | 424.70 | Fine-tuning a Q-function that already collapsed on the narrow dataset. |
+| **CQL Offline** | 321.01 | 7.10 | 310.32 | 339.21 | Needs diverse, overlapping data for the Bellman backup to mean anything. |
+| **MaxEnt IRL** | 279.33 | 34.47 | 197.38 | 354.70 | Linear reward model ($r = 	heta^T \phi$) too weak for bipedal locomotion. |
+| **BC+SAC (Constrained)** | 146.65 | 112.59 | -1.66 | 542.12 | Hard-clipping actions to the BC policy destroyed gradient flow. |
+| **IQL Offline** | 4.44 | 124.42 | -18.23 | 874.28 | Near zero on average, but a max of 874 - "collapsed" is the mean's story, not every episode's. |
+| **Inverse RL (AIRL)** | -6.33 | 0.05 | -6.47 | -6.19 | Flat, and deterministic about being flat. |
 
-What this re-measurement changes, stated plainly:
+What this measurement changes, stated plainly:
 
-1. **The teacher is first, not BCQ.** At n=1 BCQ looked like the champion; over 20 seeded
-   episodes the online SAC teacher is ahead of every offline method, which is the expected
-   result for an upper bound and the sanity check the old table failed.
-2. **Behavioral Cloning was misreported by a factor of two** in the single-episode record,
-   and it beats every offline *value-based* method and the BC+SAC hybrids.
-3. **Variance dominates ranking at n=20 for the offline methods** (std 500-1100 vs
-   differences of similar size between neighbours). Re-run with more episodes before
-   quoting any pairwise comparison.
-4. **PQR is missing, not slow:** `train_irl_pqr.py` exists but no PQR artifact was ever
-   produced, so it is silently absent from both records.
+1. **BC and the teacher are tied**, so the defensible claim is "imitation recovers the
+   expert", not "an offline method beat the teacher". At n=1 BCQ looked like the winner; at
+   n=50 it is clearly behind both.
+2. **The single-episode record misreported BC by about 2x** (1728.81 against 3529.44). It was
+   one unlucky draw, and every other n=1 number inherits that risk.
+3. **Std of 500-1100 is the same order as the gaps between neighbours**, so BC/Teacher and
+   BCQ/BC+SAC-Reg should be read as pairs this protocol cannot separate.
+4. **PQR is absent because it was never saved, not because it is slow.** `train_irl_pqr.py`
+   exists and an MLflow run `Deep_PQR_IRL` is in the database, but it is still marked RUNNING
+   with 0 metrics - the process died before writing `pqr_policy.pt`. `iql_sac_model.pt` is
+   missing the same way, after 653 metrics.
 
 ### Historical record: one unseeded episode per model (`final_results.txt`)
 
 Kept because the per-model *explanations* below are the substance of this phase, and
 because this is the file the earlier version of this README contradicted. The scores are
-single unseeded draws — compare them with the 20-episode table above rather than quoting
-them.
+single unseeded draws — compare them with the 50-episode table above rather than quoting them.
 
 | Model Architecture | Final Score | Analysis |
 |:---|:---:|:---|
@@ -437,14 +441,26 @@ mlflow ui --backend-store-uri sqlite:///mlruns.db
 ```
 Navigate to `http://localhost:5000` in your browser.
 
+**Version requirement: mlflow 3.x.** `mlruns.db` is at schema revision `b7e2c1a4d9f3`, which
+only mlflow 3.x understands. With the `mlflow 2.17.2` that `.venv` shipped, opening it raises
+`alembic.util.exc.CommandError: Can't locate revision identified by 'b7e2c1a4d9f3'` - and
+because the trainers' mlflow helper is deliberately fault-tolerant, that error was swallowed,
+so runs appeared to log while writing nothing. `requirements.txt` now pins `mlflow>=3.0` for
+that reason. (Found while adding the stale-run tool, which had to open the same database.)
+
 The history is meant to live in **one** database, at the repository root. It used to be two:
 11 Phase-4 scripts wrote `sqlite:///mlruns.db` and 5 wrote `sqlite:///../mlruns.db`, and
 because `run_all.bat` runs from inside `openai_walker/`, half the runs landed in
 `openai_walker/mlruns.db` while `mlflow ui` from the root showed only the other half.
 `utils/mlflow_uri.py` (wrapped by `openai_walker/mlflow_backend.py`) now resolves the path
 from the repository root, so the working directory no longer decides where a run goes. The
-old `openai_walker/mlruns.db` still holds the runs that landed there — migrate it, or set
-`MLFLOW_TRACKING_URI`, if you need that history in the same UI.
+old `openai_walker/mlruns.db` still holds 13 runs (4 experiments) that landed there and the
+root holds 8 (3 experiments); migrate it, or set `MLFLOW_TRACKING_URI`, to see both in one
+UI. `python -m mlflow_backend` (from `openai_walker/`) lists runs left in RUNNING by killed
+processes - two of them, `Deep_PQR_IRL` with 0 metrics and `AIRL_IRL`, plus one in the old
+database - and `--apply` closes them. Every trainer already wraps its work in
+`with mlflow.start_run(...)`, so these are abandoned-by-kill runs, not missing `end_run`
+calls, and they are the reason an artifact can be absent while its metrics are present.
 
 ## 🔬 Reproducing and measuring
 

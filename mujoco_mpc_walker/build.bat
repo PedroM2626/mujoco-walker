@@ -26,10 +26,14 @@ call "!VSDEV!\VC\Auxiliary\Build\vcvarsall.bat" x64
 if errorlevel 1 exit /b 1
 
 REM Prefer the VS-bundled CMake, then whatever is on PATH.
-set "CMAKE=!VSDEV!\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe"
-if not exist "%CMAKE%" where cmake >nul 2>&1 && set "CMAKE=cmake"
+set "CMAKE="
+set "VS_CMAKE=!VSDEV!\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe"
+if exist "!VS_CMAKE!" set "CMAKE=!VS_CMAKE!"
 if not defined CMAKE (
-  echo [BUILD] cmake not found. Install CMake, or the C++ CMake tools for Windows component.
+  where cmake >nul 2>&1 && set "CMAKE=cmake"
+)
+if not defined CMAKE (
+  echo [BUILD] cmake not found. Install CMake, or the "C++ CMake tools for Windows" component.
   exit /b 1
 )
 echo [BUILD] using cmake "%CMAKE%"

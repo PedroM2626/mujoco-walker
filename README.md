@@ -47,24 +47,48 @@ policy is surviving briefly rather than walking.
 Phase 1's properly trained models are the SAC walkers in `checkpoints/walker_target_v1`
 (40M steps) and `checkpoints/walker_recovery_v1` (20M steps), evaluated in Phase 3 above.
 
+The scale of that table matters: REDQ and Dreamer wrap the environment in `NormalizeReward`,
+so the `Mean return` column is a normalised sum, not the reward the raw environment reports.
+On the raw scale the same checkpoints are still indistinguishable from an inert robot -
+measured over an identical seeded 300-step rollout of `WalkerRagdoll-v0`, REDQ scores
+-3826.77, Dreamer -3836.79 and ARS -3887.55, against **-3775.76 for commanding zero** and
+-3857.06 for uniform random actions. `tests/test_phase1_behaviour.py` pins that reading: it
+checks the loading contract of each evidence checkpoint (recorded observation width, matching
+`obs_rms`, actions inside the action box, `deterministic=True` really being deterministic) and
+asserts that the 6k-step actor is *not* better than doing nothing, so the claim breaks the
+moment someone reads these rows as behaviour.
+
 ### 🟡 Phase 2: MuJoCo MPC & Imitation Learning (Root Directory)
 To achieve mathematically perfect locomotion, we tapped into the official DeepMind C++ MuJoCo MPC (Model Predictive Control) planner:
 - We extracted **15,000 flawless transitions** of the MPC planner optimizing the walker's physics implicitly (`dataset.csv`).
 - **Behavioral Cloning (`train_walker.py`):** Trained a PyTorch neural network to supervise-clone the MPC's optimal torque decisions, effectively caching the heavy MPC computation into a fast neural policy.
 
-⚠️ **Not reproducible as committed, for a specific and fixable reason.** `dataset.csv` is
-nowhere in the tree or in git history, and the C++ collector that would produce it is
-**disabled in the source**: `mujoco_mpc_walker/main.cc` contains a complete transition
-writer (`my_step_callback`, writing
-`target_x,target_y,qpos_*,qvel_*,ctrl_*,reward,done`) but the six lines in `main()` that
-open the file and install it as `mjcb_sensor` are commented out (~lines 100-105), so the
-prebuilt `walker_mpc.exe` opens the interactive MJPC GUI and writes nothing. Regenerating
-therefore needs: uncomment that block, a C++ toolchain (Visual Studio Build Tools + CMake at
-the paths `build.bat` hard-codes — not installed on this machine), a rebuild, and a manual
-GUI collection session. `verify.py` prints exactly these steps and exits 2 until the
-artifacts exist. The versioned, reproducible alternative is Phase 4's
-`openai_walker/dataset_openai.csv` (100k SAC-teacher transitions), which every table in this
-file that quotes a number actually measured against.
+⚠️ **Not reproducible as committed, and the blocker was two layers deeper than it looked.**
+`dataset.csv` is nowhere in the tree or in git history. The obvious cause is real:
+`mujoco_mpc_walker/main.cc` contains a complete transition writer (`my_step_callback`, writing
+`target_x,target_y,qpos_*,qvel_*,ctrl_*,reward,done`) but the lines that installed it were
+commented out, so the June binary in `build/walker_mpc.exe` opens the GUI and writes nothing.
+Those lines are now flags: `--dataset_path=dataset.csv --transitions=15000` records, and with
+no flag the binary behaves exactly as it always did.
+
+Underneath that, **the CMake project could not configure at all.** `CMakeLists.txt` declared
+`add_executable(mjpc_dataset_tool generate_data.cc walker_task.cc)`, and `generate_data.cc` is
+not in the repository and never was committed, so `cmake ..` aborts with "Cannot find source
+file: generate_data.cc" whatever compiler is installed. The stale target is gone; `build/`
+still holds the `mjpc_dataset_tool.dir` object folder from the day the file existed locally,
+which is how it was traced. `build.bat` then hardcoded `C:\Program Files (x86)\Microsoft
+Visual Studio\18\...` and `C:\Program Files\CMake`, neither of which exists on this machine, so
+it now resolves the toolchain through `vswhere`.
+
+What remains is a system install, not a code fix: no MSVC, no CMake, no compiler of any kind is
+present here (`where cl / gcc / cmake` all empty), so none of the above has been compiled, and
+collection is still a manual GUI session. A headless collector would need `mjpc::Agent` wired
+by hand - `Initialize` → `Allocate` → `Reset` → `SetState` → `PlanIteration` →
+`ActionFromPolicy` - which cannot be built or tested on this machine. Installing *Desktop
+development with C++* makes `build.bat` runnable; the versioned, measured alternative remains
+Phase 4's `openai_walker/dataset_openai.csv` (100k SAC-teacher transitions), which every table
+in this file that quotes a number actually measured against. `verify.py` prints the same steps
+and exits 2 until the artifacts exist.
 
 ### 🟠 Phase 3: Transfer Learning, Model Merging & Mixture of Experts (Root Directory)
 How do we combine a "Walking Policy" with a "Fall Recovery Policy" without catastrophic forgetting? To achieve this, we utilized a strict **Transfer Learning Curriculum** and advanced Model Merging techniques.
@@ -193,17 +217,25 @@ that can average.
 ### Measured properly: 50 seeded episodes per model (2026-10-01)
 
 Re-run with `evaluate_all.py --episodes 50 --seed 2026` (episode *i* resets with `2026+i`).
-Evidence: `openai_walker/final_results_50ep_seed2026.txt` and
-`benchmarks/phase4_race_50ep.json`; a 20-episode run at seed 123 gave the same ordering, so
-the picture is stable. Regenerate with `python summarize_benchmarks.py`.
+Evidence: `openai_walker/final_results_50ep_seed2026.txt`, the per-episode returns in
+`openai_walker/final_episodes_50ep_seed2026.json`, and `benchmarks/phase4_race_50ep.json`; a
+20-episode run at seed 123 gave the same ordering, so the picture is stable. Regenerate with
+`python summarize_benchmarks.py`.
+
+Because episode *i* is the same initial state for every model, neighbouring rows can be
+compared as a **paired** sample instead of two means with error bars: `python paired_stats.py`
+reads those per-episode arrays and reports the paired difference, a bootstrap interval,
+paired-t and Wilcoxon p-values. Two of the three pairs people care about are ties (below), and
+that is now a tested statement rather than an inference from the std.
 
 | Model | Mean (50 ep) | Std | Min | Max | Reading |
 |:---|---:|---:|---:|---:|:---|
-| **Behavioral Cloning (BC)** | **3529.44** | 649.73 | 1638.67 | 4085.63 | Statistically tied with the teacher (12 points apart on ~650 std): cloning the expert recovers essentially all of it. |
+| **Behavioral Cloning (BC)** | **3529.44** | 649.73 | 1638.67 | 4085.63 | Statistically tied with the teacher: paired over the same 50 seeded episodes the gap is +12.49 with a 95% CI of [-231.49, +265.05] (paired-t p=0.92). Cloning the expert recovers essentially all of it. |
 | **Teacher (Online SAC)** | 3516.95 | 724.62 | 1511.13 | 4011.47 | The upper bound - and indistinguishable from BC. |
-| **Batch-Constrained Q-learning (BCQ)** | 2838.27 | 1063.11 | 1236.20 | 3990.51 | Best strictly-offline method that is not plain imitation; its min of 1236 shows what one unlucky episode costs. |
+| **Extra Trees Cloner (sklearn)** | 3092.22 | 1034.38 | 953.80 | 3992.76 | Third, on the same 50-episode seeded protocol as every row above (seed 2026; trained in 6.3 s). |
 | **BC+SAC (Regularized)** | 2784.29 | 816.62 | 1259.66 | 4019.63 | The offline-to-online hybrid finishes **below** plain BC: fine-tuning on top of cloning did not pay for itself. |
-| **Extra Trees Cloner (sklearn)** | 3362.42 | 831.35 | 1672.75 | 3965.86 | Third, on its own 20-episode seeded run (seed 2026; trained in 6.3 s). The tracked artifact was trained with sklearn 1.3.2 and loaded with 1.5.2, so it was retrained under 1.5.2 to test whether that distorted the number: 3362.41 vs 3362.42. It did not. |
+| **Batch-Constrained Q-learning (BCQ)** | 2732.60 | 1066.23 | 1273.22 | 4049.40 | Best strictly-offline method that is not plain imitation. This row moved: it was 2838.27 before `evaluate_all.py` started seeding the policy-side RNG, and BCQ draws its action through a sampled VAE, so the same protocol used to return 2838.27 and 2715.22 on two consecutive runs. It is now 4th rather than 3rd, behind BC+SAC (Regularized) by 51.69 - a difference this protocol cannot resolve either way. |
+| **Extra Trees Cloner (sklearn)** | 3092.22 | 1034.38 | 953.80 | 3992.76 | Third, on the same 50-episode seeded protocol as every row above (seed 2026; trained in 6.3 s). The nesting is exact: the first 20 episodes of *this* run average 3362.41 ± 831.36, and a fresh 20-episode run at the same seed averages 3362.42 ± 831.36 - the same 20 initial states, differing by 0.008 in the mean and 0.17 on the worst episode. So this row is quoted to two decimals but is not stable in the second decimal, and the honest reading of "it moved from the 20-episode number" is sample size: episodes 21-50 average 2912.10. |
 | **Decision Transformer (DT)** | 1927.23 | 1101.18 | 933.58 | 3700.39 | Widest spread in the table; conditioned on Return-To-Go, 10 epochs of training. |
 | **BC+SAC (Naive)** | 1290.57 | 476.50 | 516.50 | 2502.59 | Unregularised: the fresh critic's gradients overwrite the cloned policy. |
 | **Inverse RL (GAIL)** | 998.07 | 0.37 | 997.31 | 998.74 | Near-zero variance - converged onto a fixed, mediocre gait; the discriminator starves the actor. |
@@ -224,12 +256,28 @@ What this measurement changes, stated plainly:
    wrong-input path behind this: `evaluate_all.py` applied each model's `scaler_*.pkl` then and
    applies it now, so the shift is sample size alone - CQL (315.37 → 321.01) and BC+SAC Naive
    (1369.87 → 1290.57) barely moved.
-3. **Std of 500-1100 is the same order as the gaps between neighbours**, so BC/Teacher and
-   BCQ/BC+SAC-Reg should be read as pairs this protocol cannot separate.
-4. **Extra Trees belongs in the table, not in a footnote.** Its 831-point std puts it in the
-   same band as BCQ and BC+SAC-Reg, and its min/max of 1673/3966 is the in-distribution vs
-   extrapolation split the retired "~2522, memorised the manifold" line was hiding.
-5. **PQR is absent because it was never saved, not because it is slow.** `train_irl_pqr.py`
+3. **The two close gaps are ties, and that is now tested instead of eyeballed.** Comparing the
+   models episode-by-episode (same `seed+i` reset for every model) instead of mean-against-mean:
+   BC − Teacher = **+12.49**, 95% bootstrap interval [-231.49, +265.05], paired-t p=0.92,
+   Wilcoxon p=0.28, dz=0.014. BCQ − BC+SAC (Regularized) = **-51.69**, interval
+   [-419.11, +316.80], p=0.79 on both tests. Reproduce with `python paired_stats.py
+   --episodes 50 --seed 2026`; written to `benchmarks/phase4_paired_50ep_seed2026.json`.
+4. **Extra Trees belongs in the table, not in a footnote**, and it beats BCQ only on the rank
+   test: paired, Extra Trees − BCQ = +359.62 with interval [-49.05, +742.47] and paired-t
+   p=0.084, while Wilcoxon gives p=0.0248. Read that as "it wins most episodes, but BCQ has
+   enough good ones that the mean difference is not significant at 95%" - third place is real
+   but not firm. Its min/max of 953.80/3992.76 is the in-distribution vs extrapolation split the
+   retired "~2522, memorised the manifold" line was hiding.
+5. **Making the table reproducible found a real defect.** `evaluate_all.py` seeded the
+   environment but never the policy RNG, and BCQ acts through a sampled VAE
+   (`z = mean + std * torch.randn_like(std)`), so BCQ was not a measurement of BCQ's policy - it
+   was a draw from a distribution. Two consecutive 50-episode runs at the same seed returned
+   2838.27 and 2715.22 while the other twelve models reproduced digit for digit. After seeding
+   `torch` and `numpy` per model, two runs return the identical 2477.24 at n=3, the twelve
+   unchanged rows still match their old values exactly, and BCQ's row is now 2732.60 - which
+   drops it behind BC+SAC (Regularized) into 5th. The GUI reference `play_race.py`, whose
+   unseeded single-episode output is `final_results.txt`, is seeded the same way.
+6. **PQR is absent because it was never saved, not because it is slow.** `train_irl_pqr.py`
    exists and an MLflow run `Deep_PQR_IRL` is in the database with 0 metrics - the process
    died before writing `pqr_policy.pt`. `iql_sac_model.pt` is missing the same way, after 653
    metrics. Both were closed as stale (`closed_as_stale` tag) rather than deleted: the metric
@@ -248,7 +296,7 @@ single unseeded draws — compare them with the 50-episode table above rather th
 | **BC+SAC (Regularized)** | 3396.81 | **Best offline-to-online hybrid.** Started from BC weights, then kept exploring with SAC while a BC loss regularised the actor to prevent catastrophic forgetting. It lands below BCQ and below the teacher in this recording, so it is not the champion an earlier version of this file claimed. |
 | **Behavioral Cloning (BC)** | 1728.81 | Pure supervised cloning of the teacher. The dataset was narrow and deterministic, so cloning worked, but at roughly 45% of the teacher rather than the near-match previously reported here. |
 | **Decision Transformer (DT)** | 1288.02 | 🧠 Recast Walker as sequence modelling with a causal transformer, conditioned on Return-To-Go. Scored this in only 10 epochs (100k steps) of training. |
-| **Extra Trees Cloner (sklearn)** | *not in the recorded race* | 🌳 Trained in seconds on CPU and genuinely competitive. It is absent from `final_results.txt`, so it was never ranked against the rest; the "~2522 over 5 episodes / ~3900 in-distribution / ~900 when forced to extrapolate" breakdown quoted here exists nowhere in the repo as a measurement. On the same protocol as everything else above it measures 3362.42 ± 831.35 over 20 seeded episodes. |
+| **Extra Trees Cloner (sklearn)** | *not in the recorded race* | 🌳 Trained in seconds on CPU and genuinely competitive. It is absent from `final_results.txt`, so it was never ranked against the rest; the "~2522 over 5 episodes / ~3900 in-distribution / ~900 when forced to extrapolate" breakdown quoted here exists nowhere in the repo as a measurement. On the 50-episode seeded protocol it measures 3092.22 ± 1034.38, which is third in the table above. |
 | **BC+SAC (Naive)** | 1369.87 | Unregularised: the SAC critic was random at first contact and its gradients overwrote the cloned policy early. Better than pure BC here, but well below the regularized variant. |
 | **Inverse RL (GAIL)** | 997.57 | 🤖 Learned entirely from an adversarial discriminator's reward, with no knowledge of the environment reward. Trained to 1,000,000 steps and plateaued near 1000: the dataset was too deterministic, so the discriminator became a perfect judge and starved the actor of gradient. |
 | **CQL+SAC** | 401.80 | Fine-tuning a Q-function that had already collapsed on the narrow dataset. |
@@ -259,10 +307,10 @@ single unseeded draws — compare them with the 50-episode table above rather th
 | **IQL Offline** | -15.81 | Implicit Q-Learning also collapsed for lack of dataset diversity. |
 
 ⚠️ **The environment this table needs is not the one in `.venv`.** Every Phase-4 script
-makes `Walker2d-v5`, which only exists from **gymnasium 1.0**; the committed `.venv` is
-Python 3.8 with gymnasium 0.29.1 (v4 at best) and has no `stable-baselines3`, so
-`train_teacher.py`, `train_bc_sac*.py` and `play_race.py` fail at import there. Use
-`requirements-phase4.txt` in a Python 3.10+ environment.
+makes `Walker2d-v5`, which only exists from **gymnasium 1.0**; `.venv` is gymnasium 0.29.1
+(v4 at best) and has no `stable-baselines3`, so `train_teacher.py`, `train_bc_sac*.py` and
+`play_race.py` fail at import there. Use `requirements-phase4.txt` in a Python 3.10+
+environment (`.venv-phase4` here).
 
 ---
 
@@ -365,6 +413,11 @@ scans with a single solver-friendly contact set, not on a 17-actuator ragdoll wi
 integrator. Native Windows GPU is unavailable for jaxlib regardless — the GPU numbers above
 were taken under WSL2 with `XLA_PYTHON_CLIENT_MEM_FRACTION=0.6` on the 8 GB card.
 
+`Dockerfile.mjx` is the third route: an `nvidia/cuda` base so these numbers can be reproduced
+on any Linux host with the NVIDIA Container Toolkit, without WSL. It is **written but not
+executed** - this machine has no Docker daemon (`docker: command not found`) - so unlike the
+WSL2 and native-CPU rows above, nothing in it is a measurement. `docker build -f Dockerfile.mjx -t mujoco-walker-mjx .` then `docker run --rm --gpus all mujoco-walker-mjx` prints `jax.devices()`.
+
 Also note `test_parallel_vec_env` skips on gymnasium >= 1.0: the parallel backend extends
 `SyncVectorEnv.reset_wait/step_wait`, which gymnasium 1.0 removed. The trainers detect that
 and fall back to `SyncVectorEnv` rather than failing.
@@ -389,7 +442,7 @@ requirements file into the other environment breaks it.
 
 | Environment | Requirements | Phases | Verified with |
 |:---|:---|:---|:---|
-| `.venv` | `requirements.txt` | 1-3 (root scripts) | Python 3.8.10, gymnasium 0.29.1, mujoco 3.2.3, torch 2.4.1 |
+| `.venv` | `requirements.txt` | 1-3 (root scripts) | Python 3.11.9, gymnasium 0.29.1, mujoco 3.2.3, torch 2.4.1+cu121, numpy 1.26.4, mlflow 3.16.1 |
 | `.venv-phase4` | `requirements-phase4.txt` | 4 (`openai_walker/`) | Python 3.11.9, gymnasium 1.0.0, stable-baselines3 2.4.0, torch 2.5.1+cu121 |
 | `.venv-mjx` | `requirements-mjx.txt` | MJX/JAX stepping | Python 3.11.9, mujoco 3.2.7, mujoco-mjx 3.2.7, jax 0.10.2 |
 
@@ -399,8 +452,11 @@ python -m venv .venv-phase4        # Python 3.10+ required
 pip install -r requirements-phase4.txt
 ```
 
-⚠️ `numpy<2` is required with stable-baselines3 2.4.0, and pip will happily install numpy 2.x
-alongside it; SB3 then fails at import. Pin it explicitly if you hit that.
+⚠️ stable-baselines3 2.4.0 **declares** `numpy<2.0`, and pip prints a dependency conflict if
+you install numpy 2.x next to it. Honoring the bound is the safe read; note that the import
+itself did not fail when tested here (`numpy==2.1.3` + SB3 2.4.0 imported, warning only), so
+the declared range is narrower than what breaks in practice - which is why this file pins
+`numpy>=1.26.4` without inventing an upper bound of its own.
 
 ⚡ **`torch` from PyPI is a CPU-only wheel on Windows**, so with the original `.venv`
 (`torch 2.4.1+cpu`) every gradient update ran on CPU on a machine with an RTX 4070. The
@@ -442,6 +498,11 @@ source .venv/bin/activate # (Linux/Mac)
 
 pip install -r requirements.txt
 ```
+
+⚠️ **Python 3.10 or newer.** `requirements.txt` asks for `mlflow>=3.0`, and mlflow 3.x has no
+Python 3.8/3.9 distribution: on 3.8 pip answers `No matching distribution found`, and the
+same file also needs `numpy>=1.26.4`, which 1.25 dropped 3.8 for. The repository's own history
+is in the mlflow-3 schema, so a 3.8 environment can run the trainers but cannot log to it.
 
 ## 🧹 Repository size
 
@@ -486,20 +547,25 @@ mlflow ui --backend-store-uri sqlite:///mlruns.db
 ```
 Navigate to `http://localhost:5000` in your browser.
 
-**Version requirement: mlflow 3.x, and the primary venv cannot meet it yet.** `mlruns.db` is
-at schema revision `b7e2c1a4d9f3`, which only mlflow 3.x understands. With the `mlflow 2.17.2`
-that `.venv` shipped, opening it raises
+**Version requirement: mlflow 3.x, which needs Python 3.10+.** `mlruns.db` is at schema
+revision `b7e2c1a4d9f3`, which only mlflow 3.x understands. With the `mlflow 2.17.2` that the
+old Python 3.8 `.venv` shipped, opening it raises
 `alembic.util.exc.CommandError: Can't locate revision identified by 'b7e2c1a4d9f3'` - and
 because the trainers' mlflow helper is deliberately fault-tolerant, that error was swallowed,
-so runs appeared to log while writing nothing. `requirements.txt` now pins `mlflow>=3.0` for
-that reason. (Found while adding the stale-run tool, which had to open the same database.)
+so runs appeared to log while writing nothing. `requirements.txt` pins `mlflow>=3.0` for that
+reason. (Found while adding the stale-run tool, which had to open the same database.)
 
-`.venv` is Python 3.8.10, and mlflow 3.x publishes no distribution for it:
-`pip download --no-deps "mlflow>=3.0"` returns `No matching distribution found`. The fix is
-therefore a second interpreter, not a `pip install`: a Python >=3.10 venv with the ragdoll
-stack plus `mlflow>=3`, about the size of `.venv` as measured here (5.3 GB). Until that
-exists, `start_mlflow_run` prints the version and the remedy instead of only the raw alembic
-error, so an unlogged training run is visible at the moment it starts.
+mlflow 3.x publishes no Python 3.8 distribution - `pip download --no-deps "mlflow>=3.0"`
+returns `No matching distribution found` - so the fix had to be the interpreter, not a
+`pip install`. `.venv` is now Python 3.11.9 with mlflow 3.16.1, and the logging path was
+checked end-to-end: `start_mlflow_run` → `log_mlflow_metrics` → `end_mlflow_run` against a
+throwaway sqlite backend produced a FINISHED run carrying both metrics and the `seed` param.
+The swap is numerically invisible: the same 200-step rollout from seed 7 gives reward
+-2506.5429333387096 in the 3.8 and 3.11 environments, and `evaluate_merging.py --num-episodes
+2 --seed 11` reproduces all four strategy means to the last printed digit. The old
+environment is kept as `.venv-py38-backup/` (two `mv` commands to go back), and
+`start_mlflow_run` still prints the version and the remedy when it hits the wall, so a
+freshly-cloned 3.8 venv fails loudly instead of silently.
 
 The history now lives in **one** database, at the repository root: 21 runs, 5 experiments,
 252,856 metric rows. It used to be two: 11 Phase-4 scripts wrote `sqlite:///mlruns.db` and 5

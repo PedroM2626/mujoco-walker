@@ -1,5 +1,5 @@
 {
-  "note": "Phase 1 previously had no recorded results at all. These runs are short by design (minutes, not the 1M-step budget); they show the trainers execute and receive reward, and are not comparable with the Phase 3/4 tables.",
+  "note": "Phase 1 previously had no recorded results at all. These runs are short by design (minutes, not the 1M-step budget); they show the trainers execute and receive reward, and are not comparable with the Phase 3/4 tables. SCALE WARNING: REDQ and Dreamer wrap the environment in NormalizeReward(gamma), so the 'episode_return' fields below are normalised sums, not raw environment returns. On the raw scale the same checkpoints are indistinguishable from an inert robot over an identical seeded 300-step rollout: REDQ -3826.77, Dreamer -3836.79, ARS -3887.55, against -3775.76 for zero actions and -3857.06 for uniform random ones (tests/test_phase1_behaviour.py pins this).",
   "date": "2026-10-01",
   "runs": {
     "train_ars": {

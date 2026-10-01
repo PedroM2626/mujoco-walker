@@ -1,0 +1,115 @@
+{
+  "protocol": "eval_phase1.py --num-episodes 10 --seed 11 (WalkerRagdoll-v0, reset_mode=mixed, one env.step per action, checkpoint obs_rms applied, deterministic; same protocol as the Phase-3 table)",
+  "models": {
+    "redq_6k": {
+      "checkpoint": "checkpoints/redq_evidence/redq_actor_6000.pt",
+      "algo": "sac_actor",
+      "task_phase": "target",
+      "obs_width": 49,
+      "global_step": null,
+      "episodes": 10,
+      "mean": -13316.45,
+      "median": -13630.98,
+      "std": 1629.68,
+      "min": -14954.1,
+      "max": -8943.57,
+      "falls_per_episode": 0.1,
+      "standing_at_end_pct": 0.0
+    },
+    "dreamer_8k": {
+      "checkpoint": "checkpoints/dreamer_smoke/dreamer_actor_8000.pt",
+      "algo": "dreamer",
+      "task_phase": "target",
+      "obs_width": 49,
+      "global_step": null,
+      "episodes": 10,
+      "mean": -14374.07,
+      "median": -13229.17,
+      "std": 4217.69,
+      "min": -22359.62,
+      "max": -8858.48,
+      "falls_per_episode": 0.2,
+      "standing_at_end_pct": 0.0
+    },
+    "ars_60k": {
+      "checkpoint": "checkpoints/ars_evidence/ars_ckpt_60384.pt",
+      "algo": "ars",
+      "task_phase": "target",
+      "obs_width": 49,
+      "global_step": null,
+      "episodes": 10,
+      "mean": -15813.74,
+      "median": -13548.53,
+      "std": 4639.04,
+      "min": -22566.57,
+      "max": -8324.05,
+      "falls_per_episode": 0.1,
+      "standing_at_end_pct": 0.0
+    },
+    "sac_target_40M": {
+      "checkpoint": "checkpoints/walker_target_v1/sac_ckpt_40000000.pt",
+      "algo": "sac",
+      "task_phase": "target",
+      "obs_width": 49,
+      "global_step": null,
+      "episodes": 10,
+      "mean": 4614.57,
+      "median": -11973.03,
+      "std": 25208.23,
+      "min": -14403.09,
+      "max": 51858.97,
+      "falls_per_episode": 0.4,
+      "standing_at_end_pct": 0.0
+    }
+  },
+  "per_episode": {
+    "redq_6k": [
+      -8943.56875915849,
+      -13567.333735310453,
+      -12596.615361905344,
+      -14954.104787930364,
+      -13849.36076457915,
+      -12804.046652349967,
+      -14750.300493725154,
+      -14495.922148406786,
+      -13694.634756107425,
+      -13508.66017907984
+    ],
+    "dreamer_8k": [
+      -8858.47567814402,
+      -13025.243611056376,
+      -10653.387401324211,
+      -22267.821065334007,
+      -13478.85245061568,
+      -13279.024882046235,
+      -13509.243488947104,
+      -13179.319505064568,
+      -22359.623671861245,
+      -13129.668732384898
+    ],
+    "ars_60k": [
+      -8324.047358269321,
+      -21034.222709686237,
+      -13028.682533404932,
+      -12749.92985040212,
+      -12622.422270546374,
+      -14068.370378546542,
+      -21089.805114213545,
+      -20036.108225224758,
+      -12617.271004134871,
+      -22566.565729998452
+    ],
+    "sac_target_40M": [
+      50479.55268906045,
+      14232.77737180197,
+      -14403.09168003128,
+      -11707.487443656277,
+      -12238.56731080152,
+      51858.97207329789,
+      -14099.402754488314,
+      -13003.080859550671,
+      -13730.657185768405,
+      8756.690495174687
+    ]
+  }
+}

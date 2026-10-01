@@ -524,16 +524,27 @@ Two facts to keep in mind:
 
 Everything under `checkpoints/` is local and ignored, so it never affected the clone size.
 The working directory here was 31 GB, of which 12.8 GB was `checkpoints/walker_recovery_v1`:
-twenty hourly checkpoints from the same 20M-step run, and only two of them are referenced by
-any script - `sac_ckpt_20000000.pt` (the recovery expert in every Phase-3 number) and
-`sac_ckpt_1000000.pt` (`merge_models.py --base-ckpt`, the transfer-learning starting point).
-The other eighteen were deleted on 2026-10-01, freeing 11.4 GB; `checkpoints/` went from
-12,853 MB to 1,454 MB, and the Phase-3 evaluation reproduces its four strategy means exactly
-afterwards (36496.42 / 31237.52 / -8015.85 / -30245.87 at two episodes, seed 11), so the
-surviving set is sufficient. `checkpoints/Humanoid_Curriculum_v1` (3.8 MB, four files,
-referenced by nothing) went with it: it was the residue of a Humanoid claim that this README
-no longer makes. What is *not* recoverable this way is the deleted steps - regenerating them
-means re-running the 20M-step recovery training.
+twenty hourly checkpoints from the same 20M-step run. Two carry the published Phase-3 numbers
+(`sac_ckpt_20000000.pt`, the recovery expert) and the transfer-learning starting point
+(`sac_ckpt_1000000.pt`, `merge_models.py --base-ckpt`); the other eighteen were deleted on
+2026-10-01, freeing 11.4 GB (`checkpoints/`: 12,853 MB -> 1,454 MB), and the Phase-3 evaluation
+reproduces its four strategy means exactly afterwards (36496.42 / 31237.52 / -8015.85 /
+-30245.87 at two episodes, seed 11).
+
+**"No script names them" is not the same statement as "nothing can use them", and the
+difference matters.** Any checkpoint in a run directory is addressable by step number:
+`play.py --run-id <id> --checkpoint-step <step>`, `--checkpoint <path>`,
+`merge_models.py --base-ckpt/--rec-ckpt`, and
+`train_walker.py --init-from-run-id <id> --init-from-checkpoint-step <step>`
+(`resolve_checkpoint_any`, which is how the recovery run was seeded from `walker_target_v1` in
+the first place). Those eighteen were therefore valid inputs for a linear-mode-connectivity or
+task-vector sweep *along the recovery trajectory* - interpolate 2M against 19M, or ask when the
+recovery policy left the walking policy's basin - and that study now needs the 20M-step run
+repeated to do. Nothing published here depended on them, but they were not dead weight, and
+this was the more irreversible of the two available choices. The same sweep remains open on the
+other expert (`walker_target_v1` keeps 41 steps, each as `sac_actor_*` plus `sac_ckpt_*`), and
+the Phase-1 runs recorded below checkpoint every 200k steps so the analysis is possible on them
+from the start.
 
 ## ✅ Running the tests
 

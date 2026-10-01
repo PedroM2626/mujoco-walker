@@ -1278,8 +1278,8 @@ def train_ppo(start_time=None):
                 if "final_info" in infos:
                     for info in infos["final_info"]:
                         if info and "episode" in info:
-                            ep_r = float(info["episode"]["r"])
-                            ep_l = float(info["episode"]["l"])
+                            ep_r = float(np.asarray(info["episode"]["r"]).item())
+                            ep_l = float(np.asarray(info["episode"]["l"]).item())
                             print(f"global_step={global_step}, episodic_return={ep_r:.2f}, episodic_length={ep_l:.0f}")
                             writer.add_scalar("charts/episodic_return", ep_r, global_step)
                             writer.add_scalar("charts/episodic_length", ep_l, global_step)
@@ -1518,8 +1518,8 @@ def train_td3(start_time=None):
             if "final_info" in infos:
                 for info in infos["final_info"]:
                     if info and "episode" in info:
-                        ep_r = float(info["episode"]["r"])
-                        ep_l = float(info["episode"]["l"])
+                        ep_r = float(np.asarray(info["episode"]["r"]).item())
+                        ep_l = float(np.asarray(info["episode"]["l"]).item())
                         print(f"global_step={global_step}, episodic_return={ep_r:.2f}, episodic_length={ep_l:.0f}")
                         writer.add_scalar("charts/episodic_return", ep_r, global_step)
                         writer.add_scalar("charts/episodic_length", ep_l, global_step)
@@ -1768,8 +1768,8 @@ def train(start_time=None):
             if "final_info" in infos:
                 for info in infos["final_info"]:
                     if info and "episode" in info:
-                        ep_r = float(info["episode"]["r"])
-                        ep_l = float(info["episode"]["l"])
+                        ep_r = float(np.asarray(info["episode"]["r"]).item())
+                        ep_l = float(np.asarray(info["episode"]["l"]).item())
                         print(f"global_step={global_step}, episodic_return={ep_r:.2f}, episodic_length={ep_l:.0f}")
                         writer.add_scalar("charts/episodic_return", ep_r, global_step)
                         writer.add_scalar("charts/episodic_length", ep_l, global_step)

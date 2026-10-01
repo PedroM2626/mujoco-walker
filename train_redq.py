@@ -244,8 +244,8 @@ def train_redq():
             # Record episode returns
             for info in infos.get("final_info", []):
                 if info is not None and "episode" in info:
-                    eps_ret = float(info["episode"]["r"])
-                    eps_len = float(info["episode"]["l"])
+                    eps_ret = float(np.asarray(info["episode"]["r"]).item())
+                    eps_len = float(np.asarray(info["episode"]["l"]).item())
                     print(f"global_step={global_step}, episodic_return={eps_ret:.2f}, episodic_length={eps_len:.0f}")
                     writer.add_scalar("charts/episodic_return", eps_ret, global_step)
                     writer.add_scalar("charts/episodic_length", eps_len, global_step)

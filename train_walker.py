@@ -7,6 +7,7 @@ import copy
 import gc
 import os
 import random
+import sys
 import time
 from dataclasses import dataclass
 from typing import Any, Dict
@@ -783,6 +784,12 @@ def start_mlflow_run(args, run_name, algo_name):
         return run
     except Exception as e:
         print(f"[MLFLOW] Tracking desabilitado ({e}).")
+        if "locate revision" in str(e):
+            print("[MLFLOW] mlruns.db esta no schema de mlflow 3.x e este interpretador tem "
+                  f"mlflow {_mlflow.__version__} (Python {sys.version.split()[0]}). "
+                  "Os runs vao rodar sem registro. Corricao: um venv com Python >=3.10 e "
+                  "`pip install \"mlflow>=3\"` (requirements.txt ja pede); "
+                  "mlflow 3.x nao tem distribuicao para Python 3.8.")
         return None
 
 

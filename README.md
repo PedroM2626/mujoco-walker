@@ -190,9 +190,10 @@ What this measurement changes, stated plainly:
    same band as BCQ and BC+SAC-Reg, and its min/max of 1673/3966 is the in-distribution vs
    extrapolation split the retired "~2522, memorised the manifold" line was hiding.
 5. **PQR is absent because it was never saved, not because it is slow.** `train_irl_pqr.py`
-   exists and an MLflow run `Deep_PQR_IRL` is in the database, but it is still marked RUNNING
-   with 0 metrics - the process died before writing `pqr_policy.pt`. `iql_sac_model.pt` is
-   missing the same way, after 653 metrics.
+   exists and an MLflow run `Deep_PQR_IRL` is in the database with 0 metrics - the process
+   died before writing `pqr_policy.pt`. `iql_sac_model.pt` is missing the same way, after 653
+   metrics. Both were closed as stale (`closed_as_stale` tag) rather than deleted: the metric
+   history is the only surviving evidence that they ran.
 
 ### Historical record: one unseeded episode per model (`final_results.txt`)
 
@@ -445,31 +446,45 @@ mlflow ui --backend-store-uri sqlite:///mlruns.db
 ```
 Navigate to `http://localhost:5000` in your browser.
 
-**Version requirement: mlflow 3.x.** `mlruns.db` is at schema revision `b7e2c1a4d9f3`, which
-only mlflow 3.x understands. With the `mlflow 2.17.2` that `.venv` shipped, opening it raises
+**Version requirement: mlflow 3.x, and the primary venv cannot meet it yet.** `mlruns.db` is
+at schema revision `b7e2c1a4d9f3`, which only mlflow 3.x understands. With the `mlflow 2.17.2`
+that `.venv` shipped, opening it raises
 `alembic.util.exc.CommandError: Can't locate revision identified by 'b7e2c1a4d9f3'` - and
 because the trainers' mlflow helper is deliberately fault-tolerant, that error was swallowed,
 so runs appeared to log while writing nothing. `requirements.txt` now pins `mlflow>=3.0` for
 that reason. (Found while adding the stale-run tool, which had to open the same database.)
 
-The history is meant to live in **one** database, at the repository root. It used to be two:
-11 Phase-4 scripts wrote `sqlite:///mlruns.db` and 5 wrote `sqlite:///../mlruns.db`, and
-because `run_all.bat` runs from inside `openai_walker/`, half the runs landed in
-`openai_walker/mlruns.db` while `mlflow ui` from the root showed only the other half.
-`utils/mlflow_uri.py` (wrapped by `openai_walker/mlflow_backend.py`) now resolves the path
-from the repository root, so the working directory no longer decides where a run goes. The
-old `openai_walker/mlruns.db` still holds 13 runs (4 experiments) that landed there and the
-root holds 8 (3 experiments); migrate it, or set `MLFLOW_TRACKING_URI`, to see both in one
-UI. `python -m mlflow_backend` (from `openai_walker/`) lists runs left in RUNNING by killed
-processes - two of them, `Deep_PQR_IRL` with 0 metrics and `AIRL_IRL`, plus one in the old
-database - and `--apply` closes them. Every trainer already wraps its work in
-`with mlflow.start_run(...)`, so these are abandoned-by-kill runs, not missing `end_run`
-calls, and they are the reason an artifact can be absent while its metrics are present.
+`.venv` is Python 3.8.10, and mlflow 3.x publishes no distribution for it:
+`pip download --no-deps "mlflow>=3.0"` returns `No matching distribution found`. The fix is
+therefore a second interpreter, not a `pip install`: a Python >=3.10 venv with the ragdoll
+stack plus `mlflow>=3`, about the size of `.venv` as measured here (5.3 GB). Until that
+exists, `start_mlflow_run` prints the version and the remedy instead of only the raw alembic
+error, so an unlogged training run is visible at the moment it starts.
+
+The history now lives in **one** database, at the repository root: 21 runs, 5 experiments,
+252,856 metric rows. It used to be two: 11 Phase-4 scripts wrote `sqlite:///mlruns.db` and 5
+wrote `sqlite:///../mlruns.db`, and because `run_all.bat` runs from inside `openai_walker/`,
+half the runs landed in `openai_walker/mlruns.db` while `mlflow ui` from the root showed only
+the other half. `utils/mlflow_uri.py` (wrapped by `openai_walker/mlflow_backend.py`) now
+resolves the path from the repository root, so the working directory no longer decides where
+a run goes. The 13 runs that had already landed in the wrong file were merged in with
+`python openai_walker/mlflow_backend.py merge --source sqlite:///.../openai_walker/mlruns.db
+--apply`; the source file is kept untouched as `openai_walker/mlruns.merged-into-root.db`,
+and the merge is keyed on `run_uuid`, so re-running it moves nothing (verified: `0 new run(s)`).
+
+Three runs were left in RUNNING by killed processes - `AIRL_IRL` (74,297 metric rows),
+`Deep_PQR_IRL` (0 rows) and `IQL_SAC_FineTuning_Walker2d` (653 rows), started 97, 96 and 115
+days before this was written. `python openai_walker/mlflow_backend.py stale-runs --apply`
+closed them and stamped a `closed_as_stale` tag on each, because `set_terminated` writes
+today's date into `end_time` and a run that died in June would otherwise read as an 87-day
+training session. Every trainer already wraps its work in `with mlflow.start_run(...)`, so
+these are abandoned-by-kill runs, not missing `end_run` calls, and they are the reason an
+artifact can be absent while its metrics are present.
 
 ## 🔬 Reproducing and measuring
 
 ```bash
-python -m unittest discover -s tests -t .   # 32 tests: env contract, golden rewards, vec parity
+python -m unittest discover -s tests -t .   # 41 tests; 7 skip on gymnasium<1.0 (phase-4 venv)
 python bench_env.py --seconds 4             # env throughput, physics vs Python split
 python bench_mjx.py --sizes 32,128          # MJX/JAX batched stepping
 python verify.py                            # Phase-2 artifact check (exits 2 when missing)

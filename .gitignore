@@ -29,13 +29,13 @@ checkpoints/
 *.pkl
 *.zip
 .env.local
-.venv/
+# One pattern for every local interpreter: .venv, .venv-mjx, .venv-phase4 and the
+# .venv-py38-backup kept when the primary venv moved from Python 3.8 to 3.11.
+.venv*/
 venv/
 env/
 *mlrun*
 *.db
 *.png
-.venv-mjx/
-temp_race_env.xml
 bench_*.json
-.venv-phase4/
+temp_race_env.xml

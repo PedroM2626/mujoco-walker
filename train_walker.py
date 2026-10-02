@@ -21,6 +21,7 @@ import torch.optim as optim
 from torch.utils.tensorboard import SummaryWriter
 
 import envs.walker_ragdoll_env
+from envs.reward_shaping import TRAINING_REWARD_KWARGS
 from envs.walker_ragdoll_env import ENV_VERSION
 from utils.checkpoint import force_delete_run, get_checkpoint_dir, get_run_dir
 
@@ -306,20 +307,10 @@ def make_env(
             "task_phase": task_phase,
             "target_forward_velocity": target_forward_velocity,
             "terminate_when_unhealthy": terminate_when_unhealthy,
-            # --- Reward shaping for stable 1M-step walking ---
-            # Disable survival bonus so the agent cannot exploit just standing still
-            "standing_reward": 0.0,
-            # Strong signal: reward velocity directly toward the target
-            "target_direction_reward_weight": 200.0,
-            # Moderate progress reward (clipped at 0.15m/step)
-            "target_progress_reward_weight": 300.0,
-            # Keep upright/stability bonuses to encourage good posture
-            "stand_height_reward_weight": 100.0,
-            "stability_reward_weight": 20.0,
-            # Small stillness penalty – enough to prevent freezing, not so large it forces falls
-            "stillness_penalty_weight": 5.0,
-            # Moderate lateral drift penalty to keep agent heading toward target
-            "lateral_drift_penalty_weight": 3.0,
+            # Reward shaping for stable 1M-step walking, in one place shared with the
+            # evaluators (envs.reward_shaping.TRAINING_REWARD_KWARGS): scoring with the
+            # environment defaults instead pays for postures training never rewarded.
+            **TRAINING_REWARD_KWARGS,
         }
         if capture_video and idx == 0:
             env = gym.make(env_id, render_mode="rgb_array", **env_kwargs)
@@ -898,6 +889,7 @@ def save_sac_checkpoint(
             "env_version": ENV_VERSION,
             "task_phase": task_phase,
             "target_forward_velocity": target_forward_velocity,
+            "reward_kwargs": dict(TRAINING_REWARD_KWARGS),
             "global_step": global_step,
             "num_envs": envs.num_envs,
             "buffer_size": replay_buffer.size,
@@ -940,6 +932,7 @@ def save_sac_checkpoint(
             "env_version": ENV_VERSION,
             "task_phase": task_phase,
             "target_forward_velocity": target_forward_velocity,
+            "reward_kwargs": dict(TRAINING_REWARD_KWARGS),
             "global_step": global_step,
             "actor_state_dict": actor.state_dict(),
             "obs_rms": get_obs_rms(envs),
@@ -1086,6 +1079,7 @@ def save_td3_checkpoint(path, global_step, agent, qf1, qf2, optimizer, q_optimiz
         "env_version": ENV_VERSION,
         "task_phase": task_phase,
         "target_forward_velocity": target_forward_velocity,
+        "reward_kwargs": dict(TRAINING_REWARD_KWARGS),
         "global_step": global_step,
         "agent_state_dict": agent.state_dict(),
         "qf1_state_dict": qf1.state_dict(),
@@ -1119,6 +1113,7 @@ def save_ppo_checkpoint(path, global_step, agent, optimizer, envs, task_phase=No
         "env_version": ENV_VERSION,
         "task_phase": task_phase,
         "target_forward_velocity": target_forward_velocity,
+        "reward_kwargs": dict(TRAINING_REWARD_KWARGS),
         "global_step": global_step,
         "agent_state_dict": agent.state_dict(),
         "optimizer_state_dict": optimizer.state_dict(),

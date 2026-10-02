@@ -16,11 +16,16 @@ DEFAULT_CAMERA_CONFIG = {
     "elevation": -20.0,
 }
 
-ENV_VERSION = "standup_balance_walk_curriculum_v8"
+ENV_VERSION = "standup_balance_walk_curriculum_v9"
 FOOT_BODIES = {"left_foot", "right_foot"}
 
 RESET_MODES = {"fixed", "mixed", "fallen", "upright"}
 TASK_PHASES = {"recovery", "balance", "walk", "target"}
+
+# The reward shaping the trainers apply lives in envs/reward_shaping.py, not here: it is a
+# property of the trainer, and `eval_phase1.py --env-commit` aliases an older revision of this
+# module in as `envs.walker_ragdoll_env`, which would silently replace the dict with that
+# revision's version (or fail, for revisions that predate it).
 
 
 class WalkerRagdollEnv(MujocoEnv, gym.utils.EzPickle):
@@ -68,7 +73,7 @@ class WalkerRagdollEnv(MujocoEnv, gym.utils.EzPickle):
         target_distance_range: tuple = (2.0, 5.0),
         target_curriculum_streak: int = 10,
         bad_support_penalty_weight: float = 15.0,
-        low_upright_penalty_weight: float = 20.0,
+        low_upright_penalty_weight: float = 0.0,
         terminate_when_unhealthy: bool = False,
         healthy_z_range: tuple = (1.0, 2.0),
         reset_noise_scale: float = 1e-2,
@@ -370,12 +375,19 @@ class WalkerRagdollEnv(MujocoEnv, gym.utils.EzPickle):
         upright = max(0.0, upright_raw)
         stand_height = min(max((z_after - 0.65) / 0.60, 0.0), 1.0)
         standing_gate = stand_height * upright * upright
+        # Posture as a bonus graded from the floor up (v9). Before: the height term paid nothing
+        # below z=0.65 while low_upright_penalty charged 20*(0.85-z) below z=0.85, so posture
+        # entered the return as a punishment (-11.15/step measured on the 40M SAC policy) and a
+        # fully prone robot had no posture gradient at all. Now: 0 lying, 1.0 standing, monotone
+        # in both height and uprightness, and the penalty weight defaults to 0.
+        posture_bonus = (min(max((z_after - 0.15) / 1.10, 0.0), 1.0)
+                         * min(max(0.5 * (1.0 + upright_raw), 0.0), 1.0))
         dt = self.dt
         x_velocity = (x_after - x_before) / dt
         y_velocity = (y_after - y_before) / dt
         root_angular_speed = math.sqrt(qvel[3] * qvel[3] + qvel[4] * qvel[4] + qvel[5] * qvel[5])
         root_linear_speed = math.sqrt(qvel[0] * qvel[0] + qvel[1] * qvel[1] + qvel[2] * qvel[2])
-        stand_height_reward = self._stand_height_reward_weight * stand_height * upright * upright
+        stand_height_reward = self._stand_height_reward_weight * posture_bonus
         recovery_reward = self._recovery_reward_weight * z_after * upright
         ctrl_cost = self.control_cost(action)
         impact_cost = self._impact()
@@ -534,6 +546,11 @@ class WalkerRagdollEnv(MujocoEnv, gym.utils.EzPickle):
             "target_y": self._target_xy[1],
             "target_distance": target_distance_after if is_target_phase else self._distance_to_target(),
             "upright": upright_raw,
+            # The multiplicative gate every locomotion term passes through: 0 while the torso is
+            # below z=0.65 or not upright, 1 when standing. Logged because it means posture is not
+            # a parallel reward but a prerequisite - a half-fallen robot earns no walking reward
+            # at all, whatever its velocity toward the target.
+            "standing_gate": standing_gate,
             "bad_floor_contacts": bad_floor_contacts,
             "foot_floor_contacts": foot_floor_contacts,
             "task_phase": task_phase,

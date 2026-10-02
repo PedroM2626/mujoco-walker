@@ -3,79 +3,109 @@
     "obs_dim": 46,
     "short": {
       "steps": 50,
-      "reward_sum": 3806.059984134457,
+      "reward_sum": 4755.461327184084,
       "obs_sum": -946.7189093393429,
       "first_rewards": [
-        146.84027905977192,
-        148.97959424150838,
-        150.11312078644374
-      ]
+        153.25046292688253,
+        154.84315466054318,
+        155.56223954471903
+      ],
+      "obs_dim": 46
     },
     "long": {
       "steps": 300,
-      "reward_sum": 413.9354477002207,
-      "obs_sum": -2100.90239414702
+      "reward_sum": 5391.793568134921,
+      "obs_sum": -2100.90239414702,
+      "first_rewards": [
+        153.25046292688253,
+        154.84315466054318,
+        155.56223954471903
+      ],
+      "obs_dim": 46
     }
   },
   "balance": {
     "obs_dim": 46,
     "short": {
       "steps": 50,
-      "reward_sum": 3745.8196518896943,
+      "reward_sum": 4695.220994939323,
       "obs_sum": -946.7189093393429,
       "first_rewards": [
-        153.78499354745824,
-        165.54952662991238,
-        168.46616116759293
-      ]
+        160.19517741456886,
+        171.41308704894718,
+        173.91527992586822
+      ],
+      "obs_dim": 46
     },
     "long": {
       "steps": 300,
-      "reward_sum": 353.6951154554576,
-      "obs_sum": -2100.90239414702
+      "reward_sum": 5331.553235890158,
+      "obs_sum": -2100.90239414702,
+      "first_rewards": [
+        160.19517741456886,
+        171.41308704894718,
+        173.91527992586822
+      ],
+      "obs_dim": 46
     }
   },
   "walk": {
     "obs_dim": 46,
     "short": {
       "steps": 50,
-      "reward_sum": 4072.9146307200945,
+      "reward_sum": 5022.315973769723,
       "obs_sum": -946.7189093393429,
       "first_rewards": [
-        165.438207541946,
-        172.4262817991957,
-        174.9346534720735
-      ]
+        171.84839140905663,
+        178.2898422182305,
+        180.3837722303488
+      ],
+      "obs_dim": 46
     },
     "long": {
       "steps": 300,
-      "reward_sum": 680.7900942858573,
-      "obs_sum": -2100.90239414702
+      "reward_sum": 5658.648214720559,
+      "obs_sum": -2100.90239414702,
+      "first_rewards": [
+        171.84839140905663,
+        178.2898422182305,
+        180.3837722303488
+      ],
+      "obs_dim": 46
     }
   },
   "target": {
     "obs_dim": 49,
     "short": {
       "steps": 50,
-      "reward_sum": 3990.583755003558,
+      "reward_sum": 4939.9850980531855,
       "obs_sum": -723.3999937777022,
       "first_rewards": [
-        160.0912627529632,
-        169.11638308603062,
-        171.67014924335524
-      ]
+        166.5014466200738,
+        174.97994350506542,
+        177.11926800163053
+      ],
+      "obs_dim": 49
     },
     "long": {
       "steps": 300,
-      "reward_sum": 598.4592185693213,
-      "obs_sum": -588.674843902073
+      "reward_sum": 5576.317339004021,
+      "obs_sum": -588.674843902073,
+      "first_rewards": [
+        166.5014466200738,
+        174.97994350506542,
+        177.11926800163053
+      ],
+      "obs_dim": 49
     }
   },
   "_provenance": {
     "reset_mode": "upright",
     "reset_seed": 1234,
     "action_generator": "np.random.default_rng(99).normal(0, 0.25, 17) per step",
-    "recorded_on": "Windows 11, i9-14900HX, python 3.8.10, numpy 1.24.4, mujoco 3.2.3",
-    "tolerance_policy": "short horizon is a strict regression guard; long horizon carries a loose relative tolerance because this is a contact-rich chaotic simulation and libm/BLAS differences between platforms amplify over 300 steps"
+    "recorded_on": "Windows 11, i9-14900HX, python 3.11, numpy 2.1.3, mujoco 3.2.3, env standup_balance_walk_curriculum_v9",
+    "tolerance_policy": "short horizon is a strict regression guard; long horizon carries a loose relative tolerance because this is a contact-rich chaotic simulation and libm/BLAS differences between platforms amplify over 300 steps",
+    "env_version": "standup_balance_walk_curriculum_v9",
+    "note": "v9 changed the posture shaping: below z=0.65 the height term paid nothing while low_upright_penalty charged 20*(0.85-z), so posture entered the return as a punishment. Now posture is a bonus graded from the floor up and that penalty defaults to 0. Observation math is unchanged - obs_sum below is identical to the v8 recording, reward sums are not."
   }
 }

@@ -44,8 +44,61 @@ that as "peaked early and decayed", which was reading noise as signal. What the 
 say: return tracks episode length (corr 0.77) and lengths stay at 13-119 steps, so the linear
 policy is surviving briefly rather than walking.
 
-Phase 1's properly trained models are the SAC walkers in `checkpoints/walker_target_v1`
-(40M steps) and `checkpoints/walker_recovery_v1` (20M steps), evaluated in Phase 3 above.
+Phase 1's properly trained models were described here as "the SAC walkers in
+`checkpoints/walker_target_v1` (40M steps)". **They do not walk to the target, and that is now
+measured rather than inferred.** That directory holds 41 actor checkpoints of one real
+40M-step run at `num_envs=32` (its own metadata says `env_version=
+standup_balance_walk_curriculum_v4`, `target_forward_velocity=10.0`); 10 of them, spaced 1M to
+40M, scored over 20 seeded target-phase episodes each
+(`benchmarks/target_learning_curve.json`, `python eval_phase1.py --model ...`):
+
+| SAC checkpoint | episodes inside the 0.45 m radius | median closest approach | median mean `x_velocity` |
+|---:|---:|---:|---:|
+| 1M | 0/20 | 3.03 m | +0.014 m/s |
+| 3M | 1/20 | 3.11 m | +0.012 m/s |
+| 10M | 1/20 | 3.05 m | -0.001 m/s |
+| 20M | 0/20 | 2.98 m | +0.003 m/s |
+| 40M | 0/20 | 3.50 m | +0.000 m/s |
+
+The other five rows are in the JSON and say the same. Targets spawn 2-5 m away, so a median
+closest approach of ~3 m with a median forward speed of ~0 m/s means the policy is not
+approaching: **2 of 200 episodes** ended within the radius, and the best approach in any of them
+was 0.31 m. Re-running the identical protocol against the v4 environment those checkpoints were
+actually trained in (`python eval_phase1.py --env-commit 8d37846 ...`, written to
+`benchmarks/target_learning_curve_envv4.json`, 80 episodes) gives 0/80
+inside the radius and +0.006 m/s at 40M - so this is not an artefact of the env having changed
+under them, and it is not "not enough steps": the curve is flat from 1M to 40M. `walker_recovery_v1`
+was fine-tuned from this same base policy, which is the honest context for the Phase-3 result
+that the recovery task vector dominates the merges.
+
+The scorer/trainer reward gap is real and it distorts those tables, but it is **not** the reason
+the agent does not walk. Same 40M policy, same 10 seeds, per-step terms under both weight sets,
+against two behaviours that need no learning at all:
+
+| behaviour | training weights | eval defaults | biggest terms (per step, training weights) |
+|:---|---:|---:|:---|
+| SAC 40M policy | **+8.21** | +10.46 | linup +12.19, low_upright -11.15, **target_direction +5.44**, stability +1.16 |
+| commanding zero | -12.33 | -12.26 | low_upright -14.29, linup +0.49, target_direction +0.23 |
+| every actuator at full extension | -23.60 | -23.74 | bad_support -13.04, low_upright -12.16, ctrl -1.70 |
+
+Read that as three things at once. The policy really is better than an inert robot (+8.21 against
+-12.33 per step), so the run was not wasted. Its direction term earns 5.44 of the **160/step**
+available at the env's own nominal 0.8 m/s - it is capturing 3% of the walking signal, not
+ignoring an unrewarded one. And `low_upright` at -11.15/step says why: the policy spends the
+episode half-fallen, which is what the +0.032 m/s mean velocity of the same run says too. The eval-default
+column is the defect: it hands the same policy +4.91/step of `standing` that training paid zero
+for and cuts the walking incentive from 5.44 to 2.18, so every absolute return in the Phase-1 and
+Phase-3 tables ranks postures ahead of locomotion. Scoring with the trainer's own kwargs is the
+fix; it is not yet done.
+
+What the task geometrically requires is not in dispute: `timestep=0.002` with `frame_skip=5`
+makes one env step 0.01 s, episodes are capped at 1,000 steps (10 s of simulated time), targets
+spawn 2-5 m away and the success radius is 0.45 m. Reaching the near target needs 0.2 m/s
+sustained, the far one 0.5 m/s; at the env's own nominal 0.8 m/s the walk itself is 250-625 env
+steps of a 1000-step episode. Every checkpoint above averages ~0.0 m/s, so none of them is
+anywhere near that floor. See "What a training run costs" in the throughput section for what a
+retraining would take in wall clock.
+
 
 The scale of that table matters: REDQ and Dreamer wrap the environment in `NormalizeReward`,
 so the `Mean return` column is a normalised sum, not the reward the raw environment reports.
@@ -95,7 +148,13 @@ How do we combine a "Walking Policy" with a "Fall Recovery Policy" without catas
 
 **The Transfer Learning Curriculum (Linear Mode Connectivity):**
 To merge two different neural networks, they must share the same *Linear Mode Connectivity Basin*. If two networks are trained from different random initializations, averaging their weights produces garbage. 
-1. First, we pre-trained a base agent to walk perfectly (`walker_target_v1` - 40M steps).
+1. First, we pre-trained a base agent intended to walk (`walker_target_v1` - 40M steps).
+   *"Intended"*, not "walking perfectly": measured over 200 seeded target-phase episodes across
+   its 1M-40M checkpoints it enters the 0.45 m success radius twice, with a median forward speed
+   of ~0.00 m/s (see the Phase-1 section). Everything below still holds as stated - the merging
+   experiments compare two policies that share an initialisation - but the "walking policy" leg
+   of the story is a standing/half-fallen policy, which is what the Phase-3 numbers show when
+   they rank the recovery vector above the walking one.
 2. Then, we performed **Transfer Learning**: we duplicated these pre-trained weights and spawned a new training environment focused *exclusively* on recovering from extreme falls (`walker_recovery_v1` - 20M steps).
 3. Because the recovery agent was fine-tuned from the walking agent, they share the same geometric parameter space, allowing us to perform algebraic operations on their matrices.
 
@@ -334,6 +393,10 @@ env-steps/s, which is what a fixed `--total-timesteps` budget actually waits on:
 | Reward path rewritten (SyncVectorEnv, n=32) | 1,536 | **1.5x** |
 | `--vec-backend parallel`, n=32 | 6,694 | **6.5x** |
 
+⚠️ **These are steady-state rates: they time the stepping loop, not a training run.** The same
+three configurations measured end to end (whole SAC runs, worker startup included) come out at
+1.22x and 1.86x, not 1.5x and 6.5x — see "The whole stack, end to end" below.
+
 ⚠️ **How to read these numbers.** This is a laptop CPU whose clocks vary with power and
 thermal state, and repeat runs of the identical command have ranged ~2x apart (the sync
 n=32 configuration measured 1,408, 1,536 and 2,720 env-steps/s in three runs the same
@@ -371,6 +434,82 @@ Three things mattered, and one deliberate non-change:
 from RK4 by `|dq| = 1.96` over 2,000 identical actions — enough that every checkpoint in
 `checkpoints/` would be navigating a different MDP. The training budget (env steps) is
 unchanged everywhere above; only wall clock moves.
+
+### ⏱️ The whole stack, end to end: 1.6x at small budgets, 1.9x at collection-dominated ones
+
+Multiplying the factors above is not a measurement and the product would be wrong: the device
+factor already contains collection, while `bench_env.py`'s steady-state numbers exclude the
+cost of *starting* the worker processes. `bench_stacked.py` runs whole trainers instead, arming
+each change on top of the stack that was committed at 5920805 (that revision's env and trainer
+are extracted with `git show` and aliased in as `envs.walker_ragdoll_env`, one directory deep so
+the env still finds its own `walker_ragdoll.xml`). Best of 2 alternating reps, on a laptop that
+also had a Dreamer run on it for the whole window:
+
+| 20k-step SAC budget, 8 envs | wall clock | vs where we started |
+|:---|---:|---:|
+| original env + original trainer + sync + CPU | 131.8 s | — |
+| + today's trainer (the correctness fixes alone) | 136.7 s | 0.96x |
+| + rewritten env | 141.6 s | 0.93x |
+| + parallel vector backend | 182.6 s | **0.72x** |
+| + GPU learner | 140.2 s | 0.94x |
+| rewritten env + **sync** + GPU learner = today's default at 8 envs | **84.4 s** | **1.56x** |
+
+Two things fall out of that table that the steady-state benchmarks cannot show. First, at 8
+envs the run is learner-bound, so the environment rewrite is *invisible* end to end (0.93x,
+inside the 11% rep spread). Second, the parallel backend is a 28% **loss** at this size,
+because 8 worker processes have to boot before the first step — the measured reason
+`--vec-backend auto` refuses parallel below 16 envs.
+
+Where the environment work does pay is the collection-dominated regime. Same harness, 32 envs,
+600,000 steps with the update gate closed:
+
+| 600k steps, 32 envs, collection only | wall clock | env-steps/s | vs committed |
+|:---|---:|---:|---:|
+| original env + sync | 540.9 s | 1,109 | — |
+| rewritten env + sync | 444.8 s | 1,349 | **1.22x** |
+| rewritten env + parallel | 290.9 s | 2,062 | **1.86x** |
+
+`bench_env.py` reports 7,328 env-steps/s steady state for that last line; over 600k steps the
+same configuration delivers 2,062, because ~200 s of the 290.9 s is 32 child processes importing
+torch and mujoco. With the measured startup and the measured 6,694 env-steps/s wrapped-stack
+rate, a 1M-step collection lands at ~2.1x over the committed sync backend.
+
+**What the repo's own 40M-step run cost.** `checkpoints/walker_target_v1/` holds 41 actor
+checkpoints of one real run at `num_envs=32`; their mtimes date the run itself: 37.6M env steps
+in 547 min of continuous training = **14.5 min per 1M steps (1,146 env-steps/s; segments range
+10.5-16.7 min)**, spread over 23.5 h of calendar time because of two pauses. That is the same
+shape of run as the 1,109 env-steps/s line above, which is the cross-check that makes the
+summary of this section credible: **a committed training run gets ~1.6x faster at 8-env budgets
+and ~1.9x when collection dominates — not 6.5x.** The time that is left is inside the update
+loops, which is the next section.
+
+Evidence: `benchmarks/throughput_stacked_ladder.json` (raw per-rep seconds, the steady-state
+contrast, and the checkpoint-mtime arithmetic).
+
+**What a training run costs.** The two ladders above are chosen regimes, so the last one replays
+the *actual* configuration of the 40M-step run - `num_envs=32`, `learning_starts=10000`,
+`task_phase=target` - for 400,000 steps on both stacks, back to back in the same window
+(`benchmarks/throughput_stacked_ladder_n32real.json`, `python bench_stacked.py --ladder n32_real`):
+
+| 400k steps, 32 envs, target phase | wall clock | min per 1M env steps | 40M extrapolated |
+|:---|---:|---:|---:|
+| committed stack (5920805 env + trainer, sync, CPU) | 927.4 s | 38.6 | 25.7 h |
+| today's default (rewritten env, parallel, CUDA) | 821.1 s | 34.2 | 22.8 h |
+
+**1.13x.** At 32 envs a vector step carries 32 environment steps but only one gradient update,
+and the parent process now spends its time shuttling 32 observations and 32 actions through
+Windows pipes - so neither the physics rewrite nor the GPU learner is the bottleneck any more,
+and the worker startup (~200 s) is paid in full by a run this length.
+
+That is also the honest answer to "how much did training time improve": **1.5-1.6x where the
+learner dominates at small `num_envs`, 1.9x where collection dominates, 1.13x at the exact
+configuration this repo's flagship run used.** Multiply nothing across rows. And note the third
+column of the table above disagrees with history: the checkpoint mtimes say the same committed
+code ran at 14.5 min per 1M steps in May, against 38.6 min per 1M for that identical code replayed
+here on an AC-powered, otherwise idle laptop - a 2.7x machine-state gap that no code change
+explains (`OMP_NUM_THREADS=1` did not move it: 24.2 ms per CPU update against 27.5 ms at 24
+threads). Absolute minutes-per-million on this box are therefore per-window, not per-commit; the
+back-to-back ratios are the ones to reuse.
 
 ### 🧮 The learner side: what was measured, what shipped, what was rejected
 
@@ -537,6 +676,13 @@ That is **3.5x end-to-end** at this budget, and 2.4x on the isolated update step
 → 4.75 ms per critic+actor pair at batch 512, `bench_device.py`). The
 gain shrinks as `num_envs` grows, because rollout collection becomes the dominant cost —
 which is why the env work above matters more than the device.
+
+⚠️ **Those two numbers were taken on an idle GPU and they do not reproduce under load.** The
+same 20k-step budget re-measured while a Dreamer run shared this laptop gave 141.6 s on CPU
+and 84.4 s on CUDA = **1.68x**, and `bench_device.py` on that same evening read 27.88 ms (CPU)
+against 6.22 ms (CUDA) — 4.48x on the ratio but twice the absolute cost of the idle run, because
+the desktop processes and a training peer both queue in the driver. Quote a device factor with
+the load it was measured under; `benchmarks/throughput_stacked_ladder.json` records both pairs.
 
 Use `--device cpu|cuda|auto` to choose. Do **not** force CPU with
 `CUDA_VISIBLE_DEVICES=-1`: with a CUDA build of torch that segfaults partway through

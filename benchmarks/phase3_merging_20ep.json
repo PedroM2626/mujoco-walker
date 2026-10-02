@@ -10,6 +10,11 @@
       "max": 128298.28,
       "q25": -12685.47,
       "q75": 6682.3,
+      "mean_without_best": 2284.88,
+      "mean_without_best_5": -6769.69,
+      "std_over_abs_mean": 4.18,
+      "pct_above_20k": 15.0,
+      "pct_below_minus_10k": 40.0,
       "falls_per_episode": 1.0,
       "standing_at_end_pct": 5.0
     },
@@ -22,6 +27,11 @@
       "max": 96072.79,
       "q25": -12699.85,
       "q75": 847.11,
+      "mean_without_best": -2170.95,
+      "mean_without_best_5": -9297.89,
+      "std_over_abs_mean": 10.19,
+      "pct_above_20k": 10.0,
+      "pct_below_minus_10k": 45.0,
       "falls_per_episode": 0.75,
       "standing_at_end_pct": 5.0
     },
@@ -34,6 +44,11 @@
       "max": 3243.62,
       "q25": -28806.12,
       "q75": -13135.6,
+      "mean_without_best": -21529.49,
+      "mean_without_best_5": -24461.17,
+      "std_over_abs_mean": 0.62,
+      "pct_above_20k": 0.0,
+      "pct_below_minus_10k": 90.0,
       "falls_per_episode": 0.1,
       "standing_at_end_pct": 0.0
     },
@@ -46,6 +61,11 @@
       "max": -5986.73,
       "q25": -21409.39,
       "q75": -12148.91,
+      "mean_without_best": -19454.44,
+      "mean_without_best_5": -21646.12,
+      "std_over_abs_mean": 0.56,
+      "pct_above_20k": 0.0,
+      "pct_below_minus_10k": 90.0,
       "falls_per_episode": 0.2,
       "standing_at_end_pct": 0.0
     }

@@ -303,6 +303,11 @@ def main():
                   f"este repo e {ENV_VERSION!r}; os retornos abaixo sao da env atual. Para o MDP "
                   f"nativo use --env-commit <rev>.")
         task_phase = args.task_phase or phase or "target"
+        # The Dreamer actor samples its stochastic state, so scoring it twice gives two numbers
+        # (the same checkpoint measured -3425.86, -3637.40 and -3278.44 in three unseeded runs).
+        # Seed the policy RNG per model, exactly as openai_walker/evaluate_all.py had to.
+        torch.manual_seed(args.seed)
+        np.random.seed(args.seed)
         if args.task_phase is None and phase and phase != "target":
             print(f"[NOTE] {name} foi treinado em task_phase={phase}; avaliando em "
                   f"{task_phase} (use --task-phase para mudar)")

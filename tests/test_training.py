@@ -38,6 +38,11 @@ class TestTrainingIntegration(unittest.TestCase):
             [
                 sys.executable,
                 "train_walker.py",
+                # Pinned to CPU: these tests spawn real trainers and must not contend for the
+                # GPU, which on this laptop is also where the long runs live. Under a running
+                # training job a CUDA-using test subprocess failed once with
+                # "unspecified launch failure".
+                "--device", "cpu",
                 "--run-id", self.run_id,
                 "--seed", "42",
                 "--total-timesteps", "1024",
@@ -62,6 +67,7 @@ class TestTrainingIntegration(unittest.TestCase):
             [
                 sys.executable,
                 "train_walker.py",
+                "--device", "cpu",
                 "--run-id", self.run_id,
                 "--seed", "42",
                 "--total-timesteps", "512",
@@ -80,6 +86,7 @@ class TestTrainingIntegration(unittest.TestCase):
             [
                 sys.executable,
                 "train_walker.py",
+                "--device", "cpu",
                 "--run-id", self.run_id,
                 "--seed", "42",
                 "--resume",
@@ -114,6 +121,7 @@ class TestTrainingIntegration(unittest.TestCase):
             [
                 sys.executable,
                 "train_walker.py",
+                "--device", "cpu",
                 "--algo", "ppo",
                 "--run-id", self.run_id,
                 "--seed", "42",
@@ -140,6 +148,7 @@ class TestTrainingIntegration(unittest.TestCase):
             [
                 sys.executable,
                 "train_walker.py",
+                "--device", "cpu",
                 "--algo", "td3",
                 "--run-id", self.run_id,
                 "--seed", "42",

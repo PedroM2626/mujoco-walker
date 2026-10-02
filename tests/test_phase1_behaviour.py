@@ -232,6 +232,42 @@ class TestPhase1IsNotABehaviourClaim(unittest.TestCase):
             "the raw reward scale; if this now fails, the checkpoint changed and the README's "
             "Phase-1 wording needs revisiting, not just this bound")
 
+    def test_evidence_actor_does_not_move(self):
+        """The reward-independent version of the same claim.
+
+        Env v9 made posture a bonus instead of a punishment, so returns rose for everything
+        (300-step commanding zero: -3775.76 in v8, +602.63 in v9 - see
+        benchmarks/phase1_inert_reference_v9.json) and a return margin stopped being a
+        diagnostic. Displacement is the same quantity under any reward shape: these checkpoints
+        are evidence that the pipeline runs, not agents that walk.
+        """
+        path = _latest("redq_evidence/redq_actor_*.pt")
+        if path is None:
+            self.skipTest("no REDQ actor checkpoint")
+        state = torch.load(path, map_location="cpu", weights_only=True)
+        width = int(state["backbone.0.weight"].shape[1])
+        agent = SACAgent(width, ACTION_SPACE)
+        agent.load_state_dict(state)
+        agent.eval()
+
+        def policy(obs):
+            x = obs[:width]
+            with torch.no_grad():
+                return agent.get_action(torch.FloatTensor(x).unsqueeze(0),
+                                        deterministic=True)[0].numpy().reshape(-1)
+
+        for label, fn in (("redq", policy), ("commanding zero", lambda o: np.zeros(17))):
+            _total, progress, _stats = _episode(fn)
+            env = gym.make("WalkerRagdoll-v0", reset_mode="mixed", task_phase="target")
+            try:
+                env.reset(seed=SEED)
+                x0 = float(env.unwrapped.data.qpos[0])
+            finally:
+                env.close()
+            self.assertLess(abs(progress - x0), 0.5,
+                            f"{label} displaced {progress - x0:+.3f} m in 300 steps; the README "
+                            "calls these checkpoints evidence, not walkers")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -1,0 +1,42 @@
+{
+  "env_version": "standup_balance_walk_curriculum_v8",
+  "env_commit": "2d59b7b",
+  "tag": "v8",
+  "steps": 300,
+  "seed": 7,
+  "task_phase": "target",
+  "reward": "environment defaults (as tests/test_phase1_behaviour.py runs it)",
+  "checkpoints": {
+    "redq": "redq_actor_6000.pt",
+    "dreamer": "dreamer_actor_8000.pt",
+    "ars": "ars_ckpt_60384.pt"
+  },
+  "returns": {
+    "commanding_zero": -3775.76,
+    "uniform_random": -4146.46,
+    "redq": -4248.46,
+    "dreamer": -3588.23,
+    "ars": -4105.24
+  },
+  "standing_gate": {
+    "commanding_zero": null,
+    "uniform_random": null,
+    "redq": null,
+    "dreamer": null,
+    "ars": null
+  },
+  "mean_x_velocity": {
+    "commanding_zero": -0.00368,
+    "uniform_random": 0.13286,
+    "redq": 0.01421,
+    "dreamer": -0.0773,
+    "ars": 0.01418
+  },
+  "x_displacement_m": {
+    "commanding_zero": -0.011,
+    "uniform_random": 0.3989,
+    "redq": 0.0431,
+    "dreamer": -0.2311,
+    "ars": 0.0426
+  }
+}

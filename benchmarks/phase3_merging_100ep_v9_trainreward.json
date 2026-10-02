@@ -1,5 +1,5 @@
 {
-  "protocol": "evaluate_merging.py --num-episodes 100 --seed 11 (env v9, scored with the training shaping) (corrected harness: seeded resets, checkpoint obs_rms applied, survival read from env health)",
+  "protocol": "evaluate_merging.py --num-episodes 100 --seed 11 (env v9, scored with the training shaping: the reward the experts actually optimise. See benchmarks/reward_term_breakdown_v9.json for what the two protocols differ by per step)",
   "models": {
     "Hardcoded Supervisor": {
       "episodes": 100,
@@ -10,6 +10,11 @@
       "max": 141058.43,
       "q25": 3582.51,
       "q75": 42813.48,
+      "mean_without_best": 26708.73,
+      "mean_without_best_5": 23429.37,
+      "std_over_abs_mean": 1.06,
+      "pct_above_20k": 44.0,
+      "pct_below_minus_10k": 1.0,
       "falls_per_episode": 1.31,
       "standing_at_end_pct": 1.0
     },
@@ -22,6 +27,11 @@
       "max": 121474.3,
       "q25": 3185.52,
       "q75": 29544.36,
+      "mean_without_best": 23078.68,
+      "mean_without_best_5": 19515.37,
+      "std_over_abs_mean": 1.27,
+      "pct_above_20k": 31.0,
+      "pct_below_minus_10k": 0.0,
       "falls_per_episode": 0.92,
       "standing_at_end_pct": 2.0
     },
@@ -34,6 +44,11 @@
       "max": 23193.45,
       "q25": -9553.22,
       "q75": 1742.65,
+      "mean_without_best": -1825.14,
+      "mean_without_best_5": -2621.31,
+      "std_over_abs_mean": 6.04,
+      "pct_above_20k": 1.0,
+      "pct_below_minus_10k": 24.0,
       "falls_per_episode": 0.17,
       "standing_at_end_pct": 0.0
     },
@@ -46,6 +61,11 @@
       "max": 25724.07,
       "q25": -784.27,
       "q75": 4794.77,
+      "mean_without_best": 754.37,
+      "mean_without_best_5": 146.13,
+      "std_over_abs_mean": 8.12,
+      "pct_above_20k": 1.0,
+      "pct_below_minus_10k": 8.0,
       "falls_per_episode": 0.24,
       "standing_at_end_pct": 0.0
     }

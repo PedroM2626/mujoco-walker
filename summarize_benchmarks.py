@@ -48,6 +48,17 @@ def phase3(path="eval_phase3_20ep.log", seed=7, flags="", desc=None,
             continue
         counts.add(len(rewards))
         entry = _stats(rewards)
+        # Distribution descriptors, not just the mean: this task is bimodal, and "the merge
+        # scored -17k" and "the merge scored -17k because most episodes are falls" are different
+        # claims. Recomputed per protocol so a change of scoring can be compared episode-by-
+        # episode rather than by re-deriving an outlier argument by hand.
+        arr = np.asarray(rewards, dtype=float)
+        ordered = np.sort(arr)
+        entry["mean_without_best"] = round(float(ordered[:-1].mean()), 2)
+        entry["mean_without_best_5"] = round(float(ordered[:-5].mean()), 2)
+        entry["std_over_abs_mean"] = round(float(arr.std() / abs(arr.mean())), 2)
+        entry["pct_above_20k"] = round(100.0 * float((arr > 20000.0).mean()), 1)
+        entry["pct_below_minus_10k"] = round(100.0 * float((arr < -10000.0).mean()), 1)
         entry["falls_per_episode"] = round(float(np.mean(falls)), 2) if falls else None
         entry["standing_at_end_pct"] = round(
             100.0 * sum(1 for s in standing if s.lower() == "true") / max(1, len(standing)), 1
@@ -121,6 +132,14 @@ BENCHMARKS = [
     phase3,
     lambda: phase3("eval_phase3_100ep.log", seed=11,
                    out="benchmarks/phase3_merging_100ep.json"),
+    # Same harness re-run after the reward-protocol fix: scored with the reward the experts were
+    # trained against, in env v9. Kept beside the retired file so the two protocols can be
+    # compared episode-by-episode instead of argued about.
+    lambda: phase3("eval_phase3_100ep_v9.log", seed=11,
+                   desc="(env v9, scored with the training shaping: the reward the experts "
+                        "actually optimise. See benchmarks/reward_term_breakdown_v9.json for "
+                        "what the two protocols differ by per step)",
+                   out="benchmarks/phase3_merging_100ep_v9_trainreward.json"),
     lambda: phase3("eval_phase3_100ep_rawobs.log", seed=11, flags=" --raw-obs",
                    desc="(obs_rms deliberately ignored: this arm reproduces the pre-fix "
                         "harness, so it is a measurement of the bug, not a score)",

@@ -20,6 +20,7 @@ import numpy as np
 import torch
 
 import envs.walker_ragdoll_env
+from envs.reward_shaping import reward_kwargs_for
 from train_walker import (
     SACAgent, PPOAgent,
     latest_checkpoint_any,
@@ -29,7 +30,6 @@ from train_walker import (
 )
 from train_moe_gate import MoEGate
 from utils.checkpoint import get_checkpoint_dir
-
 EPSILON = 1e-8
 CLIP = 10.0
 
@@ -96,12 +96,16 @@ def parse_args():
     return args
 
 
-def make_base_env(env_id, reset_mode="mixed", task_phase="recovery"):
+def make_base_env(env_id, reset_mode="mixed", task_phase="recovery", reward_kwargs=None):
+    # reward_kwargs must come from the checkpoint being played: the trainer shapes the reward and
+    # the environment defaults do not match it, so the dashboard the user watches would otherwise
+    # report a return for a reward function the policy never optimised.
     env = gym.make(
         env_id,
         render_mode="rgb_array",
         reset_mode=reset_mode,
         task_phase=task_phase,
+        **(reward_kwargs or {}),
     )
     env = gym.wrappers.FlattenObservation(env)
     env = gym.wrappers.RecordEpisodeStatistics(env)
@@ -158,7 +162,10 @@ def load_single(args, device):
         print(f"[PLAY] checkpoint policy takes {policy_width} dims -> forcing task_phase='target'")
         task_phase = "target"
 
-    env = make_base_env("WalkerRagdoll-v0", reset_mode=args.reset_mode, task_phase=task_phase)
+    rkw, rsrc = reward_kwargs_for(checkpoint)
+    print(f"[PLAY] recompensa usada: {rsrc}")
+    env = make_base_env("WalkerRagdoll-v0", reset_mode=args.reset_mode, task_phase=task_phase,
+                        reward_kwargs=rkw)
     obs_dim = int(np.prod(env.observation_space.shape))
     if obs_dim != policy_width:
         print(f"[ERROR] checkpoint policy expects {policy_width} observations but "
@@ -195,13 +202,17 @@ def load_single(args, device):
 
 def load_moe(args, device):
     """Recreate the evaluate_merging MoE router: g*recovery + (1-g)*walking."""
+    rec_ckpt = load_torch_checkpoint(args.recovery, device)
+    tgt_ckpt = load_torch_checkpoint(args.target, device)
+    # The walking expert decides the scoring reward here, because this env is built for the
+    # target-phase rollouts the router is evaluated on.
     env = make_base_env(
         "WalkerRagdoll-v0",
         reset_mode=args.reset_mode,
         task_phase=args.task_phase or "target",
+        reward_kwargs=reward_kwargs_for(tgt_ckpt)[0],
     )
-    rec_ckpt = load_torch_checkpoint(args.recovery, device)
-    tgt_ckpt = load_torch_checkpoint(args.target, device)
+    print(f"[PLAY MoE] recompensa usada: {reward_kwargs_for(tgt_ckpt)[1]}")
     rec = SACAgent(46, env.action_space).to(device)
     rec.load_state_dict(rec_ckpt.get("actor_state_dict", rec_ckpt))
     rec.eval()

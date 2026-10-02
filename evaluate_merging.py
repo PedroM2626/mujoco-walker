@@ -14,6 +14,11 @@ import gymnasium.wrappers
 import time
 from train_walker import SACAgent
 from train_moe_gate import MoEGate
+from envs.reward_shaping import TRAINING_REWARD_KWARGS, reward_kwargs_for
+
+# Scored with the reward the SAC experts were trained under. Clearing this (see
+# --reward-weights=env-default) reproduces the numbers in the older phase3_*.json artifacts.
+REWARD_KWARGS = dict(TRAINING_REWARD_KWARGS)
 
 EPSILON = 1e-8
 CLIP = 10.0
@@ -64,7 +69,7 @@ def evaluate_paradigm(env_name, paradigm_name, device, rec_agent=None, tgt_agent
     "did it terminate?" definition reported 100% for every strategy regardless of
     whether the robot was lying on the floor.
     """
-    env = gym.make(env_name, reset_mode="mixed", task_phase="target")
+    env = gym.make(env_name, reset_mode="mixed", task_phase="target", **REWARD_KWARGS)
     total_rewards = []
     survivals = []
     falls_per_episode = []
@@ -142,7 +147,13 @@ if __name__ == "__main__":
                         help="Ignora o obs_rms dos checkpoints e alimenta observacoes cruas, "
                              "que e exatamente o que este script fazia antes da correcao. "
                              "Serve para medir o efeito da correcao, nao para pontuar.")
+    parser.add_argument("--reward-weights", default="training", choices=["training", "env-default"],
+                        help="training (padrao) pontua com o mesmo shaping que o train_walker usou; "
+                             "env-default reproduz as tabelas antigas deste arquivo.")
     args = parser.parse_args()
+
+    if args.reward_weights == "env-default":
+        REWARD_KWARGS.clear()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -155,6 +166,16 @@ if __name__ == "__main__":
             print(f"Checkpoint ausente: {p}")
             print("Treine a Fase 3 ou informe --rec-ckpt/--tgt-ckpt/--avg-ckpt/--ta-ckpt/--gate-ckpt.")
             raise SystemExit(2)
+
+    # The experts carry their own target_forward_velocity (walker_target_v1 records 10.0 against
+    # the env default of 0.8), and that value is the clip of the direction term - scoring with a
+    # different one changes the reward the policy optimised. Take it from the checkpoint.
+    if REWARD_KWARGS:
+        REWARD_KWARGS.update(reward_kwargs_for(
+            torch.load(tgt_ckpt, map_location="cpu", weights_only=False))[0])
+        print(f"[REWARD] pontuando com o shaping do treinamento: {dict(REWARD_KWARGS)}")
+    else:
+        print("[REWARD] pontuando com os padroes do ambiente (--reward-weights=env-default)")
 
     rec_agent, rec_rms = load_agent(rec_ckpt, device, input_dim=46)
     tgt_agent, tgt_rms = load_agent(tgt_ckpt, device, input_dim=49)

@@ -71,25 +71,71 @@ under them, and it is not "not enough steps": the curve is flat from 1M to 40M. 
 was fine-tuned from this same base policy, which is the honest context for the Phase-3 result
 that the recovery task vector dominates the merges.
 
-The scorer/trainer reward gap is real and it distorts those tables, but it is **not** the reason
-the agent does not walk. Same 40M policy, same 10 seeds, per-step terms under both weight sets,
-against two behaviours that need no learning at all:
+The scorer used to be a different reward from the one the agent optimised. That is now fixed, and
+fixing it changed the shape of the diagnosis, so both halves are recorded.
 
-| behaviour | training weights | eval defaults | biggest terms (per step, training weights) |
-|:---|---:|---:|:---|
-| SAC 40M policy | **+8.21** | +10.46 | linup +12.19, low_upright -11.15, **target_direction +5.44**, stability +1.16 |
-| commanding zero | -12.33 | -12.26 | low_upright -14.29, linup +0.49, target_direction +0.23 |
-| every actuator at full extension | -23.60 | -23.74 | bad_support -13.04, low_upright -12.16, ctrl -1.70 |
+**The protocol defect and its fix.** `train_walker.py` shaped the reward with its own kwargs
+(`standing_reward=0.0`, `target_direction_reward_weight=200`, `target_progress_reward_weight=300`,
+`stability_reward_weight=20`, `stillness_penalty_weight=5`, `lateral_drift_penalty_weight=3`) while
+the evaluators called `gym.make(...)` with the **environment defaults** (`standing_reward=50.0`,
+direction 80, progress 200, stability 30, stillness 2, drift 2). Same trajectory, two quantities:
+the defaults hand the 40M policy **+4.91/step of `standing`** that training paid zero for, and cut
+its walking term from 5.44 to 2.18 per step. Measured in `benchmarks/reward_term_breakdown.json`
+(the v8 recording) and reproduced by `python bench_reward_terms.py`.
 
-Read that as three things at once. The policy really is better than an inert robot (+8.21 against
--12.33 per step), so the run was not wasted. Its direction term earns 5.44 of the **160/step**
-available at the env's own nominal 0.8 m/s - it is capturing 3% of the walking signal, not
-ignoring an unrewarded one. And `low_upright` at -11.15/step says why: the policy spends the
-episode half-fallen, which is what the +0.032 m/s mean velocity of the same run says too. The eval-default
-column is the defect: it hands the same policy +4.91/step of `standing` that training paid zero
-for and cuts the walking incentive from 5.44 to 2.18, so every absolute return in the Phase-1 and
-Phase-3 tables ranks postures ahead of locomotion. Scoring with the trainer's own kwargs is the
-fix; it is not yet done.
+The fix is one shared dict, `envs/reward_shaping.py::TRAINING_REWARD_KWARGS`, imported by the
+trainer and by `eval_phase1.py` / `evaluate_merging.py`; new SAC/TD3/PPO checkpoints carry their
+effective `reward_kwargs` (and their `target_forward_velocity`) so a scorer reads the reward off
+the artifact instead of guessing, and `reward_kwargs_for()` falls back to the trainer shaping for
+the historical SAC runs and to the environment defaults for ARS/REDQ/Dreamer, which never used
+shaping at all. `--reward-weights env-default` reproduces the old protocol, and every scored row
+prints and stores which reward it used.
+
+Re-scoring the same 200 episodes with the reward these policies actually optimised
+(`benchmarks/target_learning_curve_v9_trainreward.json`) moves the returns by an order of
+magnitude and moves the walking conclusion not at all: **still 2 of 200 episodes inside the
+radius** (the same two - 3M and 10M - and the same 0.31 m best approach), median closest
+approach 2.72-3.50 m, median speed -0.005 to +0.047 m/s. Scoring those checkpoints in the v4 MDP
+they were built for instead
+(`benchmarks/target_learning_curve_envv4_trainreward.json`, 80 episodes) gives 0 of 80. Whatever
+reward function and whatever environment revision you ask the question in, the answer is the same.
+
+**Posture is now a bonus, not a punishment (env v9).** Below `z=0.65` the height term paid nothing
+while `low_upright_penalty` charged `20 x (0.85 - z)` every step, so posture entered the return as
+a punishment (-11.15/step on the 40M policy): a robot near the floor had no positive reward to
+rise toward, only a smaller negative one.
+v9 sets that penalty's default to 0 and grades the height bonus from the floor up
+(`height x (1 + upright)/2`, 0 prone, 1.0 standing), which keeps the ordering and the get-up
+signal while making the return answer "what did you achieve" instead of "how fallen are you". The
+risk of removing a fall cost is that collapsing toward the target becomes the best-paying
+behaviour, so `bench_reward_terms.py` now probes it explicitly, 10 seeded episodes per behaviour
+(`benchmarks/reward_term_breakdown_v9.json`, per step, training weights):
+
+| behaviour | v8 (punished posture) | v9 (posture as bonus) | mean `standing_gate` |
+|:---|---:|---:|---:|
+| SAC 40M policy | +8.21 | **+23.01** | 0.122 |
+| commanding zero | -12.33 | +2.83 | 0.005 |
+| every actuator at full extension | -23.60 | -5.32 | 0.004 |
+| `abdomen_y` at +1 (topple probe) | not probed | +0.27 | 0.003 |
+| `abdomen_y` at -1 (topple probe) | not probed | -4.93 | 0.001 |
+
+No scripted collapse out-earns staying upright, so the exploit the change could have opened is
+closed, and `tests/test_env.py::TestPostureIsABonus` pins it. The column that explains why 40M
+steps did not buy walking is `standing_gate`: every locomotion term in the target phase is
+multiplied by it (`walker_ragdoll_env.py`: `weight x standing_gate x min(v_toward, tvf)`), and the
+policy averages **0.122**. It spends ~88% of each episode outside the window in which moving toward
+the target pays anything at all, which is a much stronger statement than "3% of the walking signal"
+- the walking reward is not merely small, it is mostly unreachable from the posture the policy
+settled into.
+
+v9 is a new MDP, so `ENV_VERSION` moved and the trainer's existing guard refuses old checkpoints
+unless `--allow-mismatched-env-version` says otherwise; `eval_phase1.py --env-commit <rev>` scores
+them in their native revision instead. The reward goldens in `benchmarks/walker_ragdoll_golden.json`
+were regenerated for v9 (`obs_sum` is bit-identical to the v8 recording - the observation math did
+not move; `reward_sum` did, e.g. target 300-step 598.46 to 5576.32). The Phase-1 curve has been
+re-scored under the corrected reward (the two `*_trainreward.json` artifacts above); the Phase-3
+merging table is still the v8 protocol and is being re-run with
+`evaluate_merging.py --num-episodes 100 --seed 11`, which now defaults to the training shaping.
 
 What the task geometrically requires is not in dispute: `timestep=0.002` with `frame_skip=5`
 makes one env step 0.01 s, episodes are capped at 1,000 steps (10 s of simulated time), targets

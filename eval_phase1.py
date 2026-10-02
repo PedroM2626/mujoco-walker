@@ -21,6 +21,7 @@ Usage:
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 
@@ -31,6 +32,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import gymnasium as gym  # noqa: E402
 import envs.walker_ragdoll_env  # noqa: E402,F401  (registers WalkerRagdoll-v0)
+from envs.reward_shaping import TRAINING_REWARD_KWARGS, reward_kwargs_for  # noqa: E402
+from envs.walker_ragdoll_env import ENV_VERSION  # noqa: E402
 from envs import normalize_compat  # noqa: F401,E402  pickle shim for obs_rms
 from evaluate_merging import EPSILON, CLIP, _policy_input  # noqa: E402
 from train_walker import SACAgent  # noqa: E402
@@ -38,6 +41,19 @@ from train_walker import SACAgent  # noqa: E402
 ACTION_SPACE = gym.spaces.Box(-1.0, 1.0, shape=(17,))
 EPISODE_STEPS = 1000
 ALIAS_MARK = "EVAL_PHASE1_ENV_COMMIT"
+
+
+def reward_info_for(ck):
+    """Which reward the checkpoint was trained under, plus the env revision it recorded.
+
+    Scoring an agent with a reward function it never optimised is how "the walkers rank by
+    posture" happened (see README): the evaluators used the environment defaults while
+    train_walker used its own shaping kwargs. The answer is read off the checkpoint.
+    """
+    kwargs, source = reward_kwargs_for(ck)
+    return {"reward_kwargs": kwargs, "reward_source": source,
+            "env_version": ck.get("env_version"), "target_forward_velocity":
+            ck.get("target_forward_velocity")}
 
 
 def _noop_reset():
@@ -79,7 +95,7 @@ def build_policy(path, device):
             # where tanh has already compressed it - and a linear policy is only as good as
             # its gain.
             return np.tanh(x @ weights.T + bias)
-        return algo, phase, int(weights.shape[1]), ars_policy, _noop_reset
+        return algo, phase, int(weights.shape[1]), ars_policy, _noop_reset, reward_info_for(ck)
 
     if algo == "dreamer":
         from train_dreamer import DreamerActor, WorldModel
@@ -133,7 +149,7 @@ def build_policy(path, device):
                 action = actor.get_action(h, z, sample=False)
             state["h"], state["z"], state["a"] = h, z, action
             return action.squeeze(0).cpu().numpy()
-        return algo, phase, obs_dim, dreamer_policy, reset
+        return algo, phase, obs_dim, dreamer_policy, reset, reward_info_for(ck)
 
     # sac / redq / td3 / ppo-style actor: either a full state dict or a checkpoint holding one
     sd = ck.get("actor_state_dict", ck)
@@ -148,18 +164,19 @@ def build_policy(path, device):
         with torch.no_grad():
             return agent.get_action(tensor, deterministic=True)[0].cpu().numpy().reshape(-1)
     label = algo if algo != "unknown" else "sac_actor"
-    return label, phase, width, actor_policy, _noop_reset
+    return label, phase, width, actor_policy, _noop_reset, reward_info_for(ck)
 
 
 def score(policy, episodes, seed, task_phase, steps=EPISODE_STEPS, reset_mode="mixed",
-          on_episode_start=_noop_reset):
+          on_episode_start=_noop_reset, reward_kwargs=None):
     """Run `episodes` seeded episodes and return (reward, falls, standing, telemetry).
 
     The telemetry row answers the question the return value cannot: did the robot actually
     get to the target, how close did it come, and how many of the 1000 available env steps
     did it need.
     """
-    env = gym.make("WalkerRagdoll-v0", reset_mode=reset_mode, task_phase=task_phase)
+    env = gym.make("WalkerRagdoll-v0", reset_mode=reset_mode, task_phase=task_phase,
+                   **(reward_kwargs or {}))
     radius = float(env.unwrapped._target_radius)
     rewards, falls, standing, tele = [], [], [], []
     try:
@@ -252,6 +269,9 @@ def main():
     p.add_argument("--task-phase", default=None,
                    help="override; padrao = a fase gravada no proprio checkpoint")
     p.add_argument("--reset-mode", default="mixed")
+    p.add_argument("--reward-weights", default="auto", choices=["auto", "training", "env-default"],
+                   help="auto = a recompensa gravada no checkpoint (ou a do train_walker para "
+                        "checkpoints SAC antigos); training/env-default forcam um dos dois")
     p.add_argument("--steps", type=int, default=EPISODE_STEPS)
     p.add_argument("--env-commit", default=None, metavar="REV",
                    help="avalia contra a versao do ambiente nesse commit (re-executa o script)")
@@ -273,19 +293,31 @@ def main():
         if not os.path.exists(path):
             print(f"[SKIP] {name}: checkpoint ausente {path}")
             continue
-        algo, phase, width, policy, reset = build_policy(path, device)
+        algo, phase, width, policy, reset, rinfo = build_policy(path, device)
+        rkw, rsrc = dict(rinfo["reward_kwargs"]), rinfo["reward_source"]
+        if args.reward_weights != "auto":
+            rkw = {} if args.reward_weights == "env-default" else dict(TRAINING_REWARD_KWARGS)
+            rsrc = f"forced --reward-weights={args.reward_weights}"
+        if rinfo["env_version"] and rinfo["env_version"] != ENV_VERSION:
+            print(f"[NOTE] {name}: checkpoint salvo com env_version={rinfo['env_version']!r}, "
+                  f"este repo e {ENV_VERSION!r}; os retornos abaixo sao da env atual. Para o MDP "
+                  f"nativo use --env-commit <rev>.")
         task_phase = args.task_phase or phase or "target"
         if args.task_phase is None and phase and phase != "target":
             print(f"[NOTE] {name} foi treinado em task_phase={phase}; avaliando em "
                   f"{task_phase} (use --task-phase para mudar)")
         rewards, falls, standing, tele = score(policy, args.num_episodes, args.seed, task_phase,
-                                               args.steps, args.reset_mode, on_episode_start=reset)
+                                               args.steps, args.reset_mode, on_episode_start=reset,
+                                               reward_kwargs=rkw)
         arr = np.asarray(rewards, dtype=float)
-        step = next((int(s) for s in os.path.basename(path).split("_") if s.isdigit()), None)
+        step_match = re.search(r"(\d+)(?:\.\d+)?\.pt$", os.path.basename(path))
+        step = int(step_match.group(1)) if step_match else None
         reached = [t["reached_target"] for t in tele if t["reached_target"] is not None]
         results[name] = {
             "checkpoint": path, "algo": algo, "task_phase": task_phase,
             "obs_width": width, "global_step": step, "episodes": int(arr.size),
+            "reward_source": rsrc, "reward_kwargs": rkw,
+            "checkpoint_env_version": rinfo["env_version"],
             "mean": round(float(arr.mean()), 2),
             "median": round(float(np.median(arr)), 2),
             "std": round(float(arr.std()), 2),
@@ -307,7 +339,7 @@ def main():
               f"std={arr.std():8.2f} min={arr.min():10.2f} max={arr.max():10.2f} "
               f"quedas/ep={np.mean(falls):.2f} de pe={100*np.mean(standing):.0f}% "
               f"alvo={results[name]['reached_target_pct']}% passos="
-              f"{results[name]['mean_episode_steps']:.0f}")
+              f"{results[name]['mean_episode_steps']:.0f} pesos={rsrc}")
 
     os.makedirs(os.path.dirname(os.path.join(os.getcwd(), args.out)), exist_ok=True)
     payload = {

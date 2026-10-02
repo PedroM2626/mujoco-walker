@@ -211,6 +211,53 @@ class TestForceDeleteRunScope(unittest.TestCase):
                          "without run_name the caller means the whole run id")
 
 
+class TestPostureIsABonus(unittest.TestCase):
+    """v9: posture is a bonus, and the locomotion gate that keeps it a prerequisite stays.
+
+    Before v9 the floor was punished: below z=0.65 the height bonus paid 0 while
+    low_upright_penalty took 20*(0.85-z) every step, so posture entered the return as a
+    punishment (-11.15/step measured on the 40M SAC policy). Removing a fall cost invites a
+    collapse-the-floor exploit, so these pin the two things that have to stay true for the bonus
+    form to be safe: nothing charges for being low, standing still out-earn lying still, and
+    velocity rewards remain unreachable from the floor.
+    """
+
+    def _run(self, reset_mode, action, steps=120, seed=3):
+        env = gym.make("WalkerRagdoll-v0", reset_mode=reset_mode, task_phase="recovery")
+        try:
+            env.reset(seed=seed)
+            linup, gates, low = [], [], []
+            for _ in range(steps):
+                _obs, _r, _t, _tr, info = env.step(np.asarray(action, dtype=np.float32))
+                linup.append(float(info["reward_linup"]))
+                gates.append(float(info.get("standing_gate", 0.0)))
+                low.append(float(info["reward_low_upright"]))
+            return np.mean(linup), np.mean(gates), np.mean(low)
+        finally:
+            env.close()
+
+    def test_no_term_charges_for_low_posture(self):
+        _linup, _gate, low = self._run("fallen", np.zeros(17))
+        self.assertEqual(low, 0.0, "the posture penalty is back; v9 made it default 0")
+
+    def test_height_term_is_never_negative_and_orders_by_posture(self):
+        prone, prone_gate, _ = self._run("fallen", np.zeros(17))
+        upright, upright_gate, _ = self._run("upright", np.zeros(17))
+        self.assertGreaterEqual(prone, 0.0, "the height term paid out negative posture")
+        self.assertGreater(upright, prone,
+                           "standing must out-earn lying, or the get-up incentive is gone")
+        self.assertLess(prone_gate, 0.05,
+                        "a prone robot was inside the standing gate: locomotion terms would be "
+                        "reachable without posture, which is the exploit v9 had to keep closed")
+
+    def test_locomotion_still_requires_posture(self):
+        """standing_gate is the multiplicative gate on every velocity term; v9 did not remove it."""
+        _linup, gate, _low = self._run("fallen", np.zeros(17))
+        _up_linup, up_gate, _ = self._run("upright", np.zeros(17))
+        self.assertLess(gate, 0.05)
+        self.assertGreater(up_gate, gate)
+
+
 class TestMakeEnv(unittest.TestCase):
     def test_make_env(self):
         env = make_env("WalkerRagdoll-v0", 0, False, "test_run")()

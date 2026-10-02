@@ -269,6 +269,9 @@ def main():
     p.add_argument("--task-phase", default=None,
                    help="override; padrao = a fase gravada no proprio checkpoint")
     p.add_argument("--reset-mode", default="mixed")
+    p.add_argument("--device", default="auto", choices=["auto", "cpu"],
+                   help="cpu keeps scoring off the GPU, so an evaluation can run next to a "
+                        "training job instead of colliding with it")
     p.add_argument("--reward-weights", default="auto", choices=["auto", "training", "env-default"],
                    help="auto = a recompensa gravada no checkpoint (ou a do train_walker para "
                         "checkpoints SAC antigos); training/env-default forcam um dos dois")
@@ -284,7 +287,9 @@ def main():
     if not args.model:
         raise SystemExit("nada a avaliar: passe --model NAME=caminho ( repetivel )")
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cpu" if args.device == "cpu" else
+                          ("cuda" if torch.cuda.is_available() else "cpu"))
+    print(f"[EVAL] device: {device}")
     results, per_episode = {}, {}
     for spec in args.model:
         if "=" not in spec:

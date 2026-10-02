@@ -372,6 +372,66 @@ from RK4 by `|dq| = 1.96` over 2,000 identical actions — enough that every che
 `checkpoints/` would be navigating a different MDP. The training budget (env steps) is
 unchanged everywhere above; only wall clock moves.
 
+### 🧮 The learner side: what was measured, what shipped, what was rejected
+
+Collection is not the bottleneck for the Phase-1 algorithms, so "faster training" has to be
+answered per trainer, at the same env-step budget. Every number below is wall clock on this
+laptop (RTX 4070 Laptop 8 GB, 32 threads, `.venv`), one process at a time:
+
+| Trainer | Config | Measured | 1M env steps |
+|:---|:---|:---|:---|
+| `train_ars.py` | linear policy, 10 directions | 1,005,153 steps in 544 s = 1848/s | 9 min |
+| `train_dreamer.py` | 4 envs, update each collect step | 5,000 steps in 37 s with the update gate closed; 14,000 in 898 s with it open | ~18 h |
+| `train_redq.py` | 16 envs, `utd_ratio=20`, ensemble 10 | 10,000 steps in 478 s | ~13 h |
+
+The Dreamer row is the whole story: with its update gate closed it collects 5,000 steps in
+37 s, so ~96% of its wall clock is the learner step and not the physics. The environment is
+already fast enough here; the algorithm's update is what costs.
+
+**Shipped: the world-model KL, batched over time.** It built 49 pairs of
+`torch.distributions.Normal` and called `kl_divergence` once per timestep - 64.9 ms of a
+207.6 ms world-model update, as much as the entire RSSM forward pass, for a 256-unit hidden
+state and a 16x50 batch. Stacking the lists into one `(T, B, z)` pair measures 0.78 ms for the
+same value (0.492967 against 0.492967; 6e-8 relative, float reassociation only). Isolated:
+**207.58 ms -> 100.54 ms, 2.06x**. End to end, A/B on the real trainer with everything else
+equal (same seed, same args, same idle machine, 14,000 steps): **989 s -> 898 s = 1.10x**. The
+2.06x is the truth about the KL and the wrong number to quote for the run, because the
+imagination rollout and the actor-critic losses are Python loops too - that is where the same
+technique would go next. Fixing it also exposed a wrong pairing: `prior_means[t]` predicts
+step t+1 while `post_means[t]` is step t's posterior (and `post_means[0]` is the pre-action
+posterior at step 0), so the regulariser was pulling each step's prior toward the previous
+step's encoder; the value moves 0.4930 -> 0.4947 at initialisation.
+
+**Measured and rejected, because "sounds faster" is not a measurement:**
+
+- **TF32 matmuls: 0.96x** on a full world-model step - no gain, and it changes rounding. These
+  networks are launch-bound, not FLOP-bound, so there is nothing for TF32 to win.
+- **`nn.GRU` instead of the 49-call `GRUCell` scan:** 2.70x on the scan, but the scan is
+  5.18 ms of a ~200 ms step, and the fused layer would not compute the same recurrence here
+  (the loop feeds the *sampled posterior* z back into the next timestep). Rejected.
+- **Pinned memory in `ReplayBuffer.sample`:** bit-identical and 2.26x on `sample()`
+  (0.967 -> 0.427 ms at batch 512), but a REDQ collect step runs `utd_ratio=20` of them inside
+  ~480 ms, and the race-free blocking variant gives only 1.22x - about 1% end to end. Not
+  shipped: the async form's buffer-reuse race is not worth 1%.
+- **Running REDQ and Dreamer concurrently:** 36 and 26 env-steps/s together against ~21 and
+  ~16 alone. Both are launch-bound and serialise in the driver, so the sum of throughputs
+  drops. Kept sequential.
+
+**Two traps for anyone measuring this.** Rates read off the training logs are wrong: the
+trainers print only when an episode ends, so sampling the last `global_step=` line twice a
+minute reported 48 env-steps/s for a Dreamer that actually runs at 15.6 - only wall clock over
+a whole run is trustworthy. And a long job started with `nohup` from an ordinary shell call is
+killed along with that call's process tree some minutes later: three runs died that way in one
+afternoon, silently, with no traceback and the wrapper's exit line never written. Launch long
+runs detached and tracked.
+
+**The dial that is not free: gradient steps per environment step.** `--utd-ratio` (REDQ,
+default 20) and "update every collected batch" (Dreamer with `--num-envs 4`) are how much
+learning each environment step buys. Raising `--num-envs` at a fixed `--total-timesteps` keeps
+the env-step budget exact and still finishes sooner, but it divides the gradient updates per
+sample - a different algorithm, not a faster one. Everything shipped above leaves the env-step
+budget *and* the update count alone.
+
 ### 🚫 JAX / MJX: measured, and it loses here
 
 MJX (MuJoCo XLA) was evaluated as the obvious "make the env much faster" candidate, with

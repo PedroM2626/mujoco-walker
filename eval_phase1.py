@@ -21,6 +21,7 @@ Usage:
 import argparse
 import json
 import os
+import subprocess
 import sys
 
 import numpy as np
@@ -36,6 +37,7 @@ from train_walker import SACAgent  # noqa: E402
 
 ACTION_SPACE = gym.spaces.Box(-1.0, 1.0, shape=(17,))
 EPISODE_STEPS = 1000
+ALIAS_MARK = "EVAL_PHASE1_ENV_COMMIT"
 
 
 def _noop_reset():
@@ -151,18 +153,34 @@ def build_policy(path, device):
 
 def score(policy, episodes, seed, task_phase, steps=EPISODE_STEPS, reset_mode="mixed",
           on_episode_start=_noop_reset):
+    """Run `episodes` seeded episodes and return (reward, falls, standing, telemetry).
+
+    The telemetry row answers the question the return value cannot: did the robot actually
+    get to the target, how close did it come, and how many of the 1000 available env steps
+    did it need.
+    """
     env = gym.make("WalkerRagdoll-v0", reset_mode=reset_mode, task_phase=task_phase)
-    rewards, falls, standing = [], [], []
+    radius = float(env.unwrapped._target_radius)
+    rewards, falls, standing, tele = [], [], [], []
     try:
         for ep in range(episodes):
-            obs, _ = env.reset(seed=seed + ep)
+            obs, info = env.reset(seed=seed + ep)
             on_episode_start()
             total, n_falls = 0.0, 0
+            n_steps = 0
+            dist = float(info.get("target_distance", np.inf))
+            min_dist = dist
+            vel_sum = 0.0
             was_healthy = env.unwrapped.is_healthy
             for _ in range(steps):
                 action = np.asarray(policy(obs), dtype=np.float64).reshape(-1)
-                obs, reward, terminated, truncated, _ = env.step(action)
+                obs, reward, terminated, truncated, info = env.step(action)
+                n_steps += 1
                 total += float(reward)
+                if task_phase == "target":
+                    dist = float(info.get("target_distance", np.inf))
+                    min_dist = min(min_dist, dist)
+                    vel_sum += float(info.get("x_velocity", 0.0))
                 is_healthy = env.unwrapped.is_healthy
                 if was_healthy and not is_healthy:
                     n_falls += 1
@@ -173,9 +191,56 @@ def score(policy, episodes, seed, task_phase, steps=EPISODE_STEPS, reset_mode="m
             falls.append(n_falls)
             standing.append(bool(env.unwrapped.is_healthy
                                  and env.unwrapped.upright_factor > 0.8))
+            tele.append({
+                "steps": n_steps,
+                "min_target_distance": round(min_dist, 3),
+                "reached_target": bool(min_dist <= radius),
+                "mean_x_velocity": round(vel_sum / max(n_steps, 1), 4),
+            } if task_phase == "target" else {
+                "steps": n_steps, "min_target_distance": None,
+                "reached_target": None, "mean_x_velocity": None,
+            })
     finally:
         env.close()
-    return rewards, falls, standing
+    return rewards, falls, standing, tele
+
+
+def _relaunch_with_env(commit, argv):
+    """Re-run this script with an older env revision aliased as envs.walker_ragdoll_env.
+
+    Some checkpoints record an `env_version` that no longer exists in the repo - the 40M SAC run
+    in checkpoints/walker_target_v1 was trained against standup_balance_walk_curriculum_v4, whose
+    last revision is 8d37846. Scoring them against today's v8 mixes two MDPs, so the same
+    protocol can be run against the revision the checkpoint was built for. The alias has to be in
+    sys.modules before the registration import at the top of this file, which means the swap can
+    only happen by starting the process again with a prelude.
+    """
+    root = os.path.dirname(os.path.abspath(__file__))
+    out = subprocess.run(["git", "-c", f"safe.directory={root}", "show",
+                          f"{commit}:envs/walker_ragdoll_env.py"],
+                         cwd=root, capture_output=True, text=True)
+    if out.returncode != 0 or "WalkerRagdollEnv" not in out.stdout:
+        raise SystemExit(f"rev {commit} não tem envs/walker_ragdoll_env.py: {out.stderr[:200]}")
+    # The env resolves its model as dirname(dirname(__file__))/walker_ragdoll.xml, so the copy
+    # has to sit one directory deep, exactly where the real envs/ module sits.
+    tmp = os.path.join(root, "envs", f"_eval_env_{commit[:8]}.py")
+    with open(tmp, "w", encoding="utf-8", newline="") as handle:
+        handle.write(out.stdout)
+    script = (
+        "import importlib.util, runpy, sys\n"
+        f"spec = importlib.util.spec_from_file_location('envs.walker_ragdoll_env', {tmp!r})\n"
+        "mod = importlib.util.module_from_spec(spec)\n"
+        "sys.modules['envs.walker_ragdoll_env'] = mod\n"
+        "spec.loader.exec_module(mod)\n"
+        "print('[ENV] aliased revision " + commit + "', mod.ENV_VERSION)\n"
+        f"sys.argv = ['eval_phase1.py'] + {argv!r}\n"
+        f"runpy.run_path({os.path.join(root, 'eval_phase1.py')!r}, run_name='__main__')\n")
+    try:
+        os.environ[ALIAS_MARK] = commit
+        return subprocess.run([sys.executable, "-u", "-c", script], cwd=root).returncode
+    finally:
+        os.environ.pop(ALIAS_MARK, None)
+        os.remove(tmp)
 
 
 def main():
@@ -188,8 +253,13 @@ def main():
                    help="override; padrao = a fase gravada no proprio checkpoint")
     p.add_argument("--reset-mode", default="mixed")
     p.add_argument("--steps", type=int, default=EPISODE_STEPS)
+    p.add_argument("--env-commit", default=None, metavar="REV",
+                   help="avalia contra a versao do ambiente nesse commit (re-executa o script)")
     p.add_argument("--out", default=os.path.join("benchmarks", "phase1_results.json"))
     args = p.parse_args()
+
+    if args.env_commit and not os.environ.get(ALIAS_MARK):
+        raise SystemExit(_relaunch_with_env(args.env_commit, sys.argv[1:]))
 
     if not args.model:
         raise SystemExit("nada a avaliar: passe --model NAME=caminho ( repetivel )")
@@ -208,10 +278,11 @@ def main():
         if args.task_phase is None and phase and phase != "target":
             print(f"[NOTE] {name} foi treinado em task_phase={phase}; avaliando em "
                   f"{task_phase} (use --task-phase para mudar)")
-        rewards, falls, standing = score(policy, args.num_episodes, args.seed, task_phase,
-                                        args.steps, args.reset_mode, on_episode_start=reset)
+        rewards, falls, standing, tele = score(policy, args.num_episodes, args.seed, task_phase,
+                                               args.steps, args.reset_mode, on_episode_start=reset)
         arr = np.asarray(rewards, dtype=float)
         step = next((int(s) for s in os.path.basename(path).split("_") if s.isdigit()), None)
+        reached = [t["reached_target"] for t in tele if t["reached_target"] is not None]
         results[name] = {
             "checkpoint": path, "algo": algo, "task_phase": task_phase,
             "obs_width": width, "global_step": step, "episodes": int(arr.size),
@@ -221,11 +292,22 @@ def main():
             "min": round(float(arr.min()), 2), "max": round(float(arr.max()), 2),
             "falls_per_episode": round(float(np.mean(falls)), 2),
             "standing_at_end_pct": round(100.0 * np.mean(standing), 1),
+            "mean_episode_steps": round(float(np.mean([t["steps"] for t in tele])), 1),
+            "reached_target_pct": (round(100.0 * np.mean(reached), 1) if reached else None),
+            "mean_min_target_distance": (
+                round(float(np.mean([t["min_target_distance"] for t in tele])), 3)
+                if reached else None),
+            "mean_x_velocity": (
+                round(float(np.mean([t["mean_x_velocity"] for t in tele])), 4) if reached
+                else None),
         }
         per_episode[name] = [float(r) for r in rewards]
+        per_episode[f"{name}__telemetry"] = tele
         print(f"{name:22} mean={arr.mean():10.2f} median={np.median(arr):10.2f} "
               f"std={arr.std():8.2f} min={arr.min():10.2f} max={arr.max():10.2f} "
-              f"quedas/ep={np.mean(falls):.2f} de pe={100*np.mean(standing):.0f}%")
+              f"quedas/ep={np.mean(falls):.2f} de pe={100*np.mean(standing):.0f}% "
+              f"alvo={results[name]['reached_target_pct']}% passos="
+              f"{results[name]['mean_episode_steps']:.0f}")
 
     os.makedirs(os.path.dirname(os.path.join(os.getcwd(), args.out)), exist_ok=True)
     payload = {
@@ -233,6 +315,8 @@ def main():
                      f"(WalkerRagdoll-v0, reset_mode={args.reset_mode}, "
                      f"one env.step per action, checkpoint obs_rms applied, deterministic; "
                      "same protocol as the Phase-3 table)"),
+        "env_version": sys.modules["envs.walker_ragdoll_env"].ENV_VERSION,
+        "env_commit": args.env_commit,
         "models": results,
         "per_episode": per_episode,
     }

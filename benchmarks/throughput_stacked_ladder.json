@@ -1,0 +1,89 @@
+{
+  "measured_on": "2026-10-01/02, Windows 11, i9-14900HX, RTX 4070 Laptop, .venv (Python 3.11, torch 2.4.1+cu121, mujoco 3.2.3)",
+  "harness": "bench_stacked.py (this file was produced by the two ladders it defines)",
+  "machine_state": "A Dreamer 1M-step run was training concurrently on the same laptop for the whole session, so the GPU was shared. This inflates every arm roughly equally and is the reason the end-to-end device factor here (1.68x) is smaller than the 3.5x measured earlier on an idle machine.",
+  "n8_learner_bound": {
+    "config": {
+      "algo": "sac", "steps": 20000, "num_envs": 8, "learning_starts": 4000,
+      "task_phase": "recovery", "reset_mode": "mixed", "seed": 7, "reps": 2,
+      "note": "order alternated between reps so contention hits each arm about equally"
+    },
+    "seconds_per_rep": {
+      "E_orig_env_orig_trainer_sync_cpu": [133.8, 131.8],
+      "D_orig_env_current_trainer_sync_cpu": [152.1, 136.7],
+      "A_new_env_sync_cpu": [142.1, 141.6],
+      "B_new_env_parallel_cpu": [185.1, 182.6],
+      "C_new_env_parallel_cuda": [140.2, 141.6],
+      "A2_new_env_sync_cuda": [84.4, 86.5]
+    },
+    "best_of_reps_seconds": {
+      "E_orig_env_orig_trainer_sync_cpu": 131.8,
+      "D_orig_env_current_trainer_sync_cpu": 136.7,
+      "A_new_env_sync_cpu": 141.6,
+      "B_new_env_parallel_cpu": 182.6,
+      "C_new_env_parallel_cuda": 140.2,
+      "A2_new_env_sync_cuda": 84.4
+    },
+    "speedup_vs_E_where_we_started": {
+      "E_orig_env_orig_trainer_sync_cpu": 1.0,
+      "D_orig_env_current_trainer_sync_cpu": 0.96,
+      "A_new_env_sync_cpu": 0.93,
+      "B_new_env_parallel_cpu": 0.72,
+      "C_new_env_parallel_cuda": 0.94,
+      "A2_new_env_sync_cuda": 1.56
+    },
+    "reading": "At 8 envs a SAC run is learner-bound: ~76% of A2's wall clock is gradient updates, so the env rewrite is invisible (0.93x, inside the 11% rep spread) and the parallel backend is a 28% LOSS because 8 worker processes have to start. Today's default at this size (sync + cuda) is the only arm that beats where we started, by 1.56x."
+  },
+  "n32_collection_only": {
+    "config": {
+      "algo": "sac", "steps": 600000, "num_envs": 32, "learning_starts": 600000,
+      "task_phase": "recovery", "reset_mode": "mixed", "seed": 7, "reps": 1,
+      "note": "learning gate closed, so this ladder measures collection alone"
+    },
+    "seconds": {
+      "D32_orig_env_sync": 540.9,
+      "A32_new_env_sync": 444.8,
+      "B32_new_env_parallel": 290.9
+    },
+    "env_steps_per_s_end_to_end": {
+      "D32_orig_env_sync": 1109,
+      "A32_new_env_sync": 1349,
+      "B32_new_env_parallel": 2062
+    },
+    "speedup_vs_D32": {
+      "D32_orig_env_sync": 1.0,
+      "A32_new_env_sync": 1.22,
+      "B32_new_env_parallel": 1.86
+    },
+    "steady_state_for_contrast": {
+      "source": "benchmarks/throughput_baseline_vs_now.json (bench_env.py --seconds 4)",
+      "before_sync_n32": 1024,
+      "after_env_rewrite_sync_n32": 1536,
+      "after_parallel_backend_n32": 7328,
+      "caveat": "7328 excludes the time to start the worker processes. Over 600k steps the same configuration delivers 2062 env-steps/s end to end, because ~200 s of the 290.9 s is 32 child processes importing torch and mujoco."
+    },
+    "reading": "This is where the environment work actually pays: 1.22x from the hot-path rewrite and 1.86x from the parallel backend, end to end, at 600k steps. Extrapolating the measured startup (~200 s) and steady rate (6694 env-steps/s with the full wrapper stack) to a 1M-step collection gives ~2.1x over the committed sync backend."
+  },
+  "committed_baseline_of_the_real_40M_run": {
+    "source": "mtime deltas between checkpoints/walker_target_v1/sac_actor_<step>.pt (38 segments under 40 min, two pauses excluded)",
+    "num_envs_in_checkpoint": 32,
+    "continuous_work": "37.6M env steps in 547.3 min",
+    "minutes_per_1M_steps": 14.5,
+    "range_minutes_per_1M_steps": [10.5, 16.7],
+    "implied_env_steps_per_s": 1146,
+    "calendar_time_first_to_last_checkpoint": "23.5 h",
+    "matches": "the D32 arm of this file measures 1109 env-steps/s for the same shape of run (original env, sync, n=32)",
+    "env_version_in_checkpoint": "standup_balance_walk_curriculum_v4 (the env is v8 today)",
+    "target_forward_velocity_in_checkpoint": 10.0
+  },
+  "device_factor_under_contention": {
+    "command": "python bench_device.py",
+    "measured_now": {"cpu_ms_per_sac_update_pair": 27.88, "cuda_ms_per_sac_update_pair": 6.22, "ratio": 4.48},
+    "measured_earlier_on_idle_machine": {"cpu_ms_per_sac_update_pair": 11.28, "cuda_ms_per_sac_update_pair": 4.75, "ratio": 2.4},
+    "reading": "Both numbers are real; they were taken on the same hardware with different load. Quote the device factor with the wall-clock window it came from."
+  },
+  "not_a_speedup": {
+    "actor_gate": "The committed gate `global_step % policy_frequency < num_envs` is always true when policy_frequency(2) <= num_envs, so the actor updated on every vector step instead of every other one. Fixing it removes wasted gradient work; arm D vs arm E above shows the corrected trainer costs the same wall clock as the old one within noise.",
+    "dreamer_recording": "train_dreamer.py used to record only obs[0]/actions[0] of each collected vector step, discarding 3 of every 4 transitions. Fixed: the same env-step budget now yields 4x the data. That is a budget-quality change, not a clock change."
+  }
+}

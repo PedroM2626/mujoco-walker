@@ -1,0 +1,160 @@
+{
+  "checkpoint": "checkpoints\\walker_target_v1\\sac_actor_40000000.pt",
+  "episodes": 10,
+  "seed": 11,
+  "steps_per_episode": 1000,
+  "training_kwargs": {
+    "standing_reward": 0.0,
+    "target_direction_reward_weight": 200.0,
+    "target_progress_reward_weight": 300.0,
+    "stand_height_reward_weight": 100.0,
+    "stability_reward_weight": 20.0,
+    "stillness_penalty_weight": 5.0,
+    "lateral_drift_penalty_weight": 3.0
+  },
+  "eval_default_kwargs": {},
+  "weights": {
+    "training_weights": {
+      "sac_policy": {
+        "return_per_step": 8.208,
+        "closest_approach_m": 3.03,
+        "mean_x_velocity": 0.032,
+        "terms_per_step": {
+          "reward_linup": 12.188,
+          "reward_low_upright": -11.153,
+          "reward_target_direction": 5.441,
+          "reward_stability": 1.163,
+          "reward_recovery": 0.942,
+          "reward_ctrl": -0.899,
+          "reward_bad_support": -0.481,
+          "reward_upright": 0.402,
+          "reward_impact": -0.318,
+          "reward_lateral_drift": -0.168,
+          "reward_target_progress": 0.09,
+          "reward_standing": 0.0,
+          "reward_walk": 0.0,
+          "reward_forward_velocity": 0.0,
+          "reward_target_success": 0.0,
+          "reward_stillness": 0.0
+        }
+      },
+      "zero_action": {
+        "return_per_step": -12.33,
+        "closest_approach_m": 3.374,
+        "mean_x_velocity": -0.0093,
+        "terms_per_step": {
+          "reward_low_upright": -14.289,
+          "reward_linup": 0.488,
+          "reward_target_direction": 0.231,
+          "reward_upright": 0.201,
+          "reward_recovery": 0.115,
+          "reward_bad_support": -0.105,
+          "reward_stability": 0.066,
+          "reward_impact": -0.039,
+          "reward_target_progress": 0.003,
+          "reward_lateral_drift": -0.001,
+          "reward_standing": 0.0,
+          "reward_walk": 0.0,
+          "reward_forward_velocity": 0.0,
+          "reward_target_success": 0.0,
+          "reward_ctrl": 0.0,
+          "reward_stillness": 0.0
+        }
+      },
+      "full_extension": {
+        "return_per_step": -23.596,
+        "closest_approach_m": 3.199,
+        "mean_x_velocity": 0.017,
+        "terms_per_step": {
+          "reward_bad_support": -13.042,
+          "reward_low_upright": -12.16,
+          "reward_ctrl": -1.7,
+          "reward_upright": 0.949,
+          "reward_recovery": 0.624,
+          "reward_target_direction": 0.418,
+          "reward_linup": 0.355,
+          "reward_impact": -0.066,
+          "reward_stability": 0.025,
+          "reward_target_progress": 0.008,
+          "reward_lateral_drift": -0.007,
+          "reward_standing": 0.0,
+          "reward_walk": 0.0,
+          "reward_forward_velocity": 0.0,
+          "reward_target_success": 0.0,
+          "reward_stillness": 0.0
+        }
+      }
+    },
+    "eval_defaults": {
+      "sac_policy": {
+        "return_per_step": 10.46,
+        "closest_approach_m": 3.03,
+        "mean_x_velocity": 0.032,
+        "terms_per_step": {
+          "reward_linup": 12.188,
+          "reward_low_upright": -11.153,
+          "reward_standing": 4.91,
+          "reward_target_direction": 2.177,
+          "reward_stability": 1.744,
+          "reward_recovery": 0.942,
+          "reward_ctrl": -0.899,
+          "reward_bad_support": -0.481,
+          "reward_upright": 0.402,
+          "reward_impact": -0.318,
+          "reward_lateral_drift": -0.112,
+          "reward_target_progress": 0.06,
+          "reward_walk": 0.0,
+          "reward_forward_velocity": 0.0,
+          "reward_target_success": 0.0,
+          "reward_stillness": 0.0
+        }
+      },
+      "zero_action": {
+        "return_per_step": -12.256,
+        "closest_approach_m": 3.374,
+        "mean_x_velocity": -0.0093,
+        "terms_per_step": {
+          "reward_low_upright": -14.289,
+          "reward_linup": 0.488,
+          "reward_upright": 0.201,
+          "reward_standing": 0.18,
+          "reward_recovery": 0.115,
+          "reward_bad_support": -0.105,
+          "reward_stability": 0.098,
+          "reward_target_direction": 0.093,
+          "reward_impact": -0.039,
+          "reward_target_progress": 0.002,
+          "reward_lateral_drift": -0.001,
+          "reward_walk": 0.0,
+          "reward_forward_velocity": 0.0,
+          "reward_target_success": 0.0,
+          "reward_ctrl": 0.0,
+          "reward_stillness": 0.0
+        }
+      },
+      "full_extension": {
+        "return_per_step": -23.74,
+        "closest_approach_m": 3.199,
+        "mean_x_velocity": 0.017,
+        "terms_per_step": {
+          "reward_bad_support": -13.042,
+          "reward_low_upright": -12.16,
+          "reward_ctrl": -1.7,
+          "reward_upright": 0.949,
+          "reward_recovery": 0.624,
+          "reward_linup": 0.355,
+          "reward_target_direction": 0.167,
+          "reward_standing": 0.095,
+          "reward_impact": -0.066,
+          "reward_stability": 0.038,
+          "reward_target_progress": 0.006,
+          "reward_lateral_drift": -0.005,
+          "reward_walk": 0.0,
+          "reward_forward_velocity": 0.0,
+          "reward_target_success": 0.0,
+          "reward_stillness": 0.0
+        }
+      }
+    }
+  }
+}

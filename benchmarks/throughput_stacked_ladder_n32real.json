@@ -1,0 +1,20 @@
+{
+  "n32_real": {
+    "label": "n=32 target-phase SAC, the 40M run's own configuration",
+    "config": {
+      "steps": 400000,
+      "num_envs": 32,
+      "learning_starts": 10000,
+      "task_phase": "target",
+      "reps": 1
+    },
+    "arms": {
+      "E32_orig_env_orig_trainer_sync_cpu": [
+        927.4
+      ],
+      "G32_new_env_parallel_cuda": [
+        821.1
+      ]
+    }
+  }
+}

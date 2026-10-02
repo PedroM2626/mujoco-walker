@@ -381,12 +381,18 @@ laptop (RTX 4070 Laptop 8 GB, 32 threads, `.venv`), one process at a time:
 | Trainer | Config | Measured | 1M env steps |
 |:---|:---|:---|:---|
 | `train_ars.py` | linear policy, 10 directions | 1,005,153 steps in 544 s = 1848/s | 9 min |
-| `train_dreamer.py` | 4 envs, update each collect step | 5,000 steps in 37 s with the update gate closed; 14,000 in 898 s with it open | ~18 h |
+| `train_dreamer.py` | 4 envs, update each collect step | 5,000 steps in 37 s with the update gate closed; 14,000 in 898 s in one A/B window and in 205 s later, same build | ~4-18 h |
 | `train_redq.py` | 16 envs, `utd_ratio=20`, ensemble 10 | 10,000 steps in 478 s | ~13 h |
 
 The Dreamer row is the whole story: with its update gate closed it collects 5,000 steps in
 37 s, so ~96% of its wall clock is the learner step and not the physics. The environment is
 already fast enough here; the algorithm's update is what costs.
+
+The 4x spread on that row is not measurement noise and it is not the code: this is a laptop
+whose GPU is also serving Brave, Medal.tv and Overwolf (`nvidia-smi` shows five desktop
+compute contexts holding ~2.1 GB before any training starts). Two runs of the same build
+measured 15.6 and 68 env-steps/s. Treat every ETA in this table as a range, and quote a
+rate only with the wall-clock window it came from.
 
 **Shipped: the world-model KL, batched over time.** It built 49 pairs of
 `torch.distributions.Normal` and called `kl_divergence` once per timestep - 64.9 ms of a

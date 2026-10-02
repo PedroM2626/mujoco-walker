@@ -223,7 +223,10 @@ def main():
     sub = p.add_subparsers(dest="cmd", required=True)
 
     stale = sub.add_parser("stale-runs", help="find runs left RUNNING by killed processes")
-    stale.add_argument("--days", type=int, default=7)
+    # Float, not int: the runs that need this now die within hours (a CUDA launch failure at
+    # 17:06 left a RUNNING row), and the smallest whole-day window that catches it - 1 - would
+    # also close the trainer that is legitimately still running beside it.
+    stale.add_argument("--days", type=float, default=7)
     stale.add_argument("--uri", default=None,
                        help="Tracking URI to inspect (default: the repo-root mlruns.db).")
     stale.add_argument("--all", action="store_true",

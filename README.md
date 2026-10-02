@@ -134,8 +134,15 @@ them in their native revision instead. The reward goldens in `benchmarks/walker_
 were regenerated for v9 (`obs_sum` is bit-identical to the v8 recording - the observation math did
 not move; `reward_sum` did, e.g. target 300-step 598.46 to 5576.32).
 
-What the task geometrically requires is not in dispute: `timestep=0.002` with `frame_skip=5`
-makes one env step 0.01 s, episodes are capped at 1,000 steps (10 s of simulated time), targets
+The first Phase-1 run trained on v9 is ARS at its full 1M budget
+(`benchmarks/phase1_ars_v2_1m_v9.json`, 20 seeded target-phase episodes, scored with the
+environment defaults because `train_ars.py` never used the trainer shaping): mean 8679.40,
+median 8898.85, std 4904.52, 0.35 falls per episode, **0 of 20 inside the radius**, mean closest
+approach 3.015 m, mean x-velocity -0.0216 m/s. Same verdict as v8's ARS at the same budget, which
+is the comparison that makes the v9 change safe to have made: the reward shape moved the returns,
+not the behaviour.
+
+What the task geometrically requires is not in dispute: `timestep=0.002` with `frame_skip=5`makes one env step 0.01 s, episodes are capped at 1,000 steps (10 s of simulated time), targets
 spawn 2-5 m away and the success radius is 0.45 m. Reaching the near target needs 0.2 m/s
 sustained, the far one 0.5 m/s; at the env's own nominal 0.8 m/s the walk itself is 250-625 env
 steps of a 1000-step episode. Every checkpoint above averages ~0.0 m/s, so none of them is
@@ -145,14 +152,31 @@ retraining would take in wall clock.
 
 The scale of that table matters: REDQ and Dreamer wrap the environment in `NormalizeReward`,
 so the `Mean return` column is a normalised sum, not the reward the raw environment reports.
-On the raw scale the same checkpoints are still indistinguishable from an inert robot -
-measured over an identical seeded 300-step rollout of `WalkerRagdoll-v0`, REDQ scores
--3826.77, Dreamer -3836.79 and ARS -3887.55, against **-3775.76 for commanding zero** and
--3857.06 for uniform random actions. `tests/test_phase1_behaviour.py` pins that reading: it
-checks the loading contract of each evidence checkpoint (recorded observation width, matching
-`obs_rms`, actions inside the action box, `deterministic=True` really being deterministic) and
-asserts that the 6k-step actor is *not* better than doing nothing, so the claim breaks the
-moment someone reads these rows as behaviour.
+On the raw scale the same checkpoints are indistinguishable from an inert robot. Measured in env
+v8 over one seeded 300-step rollout each (`benchmarks/phase1_inert_reference_v8.json`,
+`python bench_inert_reference.py --tag v8 --env-commit 2d59b7b`): commanding zero **-3775.76**,
+uniform random -4146.46, REDQ -4248.46, Dreamer -3588.23, ARS -4105.24 - and **none of the five
+moves more than 0.4 m**.
+
+Two things are worth saying about that sentence. It used to read -3826.77 / -3836.79 / -3887.55 /
+-3857.06 for those same rollouts: those figures were transcribed by hand into a note string and
+**could not be reproduced from any recorded protocol**, so they are replaced here and in
+`benchmarks/phase1_evidence.json` by the artifact above. Getting them reproducible also exposed a
+second defect: the Dreamer actor samples its stochastic state, so scoring the same checkpoint twice
+gave a different number three times (-3425.86, -3637.40, -3278.44) until the policy RNG was seeded -
+`eval_phase1.py` now seeds per model, the same fix `openai_walker/evaluate_all.py` needed.
+
+And in env v9, where posture is a bonus instead of a punishment, all five land in one band -
+commanding zero +602.63, random +237.06, REDQ +781.97, ARS +729.58, Dreamer +1691.21 - with the
+*same* sub-0.4 m displacements and a `standing_gate` of 0.000 for every one of them
+(`benchmarks/phase1_inert_reference_v9.json`). The return scale moved by +4.4k to +5.3k; the
+behaviour did not move at all. That is why a return is a bad thing to pin "it does not walk" on, and
+why `tests/test_phase1_behaviour.py` now pins the claim three ways: the loading contract of each
+evidence checkpoint (recorded observation width, matching `obs_rms`, actions inside the action box,
+`deterministic=True` really being deterministic), the "not better than doing nothing" return margin,
+and a new **displacement** assertion - under 0.5 m of travel in 300 steps for both the REDQ evidence
+actor and commanding zero - because displacement means the same thing in every reward revision while
+a return does not.
 
 ### 🟡 Phase 2: MuJoCo MPC & Imitation Learning (Root Directory)
 To achieve mathematically perfect locomotion, we tapped into the official DeepMind C++ MuJoCo MPC (Model Predictive Control) planner:
@@ -244,17 +268,39 @@ the floor. Scored with the reward they were trained against, both merges sit nea
 positive medians (1004.07 / -1574.96, medians 1766.85 / 1476.67), which is a much more defensible
 statement of "the merge degrades performance" than "the merge is catastrophic".
 
-Points 1-5 below are analyses computed from the retired-protocol file; their arithmetic is about
-those numbers and has to be redone against the corrected artifact before being quoted.
+Points 2 and 3 below are about the `obs_rms` input bug and were measured under the retired reward
+protocol; they have not been re-run under v9, and their conclusion (the input error, not the
+router) is a statement about inputs, so it is independent of the scoring. Points 1, 4 and 5 are
+quoted from the corrected artifact where it matters: falls per episode (1.31 supervisor, 0.92 MoE,
+0.24/0.17 merged) and the upright-at-end share (1% / 2% / 0% / 0%) are identical under both
+protocols, because posture at the end of an episode is not a reward quantity. What changed is the
+distribution reading in point 1.
 
 Read this table before citing it:
 
-1. **The mean is carried by outliers.** The supervisor's std (31259.57) is 2.3x its mean and
-   MoE's (32424.26) is 3.5x, while only the supervisor's median is positive (831.31) against
-   MoE's -4391.54. Delete the single best episode and the supervisor
-   falls from 13549.68 to 12239.87, MoE from 9199.76 to 8042.06; delete the best five and they
-   become 8889.50 and 4437.68. 32% of supervisor episodes score above +20k while 28% score
-   below -10k, so this is a bimodal task: rank by median, or say which one you mean.
+1. **How much the mean is carried by outliers depends entirely on which reward you score with,
+   so both are recorded** (`mean_without_best`, `std_over_abs_mean` and the tail shares are fields
+   of both JSON files, recomputed from the logs by `python summarize_benchmarks.py`):
+
+   | strategy | protocol | mean | median | std/\|mean\ | drop best 1 | drop best 5 | share below -10k |
+   |:---|:---|---:|---:|---:|---:|---:|---:|
+   | Hardcoded Supervisor | retired | 13549.68 | 831.31 | 2.31 | 12239.87 | 8889.50 | 28% |
+   | Hardcoded Supervisor | corrected | 27852.23 | 16525.67 | **1.06** | 26708.73 | 23429.37 | **1%** |
+   | Mixture of Experts | retired | 9199.76 | -4391.54 | 3.52 | 8042.06 | 4437.68 | 33% |
+   | Mixture of Experts | corrected | 24062.63 | 11046.13 | **1.27** | 23078.68 | 19515.37 | **0%** |
+   | Task Arithmetic | corrected | 1004.07 | 1766.85 | 8.12 | 754.37 | 146.13 | 8% |
+   | Weight Averaging | corrected | -1574.96 | 1476.67 | 6.04 | -1825.14 | -2621.31 | 24% |
+
+   The retired protocol's famous bimodality was mostly the scorer. Under the environment defaults,
+   28% of supervisor episodes and 33% of MoE episodes scored below -10k, and dropping the single
+   best episode moved the supervisor mean by 1310 points - that is the signature of a return that
+   is negative whenever the robot is on the floor. Scored with the reward the experts optimise, the
+   supervisor's std/|mean| falls from 2.31 to 1.06, its below--10k share from 28% to 1%, and its
+   median rises from 831 to 16526: the distribution is no longer two humps, it is a wide single one
+   with 44% of episodes above +20k. What *is* still outlier-driven is the merged policies - under
+   the corrected scoring their means are near zero with std/|mean| of 8.12 and 6.04, which is why
+   their median (1766.85 / 1476.67) is the number to quote, not the mean. Rank by median, or say
+   which one you mean.
 2. **The previously published ordering was one specific line of code, and it has now been
    reproduced rather than asserted.** The retired table (`git show 32da152:README.md`) read
    -11191.88 / -11692.61 / -11763.92 / -16958.91 for supervisor / weight averaging / MoE /
@@ -264,7 +310,7 @@ Read this table before citing it:
    pickled inside each checkpoint. Re-running the *corrected* script with `--raw-obs` - which
    now exists solely to reproduce that input path - at the same 100 episodes and seed 11:
 
-   | Merging strategy | corrected (`obs_rms`) | raw obs = old harness | retired publication |
+   | Merging strategy | corrected harness, retired reward (`obs_rms`) | raw obs = old harness | retired publication |
    |:---|---:|---:|---:|
    | Hardcoded Supervisor | 13549.68 | -11691.90 | -11191.88 |
    | Weight Averaging (50/50) | -18313.84 | -11591.29 | -11692.61 |

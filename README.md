@@ -132,10 +132,7 @@ v9 is a new MDP, so `ENV_VERSION` moved and the trainer's existing guard refuses
 unless `--allow-mismatched-env-version` says otherwise; `eval_phase1.py --env-commit <rev>` scores
 them in their native revision instead. The reward goldens in `benchmarks/walker_ragdoll_golden.json`
 were regenerated for v9 (`obs_sum` is bit-identical to the v8 recording - the observation math did
-not move; `reward_sum` did, e.g. target 300-step 598.46 to 5576.32). The Phase-1 curve has been
-re-scored under the corrected reward (the two `*_trainreward.json` artifacts above); the Phase-3
-merging table is still the v8 protocol and is being re-run with
-`evaluate_merging.py --num-episodes 100 --seed 11`, which now defaults to the training shaping.
+not move; `reward_sum` did, e.g. target 300-step 598.46 to 5576.32).
 
 What the task geometrically requires is not in dispute: `timestep=0.002` with `frame_skip=5`
 makes one env step 0.01 s, episodes are capped at 1,000 steps (10 s of simulated time), targets
@@ -225,6 +222,30 @@ ordering. Evidence: `benchmarks/phase3_merging_100ep.json`, recomputed with
 | **Mixture of Experts (MoE)** | 9199.76 | -4391.54 | 32424.26 | 0.92 | 2% |
 | **Task Arithmetic** | -17410.69 | -15126.37 | 8661.12 | 0.24 | 0% |
 | **Weight Averaging (50/50)** | -18313.84 | -13297.76 | 10650.28 | 0.17 | 0% |
+
+⚠️ **That table is the retired protocol** (env v8, scored with the environment's default reward
+weights). Re-run identically - `evaluate_merging.py --num-episodes 100 --seed 11`, 400 episodes,
+same checkpoints and same seeded resets - but scored with the reward the experts actually
+optimised, in env v9 (`benchmarks/phase3_merging_100ep_v9_trainreward.json`):
+
+| Merging Strategy | mean, retired protocol | mean, corrected | median, retired | median, corrected | Falls / episode |
+|:---|---:|---:|---:|---:|---:|
+| Hardcoded Supervisor | 13549.68 | **27852.23** | 831.31 | **16525.67** | 1.31 |
+| Mixture of Experts (MoE) | 9199.76 | **24062.63** | -4391.54 | **11046.13** | 0.92 |
+| Task Arithmetic | -17410.69 | **1004.07** | -15126.37 | **1766.85** | 0.24 |
+| Weight Averaging (50/50) | -18313.84 | **-1574.96** | -13297.76 | **1476.67** | 0.17 |
+
+The ordering is identical, so the Phase-3 conclusion - a routed or supervised policy beats both
+static merges - does not depend on the protocol. What the protocol was doing is hiding the sign:
+under the retired scoring Task Arithmetic and Weight Averaging looked catastrophic (-17.4k and
+-18.3k with -15.1k/-13.3k medians), and almost all of that depth was the posture punishment the
+scorer was applying - `-low_upright x 20 x (0.85-z)` on robots that spend most of an episode on
+the floor. Scored with the reward they were trained against, both merges sit near zero with
+positive medians (1004.07 / -1574.96, medians 1766.85 / 1476.67), which is a much more defensible
+statement of "the merge degrades performance" than "the merge is catastrophic".
+
+Points 1-5 below are analyses computed from the retired-protocol file; their arithmetic is about
+those numbers and has to be redone against the corrected artifact before being quoted.
 
 Read this table before citing it:
 
@@ -608,13 +629,21 @@ step's encoder; the value moves 0.4930 -> 0.4947 at initialisation.
   ~16 alone. Both are launch-bound and serialise in the driver, so the sum of throughputs
   drops. Kept sequential.
 
-**Two traps for anyone measuring this.** Rates read off the training logs are wrong: the
+**Three traps for anyone measuring this.** Rates read off the training logs are wrong: the
 trainers print only when an episode ends, so sampling the last `global_step=` line twice a
 minute reported 48 env-steps/s for a Dreamer that actually runs at 15.6 - only wall clock over
 a whole run is trustworthy. And a long job started with `nohup` from an ordinary shell call is
 killed along with that call's process tree some minutes later: three runs died that way in one
 afternoon, silently, with no traceback and the wrapper's exit line never written. Launch long
 runs detached and tracked.
+
+**A third way to lose a run: sharing this laptop's GPU.** The Dreamer 1M attempt of 2026-10-02 got
+to 84,456 steps and died with `RuntimeError: CUDA error: unspecified launch failure` - inside a
+window in which two other processes were also using the CUDA device (a Phase-3 re-score and a
+checkpoint sweep). It left no checkpoint, because `train_dreamer.py` writes one at the default
+interval and 84k steps had not reached it. The queue has therefore been relaunched detached with
+`--checkpoint-interval 100000`, so the next such crash costs at most one checkpoint interval
+instead of the whole run, and GPU-using measurement jobs are not run alongside training.
 
 **The dial that is not free: gradient steps per environment step.** `--utd-ratio` (REDQ,
 default 20) and "update every collected batch" (Dreamer with `--num-envs 4`) are how much

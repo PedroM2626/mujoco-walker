@@ -14,6 +14,8 @@
         265.05
       ],
       "significant_at_95": false,
+      "wins_a": 19,
+      "wins_b": 31,
       "ties": 0,
       "mean_only_significant": false,
       "paired_t_p": 0.9228,
@@ -32,6 +34,8 @@
         316.8
       ],
       "significant_at_95": false,
+      "wins_a": 23,
+      "wins_b": 27,
       "ties": 0,
       "mean_only_significant": false,
       "paired_t_p": 0.7853,
@@ -50,6 +54,8 @@
         742.47
       ],
       "significant_at_95": false,
+      "wins_a": 32,
+      "wins_b": 18,
       "ties": 0,
       "mean_only_significant": false,
       "paired_t_p": 0.0841,
@@ -68,11 +74,33 @@
         419.11
       ],
       "significant_at_95": false,
+      "wins_a": 27,
+      "wins_b": 23,
       "ties": 0,
       "mean_only_significant": false,
       "paired_t_p": 0.7853,
       "wilcoxon_p": 0.7888,
       "cohens_dz": 0.039
+    },
+    {
+      "pair": "BCQ - Teacher (Upper Bound)",
+      "episodes": 50,
+      "mean_a": 2732.6,
+      "mean_b": 3516.95,
+      "mean_difference": -784.34,
+      "std_of_difference": 1260.68,
+      "bootstrap_95ci": [
+        -1122.42,
+        -439.76
+      ],
+      "significant_at_95": true,
+      "wins_a": 13,
+      "wins_b": 37,
+      "ties": 0,
+      "mean_only_significant": true,
+      "paired_t_p": 0.0001,
+      "wilcoxon_p": 0.0,
+      "cohens_dz": -0.622
     }
   ]
 }

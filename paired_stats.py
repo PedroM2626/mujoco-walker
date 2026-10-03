@@ -23,9 +23,15 @@ from scipy import stats
 ROOT = os.path.dirname(os.path.abspath(__file__))
 HERE = os.path.join(ROOT, "openai_walker")
 
-# The two pairs the 50-episode table could not separate.
+# The pairs the 50-episode table could not separate. The last two are the same comparison read
+# from each side, because the committed artifact has carried both since the seeding fix and a
+# regeneration that drops a measured row is a content change, not a tidy-up.
+#
+# BCQ - Teacher is the pair the retired single-episode leaderboard asserted without testing: its
+# top row claimed BCQ "beat the online teacher", and that is a claim about these two models.
 DEFAULT_PAIRS = [("BC", "Teacher (Upper Bound)"), ("BCQ", "BC+SAC (Regularized)"),
-                 ("Extra Trees", "BCQ")]
+                 ("Extra Trees", "BCQ"), ("BC+SAC (Regularized)", "BCQ"),
+                 ("BCQ", "Teacher (Upper Bound)")]
 
 
 def load_episodes(episodes, seed):
@@ -79,6 +85,10 @@ def paired_test(a, b, label_a, label_b, resamples=20000, rng_seed=0):
         "std_of_difference": round(float(sd), 2) if sd == sd else None,
         "bootstrap_95ci": [round(float(lo), 2), round(float(hi), 2)],
         "significant_at_95": bool(lo > 0 or hi < 0),
+        # A mean can be tied while one model wins most episodes, and the retired leaderboard was
+        # one episode apiece, so the win count is what a single draw actually samples from.
+        "wins_a": int((d > 0).sum()),
+        "wins_b": int((d < 0).sum()),
         "ties": int(n - nonzero.size),
         "mean_only_significant": bool(abs(d.mean()) >
                                       1.96 * float(np.sqrt(a.var(ddof=1) / n + b.var(ddof=1) / n))),

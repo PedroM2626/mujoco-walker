@@ -476,9 +476,11 @@ What this measurement changes, stated plainly:
 
 ### Historical record: one unseeded episode per model (`final_results.txt`)
 
-Kept because the per-model *explanations* below are the substance of this phase, and
-because this is the file the earlier version of this README contradicted. The scores are
-single unseeded draws — compare them with the 50-episode table above rather than quoting them.
+Kept for the numbers themselves - this is the file the earlier version of this README
+contradicted - and for the handful of facts only this record carries, listed under the table.
+The scores are single unseeded draws: compare them with the 50-episode table above rather than
+quoting them, and read `benchmarks/phase4_n1_vs_50ep.json` for where each draw sits inside the
+distribution its own weights produce today.
 
 **Which of these can still be re-measured.** `.gitignore` excludes `*.pt`, so none of the PyTorch
 Phase-4 policies is version-controlled - the teacher is the exception, committed as
@@ -502,22 +504,45 @@ window nothing records what it held. It is listed among the unsupported figures 
 is the one of them whose gap has no candidate cause on record - BC's retired 3837.80, by
 contrast, is +0.47 sigma inside its own distribution and needed no explanation at all.
 
-| Model Architecture | Final Score | Analysis |
-|:---|:---:|:---|
-| **Batch-Constrained Q-learning (BCQ)** | **3897.63** | 🏆 **Best strictly-offline model.** It beat the online teacher without taking a single environment step during training, by using a VAE to propose actions and a perturbation network to refine them, which keeps it on the data manifold instead of exploiting unseen state-action pairs. |
-| **Teacher (Online SAC)** | 3865.41 | The pure online expert that generated the dataset, and the upper bound the offline methods are measured against. |
-| **BC+SAC (Regularized)** | 3396.81 | **Best offline-to-online hybrid.** Started from BC weights, then kept exploring with SAC while a BC loss regularised the actor to prevent catastrophic forgetting. It lands below BCQ and below the teacher in this recording, so it is not the champion an earlier version of this file claimed. |
-| **Behavioral Cloning (BC)** | 1728.81 | Pure supervised cloning of the teacher. The dataset was narrow and deterministic, so cloning worked, but at roughly 45% of the teacher rather than the near-match previously reported here. |
-| **Decision Transformer (DT)** | 1288.02 | 🧠 Recast Walker as sequence modelling with a causal transformer, conditioned on Return-To-Go. Scored this in only 10 epochs (100k steps) of training. |
-| **Extra Trees Cloner (sklearn)** | *not in the recorded race* | 🌳 Trained in seconds on CPU and genuinely competitive. It is absent from `final_results.txt`, so it was never ranked against the rest; the "~2522 over 5 episodes / ~3900 in-distribution / ~900 when forced to extrapolate" breakdown quoted here exists nowhere in the repo as a measurement. On the 50-episode seeded protocol it measures 3092.22 ± 1034.38, which is third in the table above. |
-| **BC+SAC (Naive)** | 1369.87 | Unregularised: the SAC critic was random at first contact and its gradients overwrote the cloned policy early. Better than pure BC here, but well below the regularized variant. |
-| **Inverse RL (GAIL)** | 997.57 | 🤖 Learned entirely from an adversarial discriminator's reward, with no knowledge of the environment reward. Trained to 1,000,000 steps and plateaued near 1000: the dataset was too deterministic, so the discriminator became a perfect judge and starved the actor of gradient. |
-| **CQL+SAC** | 401.80 | Fine-tuning a Q-function that had already collapsed on the narrow dataset. |
-| **BC+SAC (Constrained)** | 338.67 | Hard-clipping the actor's actions to the BC actions destroyed gradient propagation. |
-| **CQL Offline** | 315.37 | Conservative Q-Learning failed to learn. Offline RL needs diverse, overlapping datasets for the Bellman backup to mean anything; on a single narrow expert path, Q-learning collapses. |
-| **MaxEnt IRL** | 269.61 | Classic feature-expectation matching with a linear reward model ($r = \theta^{\top}\phi$), too weak to express 3D bipedal locomotion. |
-| **Inverse RL (AIRL)** | -6.36 | 💥 The first version produced `NaN` gradients where deterministic dataset actions hit the `atanh` limits. Rebuilt with spectral normalisation, action clipping ($\pm 0.95$) and an $h(s)$ reward-shaping baseline; still stuck near -5. A 20-hour server restart killed a long run mid-training. |
-| **IQL Offline** | -15.81 | Implicit Q-Learning also collapsed for lack of dataset diversity. |
+| Model Architecture | Final Score |
+|:---|---:|
+| **Batch-Constrained Q-learning (BCQ)** | **3897.63** |
+| **Teacher (Online SAC)** | 3865.41 |
+| **BC+SAC (Regularized)** | 3396.81 |
+| **Behavioral Cloning (BC)** | 1728.81 |
+| **BC+SAC (Naive)** | 1369.87 |
+| **Decision Transformer (DT)** | 1288.02 |
+| **Inverse RL (GAIL)** | 997.57 |
+| **CQL+SAC** | 401.80 |
+| **BC+SAC (Constrained)** | 338.67 |
+| **CQL Offline** | 315.37 |
+| **MaxEnt IRL** | 269.61 |
+| **Inverse RL (AIRL)** | -6.36 |
+| **IQL Offline** | -15.81 |
+
+**What only this record tells you.** Five things are here that the 50-episode table cannot say,
+because they are about how the models were built rather than how they scored:
+
+1. **DT reached 1288.02 after 10 epochs (100k steps) of training** - the least-trained model in
+   the race, and also the widest spread in the seeded table (std 1101.18). Stated side by side, not
+   as cause and effect: nothing here separates under-training from the variance a
+   Return-To-Go-conditioned policy has on its own.
+2. **GAIL was trained to 1,000,000 steps and plateaued near 1000.** The dataset was too
+   deterministic, so the discriminator became a perfect judge and starved the actor of gradient.
+   That plateau, not a bad evaluation, is what the near-zero variance measures.
+3. **AIRL was rebuilt once.** The first version produced `NaN` gradients where deterministic
+   dataset actions hit the `atanh` limits; it came back with spectral normalisation, action
+   clipping ($\pm 0.95$) and an $h(s)$ reward-shaping baseline, and still sits near -6. A 20-hour
+   server restart killed a long run mid-training.
+4. **The BC+SAC (Regularized) mechanism** is what its row was measuring: start from BC weights,
+   keep exploring with SAC, and hold the actor near the clone with a BC loss to prevent
+   catastrophic forgetting. The 50-episode table says that arrangement lands below plain BC; this
+   record is where the "below the teacher and BCQ, so not the champion an earlier version claimed"
+   reading comes from.
+5. **Extra Trees was never in this race.** It is absent from `final_results.txt`, so it was never
+   ranked against the rest, and the "~2522 over 5 episodes / ~3900 in-distribution / ~900 when
+   forced to extrapolate" breakdown once quoted here exists nowhere in the repo as a measurement.
+   Its measured row is third in the table above.
 
 ⚠️ **The environment this table needs is not the one in `.venv`.** Every Phase-4 script
 makes `Walker2d-v5`, which only exists from **gymnasium 1.0**; `.venv` is gymnasium 0.29.1

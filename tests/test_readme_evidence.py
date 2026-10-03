@@ -445,7 +445,7 @@ class TestReadmePhase4RaceCells(ReadmeGate, unittest.TestCase):
     def test_the_historical_table_matches_the_recorded_draws(self):
         self.block = self.hist  # cell() reads the block under test
         for label, key in N1_ROWS.items():
-            cells = self.row(label, 3)
+            cells = self.row(label, 2)
             if cells is None:
                 continue
             self.check(f"{label} (n=1)", snums(cells[1])[0],

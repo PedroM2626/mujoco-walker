@@ -22,6 +22,19 @@ wheels/
 .coverage
 htmlcov/
 *.log
+# Evidence logs are the exception: summarize_benchmarks.py and summarize_phase1.py parse exactly
+# these to rebuild the published artifacts in benchmarks/, so a clone without them cannot reproduce
+# any number that the README quotes from them. New experiment logs stay ignored.
+!eval_phase3_20ep.log
+!eval_phase3_100ep.log
+!eval_phase3_100ep_v9.log
+!eval_phase3_100ep_rawobs.log
+!openai_walker/eval_phase4_20ep.log
+!openai_walker/eval_phase4_50ep.log
+!openai_walker/eval_extratrees_50ep.log
+!ars_evidence.log
+!dreamer_smoke.log
+!redq_evidence.log
 runs/
 checkpoints/
 *.pt

@@ -1,0 +1,34 @@
+D:\mujoco-walker\.venv-phase4\Lib\site-packages\stable_baselines3\common\save_util.py:167: UserWarning: Could not deserialize object lr_schedule. Consider using `custom_objects` argument to replace this object.
+Exception: code() argument 13 must be str, not int
+  warnings.warn(
+Teacher (Upper Bound): 3762.80 avg over 20 ep (std 420.00, min 1938.74, max 3943.94)
+BC: 3681.22 avg over 20 ep (std 493.74, min 2307.43, max 4275.67)
+IQL: -11.51 avg over 20 ep (std 15.42, min -18.15, max 54.83)
+CQL: 322.58 avg over 20 ep (std 8.17, min 309.61, max 346.75)
+BC+SAC (Naive): 1118.61 avg over 20 ep (std 514.70, min 533.66, max 2378.10)
+BC+SAC (Regularized): 2718.70 avg over 20 ep (std 918.77, min 1363.63, max 4004.96)
+BC+SAC (Constrained): 126.70 avg over 20 ep (std 79.90, min -1.58, max 233.96)
+CQL+SAC: 407.44 avg over 20 ep (std 5.66, min 399.79, max 416.48)
+GAIL: 997.97 avg over 20 ep (std 0.44, min 997.09, max 998.67)
+AIRL: -6.31 avg over 20 ep (std 0.05, min -6.41, max -6.22)
+MaxEnt: 260.81 avg over 20 ep (std 40.32, min 189.05, max 357.04)
+BCQ: 3004.64 avg over 20 ep (std 962.27, min 854.52, max 4152.96)
+DT: 1977.32 avg over 20 ep (std 1083.90, min 961.23, max 3700.57)
+
+=== FINAL RESULTS (headless, 20 episodes, seed 123) ===
+Teacher (Upper Bound): 3762.80 Avg Reward | std 420.00 | min 1938.74 | max 3943.94
+BC: 3681.22 Avg Reward | std 493.74 | min 2307.43 | max 4275.67
+BCQ: 3004.64 Avg Reward | std 962.27 | min 854.52 | max 4152.96
+BC+SAC (Regularized): 2718.70 Avg Reward | std 918.77 | min 1363.63 | max 4004.96
+DT: 1977.32 Avg Reward | std 1083.90 | min 961.23 | max 3700.57
+BC+SAC (Naive): 1118.61 Avg Reward | std 514.70 | min 533.66 | max 2378.10
+GAIL: 997.97 Avg Reward | std 0.44 | min 997.09 | max 998.67
+CQL+SAC: 407.44 Avg Reward | std 5.66 | min 399.79 | max 416.48
+CQL: 322.58 Avg Reward | std 8.17 | min 309.61 | max 346.75
+MaxEnt: 260.81 Avg Reward | std 40.32 | min 189.05 | max 357.04
+BC+SAC (Constrained): 126.70 Avg Reward | std 79.90 | min -1.58 | max 233.96
+AIRL: -6.31 Avg Reward | std 0.05 | min -6.41 | max -6.22
+IQL: -11.51 Avg Reward | std 15.42 | min -18.15 | max 54.83
+
+ wrote final_results_20ep_seed123.txt
+Saved comparison_20ep.png

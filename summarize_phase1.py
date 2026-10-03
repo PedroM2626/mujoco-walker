@@ -83,5 +83,6 @@ if evals:
 
 with open(os.path.join(ROOT, "benchmarks", "phase1_evidence.json"), "w", encoding="utf-8") as h:
     json.dump(data, h, indent=2, ensure_ascii=False)
+    h.write("\n")     # the committed file ends with a newline; regenerating must be a no-op
 
 print(json.dumps(data, indent=2, ensure_ascii=False))

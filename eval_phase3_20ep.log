@@ -1,0 +1,95 @@
+Loading models...
+
+--- Evaluating Hardcoded Supervisor ---
+Episode 1 | Reward: 12862.54 | Quedas: 2 | Terminou de pé: False
+Episode 2 | Reward: 86.65 | Quedas: 1 | Terminou de pé: False
+Episode 3 | Reward: -11712.20 | Quedas: 0 | Terminou de pé: False
+Episode 4 | Reward: 128298.28 | Quedas: 1 | Terminou de pé: True
+Episode 5 | Reward: 88265.81 | Quedas: 3 | Terminou de pé: False
+Episode 6 | Reward: -1505.95 | Quedas: 1 | Terminou de pé: False
+Episode 7 | Reward: -12509.60 | Quedas: 0 | Terminou de pé: False
+Episode 8 | Reward: -14418.82 | Quedas: 0 | Terminou de pé: False
+Episode 9 | Reward: -13829.67 | Quedas: 0 | Terminou de pé: False
+Episode 10 | Reward: 5479.17 | Quedas: 2 | Terminou de pé: False
+Episode 11 | Reward: -6173.30 | Quedas: 1 | Terminou de pé: False
+Episode 12 | Reward: -13213.07 | Quedas: 0 | Terminou de pé: False
+Episode 13 | Reward: -11641.58 | Quedas: 0 | Terminou de pé: False
+Episode 14 | Reward: 5671.22 | Quedas: 2 | Terminou de pé: False
+Episode 15 | Reward: 34114.07 | Quedas: 3 | Terminou de pé: False
+Episode 16 | Reward: -14134.31 | Quedas: 0 | Terminou de pé: False
+Episode 17 | Reward: -14465.81 | Quedas: 0 | Terminou de pé: False
+Episode 18 | Reward: -1110.04 | Quedas: 1 | Terminou de pé: False
+Episode 19 | Reward: 1932.03 | Quedas: 1 | Terminou de pé: False
+Episode 20 | Reward: 9715.52 | Quedas: 2 | Terminou de pé: False
+
+--- Evaluating Mixture of Experts ---
+Episode 1 | Reward: -4954.09 | Quedas: 1 | Terminou de pé: False
+Episode 2 | Reward: -4713.14 | Quedas: 1 | Terminou de pé: False
+Episode 3 | Reward: -11709.66 | Quedas: 0 | Terminou de pé: False
+Episode 4 | Reward: -11852.96 | Quedas: 0 | Terminou de pé: False
+Episode 5 | Reward: 66736.55 | Quedas: 1 | Terminou de pé: False
+Episode 6 | Reward: -3406.89 | Quedas: 1 | Terminou de pé: False
+Episode 7 | Reward: -12509.92 | Quedas: 0 | Terminou de pé: False
+Episode 8 | Reward: -14425.61 | Quedas: 0 | Terminou de pé: False
+Episode 9 | Reward: -13813.33 | Quedas: 0 | Terminou de pé: False
+Episode 10 | Reward: -4177.94 | Quedas: 1 | Terminou de pé: False
+Episode 11 | Reward: 17651.80 | Quedas: 3 | Terminou de pé: False
+Episode 12 | Reward: -13269.62 | Quedas: 0 | Terminou de pé: False
+Episode 13 | Reward: -11870.51 | Quedas: 0 | Terminou de pé: False
+Episode 14 | Reward: 96072.79 | Quedas: 1 | Terminou de pé: True
+Episode 15 | Reward: 3246.28 | Quedas: 1 | Terminou de pé: False
+Episode 16 | Reward: -14134.31 | Quedas: 0 | Terminou de pé: False
+Episode 17 | Reward: -14434.78 | Quedas: 0 | Terminou de pé: False
+Episode 18 | Reward: 10585.69 | Quedas: 3 | Terminou de pé: False
+Episode 19 | Reward: -4242.97 | Quedas: 1 | Terminou de pé: False
+Episode 20 | Reward: 47.38 | Quedas: 1 | Terminou de pé: False
+
+--- Evaluating Weight Averaging ---
+Episode 1 | Reward: -13129.99 | Quedas: 0 | Terminou de pé: False
+Episode 2 | Reward: -13137.47 | Quedas: 0 | Terminou de pé: False
+Episode 3 | Reward: -28977.28 | Quedas: 0 | Terminou de pé: False
+Episode 4 | Reward: -13322.32 | Quedas: 0 | Terminou de pé: False
+Episode 5 | Reward: -2904.71 | Quedas: 1 | Terminou de pé: False
+Episode 6 | Reward: -13126.98 | Quedas: 0 | Terminou de pé: False
+Episode 7 | Reward: -23601.67 | Quedas: 0 | Terminou de pé: False
+Episode 8 | Reward: -49903.01 | Quedas: 0 | Terminou de pé: False
+Episode 9 | Reward: -28719.30 | Quedas: 0 | Terminou de pé: False
+Episode 10 | Reward: -13231.77 | Quedas: 0 | Terminou de pé: False
+Episode 11 | Reward: -28749.06 | Quedas: 0 | Terminou de pé: False
+Episode 12 | Reward: -13366.13 | Quedas: 0 | Terminou de pé: False
+Episode 13 | Reward: -37485.50 | Quedas: 0 | Terminou de pé: False
+Episode 14 | Reward: -12981.13 | Quedas: 0 | Terminou de pé: False
+Episode 15 | Reward: 3243.62 | Quedas: 1 | Terminou de pé: False
+Episode 16 | Reward: -13304.40 | Quedas: 0 | Terminou de pé: False
+Episode 17 | Reward: -36590.04 | Quedas: 0 | Terminou de pé: False
+Episode 18 | Reward: -13199.30 | Quedas: 0 | Terminou de pé: False
+Episode 19 | Reward: -32105.40 | Quedas: 0 | Terminou de pé: False
+Episode 20 | Reward: -21224.86 | Quedas: 0 | Terminou de pé: False
+
+--- Evaluating Task Arithmetic ---
+Episode 1 | Reward: -23109.56 | Quedas: 0 | Terminou de pé: False
+Episode 2 | Reward: -41962.82 | Quedas: 0 | Terminou de pé: False
+Episode 3 | Reward: -13348.11 | Quedas: 0 | Terminou de pé: False
+Episode 4 | Reward: -41430.94 | Quedas: 0 | Terminou de pé: False
+Episode 5 | Reward: -9498.18 | Quedas: 1 | Terminou de pé: False
+Episode 6 | Reward: -24097.17 | Quedas: 0 | Terminou de pé: False
+Episode 7 | Reward: -11905.08 | Quedas: 0 | Terminou de pé: False
+Episode 8 | Reward: -14910.55 | Quedas: 0 | Terminou de pé: False
+Episode 9 | Reward: -18142.28 | Quedas: 0 | Terminou de pé: False
+Episode 10 | Reward: -14361.91 | Quedas: 0 | Terminou de pé: False
+Episode 11 | Reward: -12790.30 | Quedas: 0 | Terminou de pé: False
+Episode 12 | Reward: -20842.67 | Quedas: 0 | Terminou de pé: False
+Episode 13 | Reward: -19878.84 | Quedas: 0 | Terminou de pé: False
+Episode 14 | Reward: -12239.71 | Quedas: 0 | Terminou de pé: False
+Episode 15 | Reward: -5986.73 | Quedas: 1 | Terminou de pé: False
+Episode 16 | Reward: -41151.52 | Quedas: 0 | Terminou de pé: False
+Episode 17 | Reward: -12180.35 | Quedas: 1 | Terminou de pé: False
+Episode 18 | Reward: -14245.03 | Quedas: 0 | Terminou de pé: False
+Episode 19 | Reward: -12054.58 | Quedas: 0 | Terminou de pé: False
+Episode 20 | Reward: -11484.74 | Quedas: 1 | Terminou de pé: False
+
+=== FINAL RANKING ===
+Hardcoded Supervisor: 8585.55 Avg Reward | 5% Terminou de pé | 1.00 quedas/ep
+Mixture of Experts: 2741.24 Avg Reward | 5% Terminou de pé | 0.75 quedas/ep
+Weight Averaging: -20290.83 Avg Reward | 0% Terminou de pé | 0.10 quedas/ep
+Task Arithmetic: -18781.05 Avg Reward | 0% Terminou de pé | 0.20 quedas/ep

@@ -1,0 +1,11 @@
+D:\mujoco-walker\.venv-phase4\Lib\site-packages\sklearn\base.py:376: InconsistentVersionWarning: Trying to unpickle estimator ExtraTreeRegressor from version 1.3.2 when using version 1.5.2. This might lead to breaking code or invalid results. Use at your own risk. For more info please refer to:
+https://scikit-learn.org/stable/model_persistence.html#security-maintainability-limitations
+  warnings.warn(
+D:\mujoco-walker\.venv-phase4\Lib\site-packages\sklearn\base.py:376: InconsistentVersionWarning: Trying to unpickle estimator ExtraTreesRegressor from version 1.3.2 when using version 1.5.2. This might lead to breaking code or invalid results. Use at your own risk. For more info please refer to:
+https://scikit-learn.org/stable/model_persistence.html#security-maintainability-limitations
+  warnings.warn(
+Loading Extra Trees model...
+ wrote final_episodes_extratrees_50ep_seed2026.json
+==================================================
+Extra Trees: 3092.22 avg over 50 ep (std 1034.38, min 953.80, max 3992.76)
+==================================================

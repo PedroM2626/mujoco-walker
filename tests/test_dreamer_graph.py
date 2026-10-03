@@ -267,5 +267,88 @@ class TestBenchArmsNameTheirMode(unittest.TestCase):
                       "the reproducibility artifact says CUDA-graph-free; keep it that way")
 
 
+class TestFusedImaginationHeads(unittest.TestCase):
+    """`fused_heads` must be the same two networks, not a faster different function.
+
+    The reward and continue heads read the same `[h, z]` once per imagination step, so they are the
+    only launch-level win left after graph capture. That is worth doing only if it is exactly
+    equivalent, so this pins the difference, the gradient path and the checkpoint format.
+    """
+
+    def setUp(self):
+        torch.manual_seed(0)
+        self.model = td.WorldModel(OBS, ACT)
+        self.x = torch.randn(64, 256 + 32)
+        self.w1, self.b1, self.w2, self.b2 = td.fused_heads(self.model.reward_net,
+                                                            self.model.continue_net)
+
+    def fused(self, x):
+        import torch.nn.functional as F
+        return F.linear(F.elu(F.linear(x, self.w1, self.b1)), self.w2, self.b2)
+
+    def test_the_two_heads_come_back_within_float_reassociation(self):
+        heads = self.fused(self.x)
+        r_diff = (heads[:, 0:1] - self.model.reward_net(self.x)).abs().max().item()
+        # The continue head ends in a Sigmoid; the fused pass returns the logit, so compare after it.
+        c_diff = (torch.sigmoid(heads[:, 1:2]) - self.model.continue_net(self.x)).abs().max().item()
+        self.assertLess(r_diff, 1e-6, f"reward differs by {r_diff}")
+        self.assertLess(c_diff, 1e-6, f"continue probability differs by {c_diff}")
+
+    def test_gradients_land_on_the_original_parameters(self):
+        self.fused(self.x).sum().backward()
+        for name, mod in (("reward", self.model.reward_net), ("continue", self.model.continue_net)):
+            for i, p in enumerate(mod.parameters()):
+                self.assertIsNotNone(p.grad, f"{name}[{i}] received no gradient through the fused pass")
+                self.assertGreater(float(p.grad.abs().sum()), 0.0, f"{name}[{i}] got a zero gradient")
+
+    def test_no_parameters_are_introduced(self):
+        # The checkpoint format is the reason the fusion is a function and not a module.
+        keys = set(self.model.state_dict())
+        self.assertTrue(all("." in k for k in keys))
+        self.assertEqual(0, len([k for k in keys if "fused" in k]))
+        self.assertIn("reward_net.0.weight", keys)
+        self.assertIn("continue_net.2.weight", keys)
+
+    def test_the_parameter_gradients_agree_with_the_separate_heads(self):
+        """Forward equality is not enough: the optimizer consumes these gradients, not the outputs."""
+        import torch.nn.functional as F
+        x = self.x.clone()
+        params = (list(self.model.reward_net.parameters())
+                  + list(self.model.continue_net.parameters()))
+
+        (self.model.reward_net(x).sum() + self.model.continue_net(x).sum()).backward()
+        separate = [p.grad.detach().clone() for p in params]
+
+        self.model.zero_grad(set_to_none=True)
+        w1, b1, w2, b2 = td.fused_heads(self.model.reward_net, self.model.continue_net)
+        heads = F.linear(F.elu(F.linear(x, w1, b1)), w2, b2)
+        # Same objective on both sides: reward is linear in the fused output, continue is not -
+        # the module's last layer is a Sigmoid, so the fused logit has to go through it first.
+        (heads[:, 0:1].sum() + torch.sigmoid(heads[:, 1:2]).sum()).backward()
+
+        worst = max((p.grad - s).abs().max().item() / max(s.abs().max().item(), 1e-12)
+                    for p, s in zip(params, separate))
+        self.assertLess(worst, 1e-5, f"a fused gradient diverges from the separate one by {worst:.3e}")
+
+
+    def test_the_whole_update_agrees_between_the_two_implementations(self):
+        """Not just the heads: one full `dreamer_update` per implementation, same weights, same batch."""
+        dev = torch.device("cpu")
+        batch, idx = inputs(dev)
+        got = {}
+        for impl in ("separate", "fused"):
+            arm = build(dev)
+            a = _Args()
+            a.heads_impl = impl
+            with frozen_noise():
+                got[impl] = {k: float(v) for k, v in td.dreamer_update(*arm, batch, a, idx).items()}
+        for key in got["separate"]:
+            base = max(abs(got["separate"][key]), 1e-12)
+            rel = abs(got["separate"][key] - got["fused"][key]) / base
+            self.assertLess(rel, 1e-5,
+                            f"{key}: separate {got['separate'][key]!r} vs fused "
+                            f"{got['fused'][key]!r} (relative {rel:.3e})")
+
+
 if __name__ == "__main__":
     unittest.main()

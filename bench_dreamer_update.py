@@ -72,7 +72,11 @@ with open(os.environ["DREAMER_PROFILE_OUT"], "w", encoding="utf-8") as handle:
 def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument("--mode", choices=["profile", "ab", "reproducibility", "scaling",
-                                      "checkpoint-cost"], default="profile")
+                                      "checkpoint-cost", "heads-ab"],
+                   default="profile")
+    p.add_argument("--heads-config", default="50x15",
+                   help="seq_len x imag_horizon for --mode heads-ab (one config per process)")
+    p.add_argument("--json-out", default=None, help="where --mode heads-ab writes its JSON")
     p.add_argument("--steps", type=int, default=9000)
     p.add_argument("--num-envs", type=int, default=4)
     p.add_argument("--seed", type=int, default=7)
@@ -141,6 +145,8 @@ def main():
         return scaling(args)
     if args.mode == "checkpoint-cost":
         return checkpoint_cost(args)
+    if args.mode == "heads-ab":
+        return heads_ab(args)
     return run_profile(args)
 
 
@@ -215,15 +221,24 @@ def scaling(args):
             fn(batch, idx)
         if dev.type == "cuda":
             torch.cuda.synchronize()
-        samples = []
-        for _ in range(args.reps):
+        samples, diverged_at = [], None
+        for i in range(args.reps):
             t0 = time.perf_counter()
-            fn(batch, idx)
+            out = fn(batch, idx)
             if dev.type == "cuda":
                 torch.cuda.synchronize()
             samples.append((time.perf_counter() - t0) * 1e3)
+            # A Dreamer update on random weights and random rewards diverges after a few dozen
+            # steps (the imagined returns compound against an untrained critic), and a diverged arm
+            # keeps launching the same kernels while meaning nothing. The count is reported so the
+            # margin prices the graph shape and the reader knows how much of it came from a live
+            # model.
+            if isinstance(out, dict) and any(float(v) != float(v) for v in out.values()):
+                diverged_at = i
+                break
         return {"median_ms": round(st.median(samples), 2), "min_ms": round(min(samples), 2),
-                "max_ms": round(max(samples), 2), "reps": args.reps}
+                "max_ms": round(max(samples), 2), "reps": args.reps,
+                "diverged_at_rep": diverged_at}
 
     out = {"device": str(dev), "note": "isolated dreamer_update calls at the shipped sizes "
                                       "(seq_len 50, batch 16, imag_horizon 15), one config at a "
@@ -425,6 +440,94 @@ def checkpoint_cost(args):
         print(f"  interval {int(iv):>7}: {v['saves']:>3} saves, {v['disk_mib']:>6.1f} MiB, "
               f"{v['write_s']:>5.2f} s per 1M steps, up to {v['max_progress_lost_steps']} steps lost")
     print("wrote", os.path.relpath(target, ROOT))
+    return 0
+
+
+def heads_ab(args):
+    """Price the fused imagination heads against the two modules, one config per process.
+
+    Two separate runs of `--mode scaling` disagreed: the per-imagination-step cost fell 21% after
+    the fusion while the whole update fell 1.7%, and the eager arm - which the fusion barely
+    touches - moved 1.8x between the windows. That is machine state, not effect, so both
+    implementations have to be measured in the same process, same minute, alternating reps.
+
+    One process holds two arms and one config, because that is what this box tolerates: with four
+    CUDA graphs alive a device-side assert fires inside `binary_cross_entropy`, and once one has
+    fired the context is poisoned, so every later error is that same assert reported at an unrelated
+    operation. A horizon sweep across configs is not measurable here without shipping a harness that
+    lies, so the shipped configuration is what is priced.
+    """
+    import statistics as st
+    import torch
+    import train_dreamer as td
+    from types import SimpleNamespace
+
+    L, H = (int(x) for x in args.heads_config.lower().split("x"))
+    dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    OBS, ACT, B = 49, 17, 16
+
+    def arm(impl):
+        torch.manual_seed(0)
+        mods = [td.WorldModel(OBS, ACT).to(dev), td.DreamerActor(256, 32, ACT).to(dev),
+                td.DreamerCritic(256, 32).to(dev)]
+        opts = [td.make_adam(m.parameters(), 3e-4, dev.type == "cuda") for m in mods]
+        torch.manual_seed(1)
+        batch = (torch.randn(L, B, OBS, device=dev), torch.randn(L - 1, B, ACT, device=dev),
+                 torch.randn(L - 1, B, 1, device=dev),
+                 torch.zeros(L - 1, B, 1, device=dev, dtype=torch.bool))
+        torch.manual_seed(2)
+        idx = torch.randperm(L * B)[:B].to(dev)
+        a = SimpleNamespace(seq_len=L, batch_size=B, imag_horizon=H, gamma=0.99, kl_weight=1.0,
+                            heads_impl=impl)
+        fn = lambda b, i: td.dreamer_update(*mods, *opts, b, a, i,
+                                            zero_grad_set_to_none=dev.type != "cuda")
+        return (td.CapturedDreamerUpdate(fn, batch, idx) if dev.type == "cuda" else fn), batch, idx
+
+    def timed(fn, batch, idx):
+        """One update, timed - and refused once the nets have diverged.
+
+        These arms take real optimizer steps on random weights and random rewards, so after a few
+        dozen of them the model can walk into a NaN, and the next `binary_cross_entropy` kills the
+        process with a device-side assert that then poisons the CUDA context: every later error is
+        that assert reported at an unrelated operation. Timing a diverged arm is meaningless anyway,
+        so the run stops here with a number instead of a stack trace.
+        """
+        t0 = time.perf_counter()
+        out = fn(batch, idx)
+        if dev.type == "cuda":
+            torch.cuda.synchronize()
+        dt = (time.perf_counter() - t0) * 1e3
+        if isinstance(out, dict):
+            for key, value in out.items():
+                v = float(value)
+                if v != v or v in (float("inf"), float("-inf")):
+                    raise SystemExit(f"[HEADS-AB] {key} went non-finite after a timed update; the "
+                                     "arms stopped training meaningfully, so the remaining samples "
+                                     "would be junk. Lower --reps.")
+        return dt
+
+    fused_fn, fb, fi = arm("fused")
+    sep_fn, sb, si = arm("separate")
+    for _ in range(3):
+        timed(fused_fn, fb, fi)
+        timed(sep_fn, sb, si)
+    fused_ms, sep_ms = [], []
+    for _ in range(args.reps):          # alternating: drift hits both arms about equally
+        fused_ms.append(timed(fused_fn, fb, fi))
+        sep_ms.append(timed(sep_fn, sb, si))
+    f_med, s_med = st.median(fused_ms), st.median(sep_ms)
+    out = {"device": str(dev), "reps": args.reps, "seq_len": L, "imag_horizon": H,
+           "gpu_other_contexts": _other_gpu_contexts(),
+           "fused_median_ms": round(f_med, 3), "separate_median_ms": round(s_med, 3),
+           "separate_minus_fused_ms": round(s_med - f_med, 3),
+           "fused_over_separate": round(f_med / s_med, 4),
+           "note": "isolated dreamer_update calls, both head implementations in one process, "
+                   "reps alternating between arms; one config per process (see the docstring)"}
+    target = args.json_out or os.path.join(ROOT, "benchmarks", "dreamer_heads_ab.json")
+    with open(target, "w", encoding="utf-8") as handle:
+        json.dump(out, handle, indent=2)
+    print(f"L{L} H{H}: fused {f_med:.3f} ms vs separate {s_med:.3f} ms "
+          f"(ratio {f_med / s_med:.4f}) -> {os.path.relpath(target, ROOT)}")
     return 0
 
 

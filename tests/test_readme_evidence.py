@@ -575,35 +575,31 @@ class TestReadmeDreamerScalingCells(ReadmeGate, unittest.TestCase):
         self.bad = []
 
     def test_the_marginal_costs_are_the_slopes_the_sweep_measured(self):
-        m = self.sentence(r"one imagination step costs \*\*([\d.]+) ms\*\* eager against "
-                          r"\*\*([\d.]+) ms\*\* captured", "imagination marginal")
+        # Only the captured arm is quoted in prose: the eager arm measured 132.63, 254.94 and
+        # 293.56 ms for identical code in three windows, so it is in the artifact and not in a claim.
         marg = self.art["marginal_ms_per_unit"]
-        self.check("per imagination step", [float(m.group(1)), float(m.group(2))],
-                   [marg["imag_horizon_eager"], marg["imag_horizon_captured"]], places=3)
-        m = self.sentence(r"one world-model timestep \*\*([\d.]+) ms\*\* against "
-                          r"\*\*([\d.]+) ms\*\*", "world-model marginal")
-        self.check("per world-model timestep", [float(m.group(1)), float(m.group(2))],
-                   [marg["seq_len_eager"], marg["seq_len_captured"]], places=3)
+        m = self.sentence(r"one imagination step\s*costs \*\*([\d.]+) ms\*\* and one "
+                          r"world-model timestep \*\*([\d.]+) ms\*\*", "captured marginals")
+        self.check("captured marginals", [float(m.group(1)), float(m.group(2))],
+                   [marg["imag_horizon_captured"], marg["seq_len_captured"]], places=3)
 
     def test_the_baseline_and_batch_rows_are_the_measured_medians(self):
         base = self.art["configs"][self.BASE]
-        m = self.sentence(r"the whole update ([\d.]+) ms against \*\*([\d.]+) ms\*\*", "baseline")
-        self.check("update at the shipped sizes", [float(m.group(1)), float(m.group(2))],
-                   [base["eager"]["median_ms"], base["captured"]["median_ms"]], places=2)
-        for arm, pattern in (("eager", r"16 -> ([\d.]+) ms,\s*64 -> ([\d.]+) ms, "
-                                      r"256 -> ([\d.]+) ms"),
-                            ("captured", r"it grows \(([\d.]+) -> ([\d.]+) -> ([\d.]+) ms\)")):
-            m = self.sentence(pattern, f"the {arm} batch row")
-            want = self.art[f"batch_scaling_{arm}"]
-            self.check(f"{arm} batch scaling", [float(m.group(i)) for i in (1, 2, 3)],
-                       [want["16"], want["64"], want["256"]], places=2)
+        m = self.sentence(r"so of a \*\*([\d.]+) ms\*\* update", "baseline")
+        self.check("update at the shipped sizes", float(m.group(1)),
+                   base["captured"]["median_ms"], places=2)
+        m = self.sentence(r"batch 16 -> 64 -> 256 costs\s*\*\*([\d.]+) -> ([\d.]+) -> "
+                          r"([\d.]+) ms\*\*", "the captured batch row")
+        want = self.art["batch_scaling_captured"]
+        self.check("captured batch scaling", [float(m.group(i)) for i in (1, 2, 3)],
+                   [want["16"], want["64"], want["256"]], places=2)
 
     def test_the_two_loop_shares_are_multiplied_from_the_sweep_not_remembered(self):
         """`about 3.9 ms` and `about 7.1 ms` are the marginals times the shipped loop lengths."""
         marg = self.art["marginal_ms_per_unit"]
         seq = self.art["configs"][self.BASE]["seq_len"]
         imag = self.art["configs"][self.BASE]["imag_horizon"]
-        m = self.sentence(r"the imagination loop is\s*about ([\d.]+) ms and the world model "
+        m = self.sentence(r"the\s*imagination loop is about ([\d.]+) ms and the world model "
                           r"about ([\d.]+) ms", "loop shares")
         self.check("loop shares", [float(m.group(1)), float(m.group(2))],
                    [round(marg["imag_horizon_captured"] * imag, 1),

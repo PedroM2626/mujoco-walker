@@ -810,20 +810,26 @@ loop.
 **What is left after capture, priced instead of assumed.** This section used to point at the
 imagination rollout and the actor-critic losses as "where the same technique would go next".
 `python bench_dreamer_update.py --mode scaling` measures that claim on isolated `dreamer_update`
-calls at the shipped sizes (seq 50, batch 16, horizon 15): one imagination step costs **2.692 ms**
-eager against **0.262 ms** captured, one world-model timestep **1.752 ms** against **0.142 ms**, and
-the whole update 132.63 ms against **12.41 ms** - so of a captured update the imagination loop is
-about 3.9 ms and the world model about 7.1 ms. Neither loop can be collapsed the way the REDQ
-ensemble was: `h_t` depends on `h_{t-1}`, and prior and posterior take different inputs. The only
+calls at the shipped sizes (seq 50, batch 16, horizon 15): on the captured path one imagination step
+costs **0.218 ms** and one world-model timestep **0.138 ms**, so of a **12.62 ms** update the
+imagination loop is about 3.3 ms and the world model about 6.9 ms. Only the captured arm is quoted,
+because only it repeats: across three windows this session the captured update came out 12.41,
+12.62 and 12.62 ms while the eager arm - identical code, same script - gave 132.63, 254.94 and
+293.56 ms - the first of those is still in the artifact's git history. An eager timing on this
+box measures what else was running, so the JSON keeps it and the prose does not argue from it.
+Neither loop can be collapsed the way the REDQ ensemble was: `h_t` depends on `h_{t-1}`, and prior and posterior take different inputs. The only
 fusion left is across heads that share an input - `reward_net` and `continue_net` have identical
-trunk shapes and one optimizer - worth about a fifth of the imagination loop, i.e. ~6% of the
-update. Small, and the honest answer to "what else can be vectorised here".
+trunk shapes and one optimizer - about a fifth of the imagination loop's launches, ~6% of the update
+on paper. That one was built, measured and shipped: see "Shipped: the two imagination heads as one
+pass" below, where the prediction meets a box whose timing noise is the same size as the effect.
 
-The other axis says more: on the eager path the update is **flat in batch** (16 -> 132.63 ms,
-64 -> 125.19 ms, 256 -> 126.52 ms), sixteen times the samples for free, because that time was all
-dispatch; on the captured path it grows (12.41 -> 14.48 -> 23.29 ms), which is what happens once the
-launches are gone and arithmetic starts to matter. Raw seconds, per-config medians and the GPU
-context count of the window are in `benchmarks/dreamer_update_scaling.json`.
+The batch axis is the second version of a sentence that was wrong before: an earlier window said the
+eager update was "flat in batch, sixteen times the samples for free", and the claim was wrong in the
+way that matters - it was measured once. On the arm that repeats, batch 16 -> 64 -> 256 costs
+**12.62 -> 14.44 -> 22.91 ms**: 1.82x the time for 16x the samples, sublinear and not free. Raw
+seconds, per-config medians, the GPU context count of the window and a `diverged_at_rep` marker for
+each arm are in `benchmarks/dreamer_update_scaling.json`; no arm diverged in this sweep, and the
+marker exists because the heads A/B below does.
 
 **Capture is the CUDA default now.** `--update-graph` is tri-state: unset means capture on CUDA and
 eager elsewhere, `--no-update-graph` forces the old path. A `--resume` with no flag follows the mode
@@ -858,6 +864,27 @@ against the eager one with its noise frozen - so this is per-process kernel sele
 order, amplified by 100 updates of a world model that feeds on its own estimates. Timing comparisons
 are unaffected, and the KL-batching A/B above is one of those; any Dreamer comparison phrased as
 "the same run, but X" is not paired and should be read as two runs.
+
+**Shipped: the two imagination heads as one pass.** After capture there is exactly one launch-level
+idea left in the update: `reward_net` and `continue_net` read the same `[h, z]` once per imagination
+step, so merging them - shared first layer, block-diagonal output layer - turns six kernels per step
+into four at the cost of doubling one tiny matmul's arithmetic. It is the default
+(`--heads-impl separate` reproduces the old path). Measured: three independent processes, both arms
+in each, alternating, ten timed updates per arm - the fused update is faster in **3 of 3**, by
+1.6% to 3.8% (ratios 0.9623, 0.9844, 0.9837; `benchmarks/dreamer_heads_ab.json`). Ten and not
+sixty because these arms take real optimizer steps on random weights and random rewards, and the
+imagined returns go non-finite after a couple of dozen updates - the paired ratio replicates, the
+absolute milliseconds belong to the window.
+
+The equivalence is pinned rather than asserted (`tests/test_dreamer_graph.py`): with noise frozen,
+the four world-model losses come out **bit-identical** and only `actor_loss`/`critic_loss` move, by
+9.7e-8 and 1.9e-7 relative; the parameter gradients agree to 1e-6; no new parameters exist, so the
+checkpoint format is untouched. Writing it also produced a bug the golden test caught immediately:
+the `separate` arm wrapped `continue_net` in a second `torch.sigmoid` - the module already ends in a
+Sigmoid - which damped the imagined returns and made that arm *look* stable for 60 updates while
+measuring a different function. The two same-process comparisons taken before that was fixed
+disagreed with each other on sign, and they are discarded rather than corrected: the three
+above are post-fix.
 
 **Measured and rejected, because "sounds faster" is not a measurement:**
 
@@ -961,8 +988,8 @@ one reason to stay off XLA; the argument for porting anyway was that the learner
 about ten tiny kernels per step, which is exactly what XLA fusion is good at.
 `python bench_jax_update.py` rebuilds the imagination rollout in JAX (`lax.scan` + `jit`, the
 sampled `z` feeding the next step as `RSSM.transition` does) on the same RTX 4070 Laptop, under
-WSL2. Forward only: **1.578 ms** for the 15 steps against the **3.93 ms** the captured torch path
-spends on that loop (`benchmarks/dreamer_update_scaling.json`) - 2.5x. But a training step needs
+WSL2. Forward only: **1.578 ms** for the 15 steps against the **3.27 ms** the captured torch path
+spends on that loop (`benchmarks/dreamer_update_scaling.json`) - 2.1x. But a training step needs
 the gradient, and with `value_and_grad` the same loop costs **5.15 ms**: slower than the path it
 would replace. Neither is arithmetic - the loop is 195 MFLOP and the card measured
 **15.2 TFLOP/s** on a square matmul, a floor of **0.0128 ms** against that 1.578 ms forward - so
@@ -1096,9 +1123,10 @@ Three facts to keep in mind:
 
 The suite is plain `unittest` (no pytest required) and covers the environment contract, the
 golden reward rollouts, the parallel/serial vector-env parity, checkpointing and the race
-harness — **122 tests, ~3-4.5 min** (the same suite measured 176.3 s, 200.4 s and 269.995 s
-in three windows, so the duration belongs to the window and the count does not; the exact
-`Ran ...` line is refreshed whenever the suite changes, because a gate checks it):
+harness — **127 tests, ~4 min** (`Ran 127 tests in 261.119s ... OK (skipped=7)` under `.venv`;
+windows of this suite measured 176.3 s at 102 tests, 269.995 s at 121 and 261.119 s now, so the
+duration belongs to the window and the count does not - a gate checks the count, which is why
+it appears three times and why it cannot silently go stale):
 
 ```bash
 python -m unittest discover -s tests -t .
@@ -1143,7 +1171,7 @@ that they ran - see Phase 4, item 6. How each of those states was found, with th
 ## 🔬 Reproducing and measuring
 
 ```bash
-python -m unittest discover -s tests -t .   # 122 tests in .venv, ~3-4.5 min; see "Running the tests"
+python -m unittest discover -s tests -t .   # 127 tests in .venv, ~3-4.5 min; see "Running the tests"
 python bench_env.py --seconds 4             # env throughput, physics vs Python split
 python bench_mjx.py --sizes 32,128          # MJX/JAX batched stepping
 python verify.py                            # Phase-2 artifact check (exits 2 when missing)

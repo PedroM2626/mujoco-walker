@@ -1,0 +1,36 @@
+{
+  "protocol": "isolated dreamer_update calls, both head implementations in one process, reps alternating between arms; one config per process (see the docstring); three independent processes, same window, 10 timed updates per arm before the model diverges",
+  "replicates": [
+    {
+      "fused_median_ms": 14.523,
+      "separate_median_ms": 15.091,
+      "fused_over_separate": 0.9623,
+      "reps": 10,
+      "gpu_other_contexts": 5
+    },
+    {
+      "fused_median_ms": 14.82,
+      "separate_median_ms": 15.055,
+      "fused_over_separate": 0.9844,
+      "reps": 10,
+      "gpu_other_contexts": 5
+    },
+    {
+      "fused_median_ms": 14.683,
+      "separate_median_ms": 14.927,
+      "fused_over_separate": 0.9837,
+      "reps": 10,
+      "gpu_other_contexts": 5
+    }
+  ],
+  "ratios": [
+    0.9623,
+    0.9844,
+    0.9837
+  ],
+  "median_ratio": 0.9837,
+  "max_ratio": 0.9844,
+  "seq_len": 50,
+  "imag_horizon": 15,
+  "note": "Both arms take real optimizer steps, and on random weights and random rewards the imagined returns go non-finite after a couple of dozen updates, which is why each arm contributes 10 samples and not 60: the paired ratio is stable, the absolute milliseconds are the window's. Reproduced 3/3 with the fused path faster."
+}

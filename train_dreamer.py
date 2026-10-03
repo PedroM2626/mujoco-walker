@@ -293,6 +293,48 @@ class SequenceReplayBuffer:
         
         return obs_t, action_t, reward_t.permute(1, 0, 2), done_t.permute(1, 0, 2)
 
+def imagination_heads(state_cat, model, fused, impl):
+    """The two heads that read `[h, z]`, either as the separate modules or as one fused pass.
+
+    Kept as two implementations of the same function rather than one, so the A/B in
+    `bench_dreamer_update.py --mode heads-ab` can price the fusion inside a single window instead of
+    comparing runs taken hours apart - the same reason `train_redq.py` still carries
+    `--ensemble-impl loop`.
+    """
+    if impl == "separate":
+        # continue_net is a Sequential that already ends in Sigmoid, so it returns a probability:
+        # wrapping it in another torch.sigmoid here is the bug the golden-loss test caught.
+        return model.reward_net(state_cat), model.continue_net(state_cat)
+    w1, b1, w2, b2 = fused
+    heads = F.linear(F.elu(F.linear(state_cat, w1, b1)), w2, b2)
+    return heads[:, 0:1], torch.sigmoid(heads[:, 1:2])
+
+
+def fused_heads(reward_net, continue_net):
+    """One pass for the two heads that read the same `[h, z]`: 4 kernels per step instead of 6.
+
+    The merged first layer is the two trunks side by side, and the merged output layer is
+    block-diagonal, so each output still depends only on its own trunk half - the other half
+    multiplies zeros, which doubles *that layer's* arithmetic to remove two launches. That trade is
+    the point: a captured update spends 0.8% of its time on arithmetic
+    (benchmarks/dreamer_update_scaling.json against the 15-20 TFLOP/s this card measures), so
+    launches are what costs.
+
+    Rebuilt once per update rather than cached, because the weights move between updates and a
+    captured graph replays whatever tensors it recorded. Gradients still flow into the original
+    `reward_net` / `continue_net` parameters, so the checkpoint format and `model_opt` are
+    untouched.
+    """
+    w1 = torch.cat([reward_net[0].weight, continue_net[0].weight], dim=0)
+    b1 = torch.cat([reward_net[0].bias, continue_net[0].bias], dim=0)
+    rw, rb = reward_net[2].weight, reward_net[2].bias
+    cw, cb = continue_net[2].weight, continue_net[2].bias
+    z = torch.zeros_like(rw)
+    w2 = torch.cat([torch.cat([rw, z], dim=1), torch.cat([z, cw], dim=1)], dim=0)
+    b2 = torch.cat([rb, cb], dim=0)
+    return w1, b1, w2, b2
+
+
 def dreamer_update(model, actor, critic, model_opt, actor_opt, critic_opt, batch, args,
                    start_indices, zero_grad_set_to_none=True):
     """One Dreamer update: fit the world model on a sequence batch, then train on imagination.
@@ -362,6 +404,11 @@ def dreamer_update(model, actor, critic, model_opt, actor_opt, critic_opt, batch
     h_imag = h_0[start_indices]
     z_imag = z_0[start_indices]
 
+    # The two heads that read [h, z] are evaluated as one pass for the whole rollout; see
+    # fused_heads - rebuilt here, once, so the loop below stays launch-cheap.
+    impl = getattr(args, "heads_impl", "fused")   # the shipped default; see --heads-impl
+    fused = fused_heads(model.reward_net, model.continue_net)
+
     imag_h, imag_z, imag_actions = [h_imag], [z_imag], []
     imag_rewards, imag_continues = [], []
 
@@ -375,8 +422,7 @@ def dreamer_update(model, actor, critic, model_opt, actor_opt, critic_opt, batch
         imag_actions.append(action)
 
         state_cat = torch.cat([h_imag, z_imag], dim=-1)
-        r_pred = model.reward_net(state_cat)
-        c_pred = model.continue_net(state_cat)
+        r_pred, c_pred = imagination_heads(state_cat, model, fused, impl)
         imag_rewards.append(r_pred)
         imag_continues.append(c_pred)
 
@@ -523,7 +569,18 @@ def parse_dreamer_args():
     # write (timed on the real architectures), so 20 saves per 1M steps cost 0.32 s and 146 MB,
     # while a 200k interval is what left the 1M-step run that died at 84,456 steps with nothing to
     # resume from.
+    # 50k, not the 200k this started at. One full checkpoint is 6.96 MiB and 22.16 ms to write
+    # (benchmarks/dreamer_checkpoint_cost.json, `python bench_dreamer_update.py --mode
+    # checkpoint-cost`), so 20 saves per 1M steps cost 0.44 s and 139.3 MiB - while 200k was
+    # exactly the gap that left the run that died at 84,456 steps with nothing to resume from.
     parser.add_argument("--checkpoint-interval", type=int, default=50000)
+    parser.add_argument("--heads-impl", choices=["fused", "separate"], default="fused",
+                        help="reward/continue heads in the imagination rollout: one fused pass "
+                             "(default) or the two modules. The fused path measured 1.6-3.8%% "
+                             "faster on the whole update across three paired same-process runs "
+                             "(benchmarks/dreamer_heads_ab.json) and is equivalent to ~1e-5 on the "
+                             "losses and the parameter gradients; `separate` reproduces the "
+                             "pre-fusion numerics exactly, which is what the golden-loss test pins.")
     parser.add_argument("--reset-mode", type=str, default="upright")
     parser.add_argument("--fixed-reset-probability", type=float, default=0.25)
     parser.add_argument("--upright-reset-probability", type=float, default=0.15)

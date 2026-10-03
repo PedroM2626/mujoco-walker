@@ -1099,8 +1099,9 @@ from the start.
 
 The suite is plain `unittest` (no pytest required) and covers the environment contract, the
 golden reward rollouts, the parallel/serial vector-env parity, checkpointing and the race
-harness — **121 tests, ~3 min** (the same suite took 176.3 s and 200.4 s in two other
-windows, so the duration belongs to the window and the count does not):
+harness — **121 tests, ~3-4.5 min** (`Ran 121 tests in 269.995s ... OK (skipped=7)` under
+`.venv`; the same suite took 176.3 s and 200.4 s in two other windows, so the duration belongs to
+the window and the count does not):
 
 ```bash
 python -m unittest discover -s tests -t .
@@ -1171,7 +1172,7 @@ artifact can be absent while its metrics are present.
 ## 🔬 Reproducing and measuring
 
 ```bash
-python -m unittest discover -s tests -t .   # 121 tests in .venv, ~3 min; see "Running the tests"
+python -m unittest discover -s tests -t .   # 121 tests in .venv, ~3-4.5 min; see "Running the tests"
 python bench_env.py --seconds 4             # env throughput, physics vs Python split
 python bench_mjx.py --sizes 32,128          # MJX/JAX batched stepping
 python verify.py                            # Phase-2 artifact check (exits 2 when missing)

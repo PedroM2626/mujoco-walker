@@ -16,6 +16,7 @@ budget), one per implementation: they should agree, and if they don't the compar
 contended rather than informative.
 
     python bench_redq_ensemble.py
+    python bench_redq_ensemble.py --isolated-only   # micro-bench only, merges into the artifact
 """
 
 import json
@@ -26,6 +27,7 @@ import sys
 import time
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
+OUT = os.path.join(ROOT, "benchmarks", "redq_ensemble_ab.json")
 PY = os.path.join(ROOT, ".venv", "Scripts", "python.exe")
 DB = "sqlite:///" + os.path.join(os.environ.get("TEMP", "."), "bench_redq_ensemble.db").replace(os.sep, "/")
 
@@ -47,6 +49,113 @@ RUNS = [
     ("f4l", "loop", 4, "sync", 999999, 4000, None),
 ]
 BY_TAG = {spec[0]: spec for spec in RUNS}
+
+
+def _timed(fn, reps, warmup, sync):
+    for _ in range(warmup):
+        fn()
+    if sync:
+        sync()
+    t0 = time.perf_counter()
+    for _ in range(reps):
+        fn()
+    if sync:
+        sync()
+    return (time.perf_counter() - t0) / reps * 1e3
+
+
+def _best(fn, reps=50, sync=None):
+    """Best of three interleaved rounds - the machine has a training run on it."""
+    return round(min(_timed(fn, reps, reps // 5, sync) for _ in range(3)), 2)
+
+
+def isolated(batch=256, n=10, obs=49, act=17):
+    """One ensemble critic step and one target soft update, both implementations, both devices.
+
+    The trainer A/B below is the number that matters; it cannot say *what* fell. This is the
+    launch-bound micro-bench that explains it, and the source of the README's ms figures. Same
+    seed for both layouts, so they hold the same weights, and the drift between them is reported
+    next to the times instead of in a comment.
+    """
+    import torch
+    import torch.nn as nn
+    import torch.nn.functional as F
+
+    from train_redq import ensemble_q, soft_update_ensemble
+    from train_walker import BatchedSoftQEnsemble, SoftQNetwork
+
+    out = {}
+    for device in ("cuda", "cpu"):
+        if device == "cuda" and not torch.cuda.is_available():
+            continue
+        dev = torch.device(device)
+        sync = torch.cuda.synchronize if device == "cuda" else None
+        torch.manual_seed(0)
+        loop = nn.ModuleList([SoftQNetwork(obs, act) for _ in range(n)]).to(dev)
+        torch.manual_seed(0)
+        bat = BatchedSoftQEnsemble(obs, act, n).to(dev)
+        torch.manual_seed(0)
+        loop_t = nn.ModuleList([SoftQNetwork(obs, act) for _ in range(n)]).to(dev)
+        torch.manual_seed(0)
+        bat_t = BatchedSoftQEnsemble(obs, act, n).to(dev)
+        torch.manual_seed(3)
+        o, a = torch.randn(batch, obs, device=dev), torch.randn(batch, act, device=dev)
+        tgt = torch.randn(n, batch, 1, device=dev)
+
+        def critic_step(ens):
+            F.mse_loss(ensemble_q(ens, o, a), tgt).backward()
+            for p in ens.parameters():
+                p.grad = None
+
+        def soft_update(src):
+            soft_update_ensemble(bat_t if src is bat else loop_t, src, 0.005)
+
+        for ens in (loop, bat):
+            for p in ens.parameters():
+                p.grad = None
+        ensemble_q(loop, o, a).mean().backward()
+        ensemble_q(bat, o, a).mean().backward()
+        with torch.no_grad():
+            ref = ensemble_q(loop, o, a)
+            fwd = (ref - ensemble_q(bat, o, a)).abs().max().item() / ref.abs().max().item()
+        grad = 0.0
+        for i in range(n):
+            for layer, stacked in ((0, bat.w1), (2, bat.w2), (4, bat.w3)):
+                w = loop[i].net[layer].weight.grad
+                grad = max(grad, (stacked.grad[i].t() - w).abs().max().item() / w.abs().max().item())
+
+        cl, cb = _best(lambda: critic_step(loop), sync=sync), _best(lambda: critic_step(bat), sync=sync)
+        sl, sb = _best(lambda: soft_update(loop), reps=200, sync=sync), \
+            _best(lambda: soft_update(bat), reps=200, sync=sync)
+        out[device] = {
+            "critic_step_loop_ms": cl, "critic_step_batched_ms": cb,
+            "critic_step_speedup": round(cl / cb, 2),
+            "soft_update_loop_ms": sl, "soft_update_batched_ms": sb,
+            "soft_update_speedup": round(sl / sb, 2),
+            "forward_rel": float(f"{fwd:.2e}"), "weight_grad_rel_max": float(f"{grad:.2e}"),
+        }
+        print(f"{device:5} critic step {cl:7.2f} ms loop -> {cb:6.2f} ms batched = {cl / cb:5.2f}x | "
+              f"soft update {sl:6.3f} -> {sb:5.3f} ms = {sl / sb:5.2f}x | "
+              f"drift fwd {fwd:.1e} grad {grad:.1e}", flush=True)
+    out["config"] = {"batch": batch, "ensemble_size": n, "obs_dim": obs, "action_dim": act,
+                     "note": "critic step = forward all N + MSE + backward, grads cleared; "
+                             "soft update = the 3N kernels against the target copy"}
+    return out
+
+
+def write_artifact(data):
+    """Merge into the artifact, so --isolated-only does not throw away the trainer arms."""
+    if os.path.exists(OUT):
+        try:
+            with open(OUT, encoding="utf-8") as handle:
+                current = json.load(handle)
+        except (OSError, ValueError):
+            current = {}
+        current.update(data)
+        data = current
+    with open(OUT, "w", encoding="utf-8") as handle:
+        json.dump(data, handle, indent=2)
+    return OUT
 
 
 def one(tag, impl, num_envs, vec, starts, steps):
@@ -81,6 +190,12 @@ def clean():
 
 
 def main():
+    print("isolated critic step (same weights, same batch):", flush=True)
+    iso = isolated()
+    if "--isolated-only" in sys.argv:
+        print("wrote", write_artifact({"isolated": iso}))
+        return 0
+
     results = {}
     try:
         for spec in RUNS:
@@ -116,16 +231,15 @@ def main():
                   f"{gl / gb:.2f}x on the update phase; whole-run ratio "
                   f"{results[loop] / results[bat]:.2f}x")
 
-    out = os.path.join(ROOT, "benchmarks", "redq_ensemble_ab.json")
-    with open(out, "w", encoding="utf-8") as handle:
-        json.dump({"runs_s": results, "gradient_s": {t: gradient(t) for t in BY_TAG},
-                   "summary": summary,
-                   "note": "10k/4k env-step budgets with utd_ratio=20, ensemble N=10, on a laptop "
-                           "that also had a 1M-step REDQ run on it; floors are the same command "
-                           "with the update gate closed",
-                   "config": {"utd_ratio": 20, "ensemble_size": 10, "num_min_critics": 2,
-                              "batch_size": 256, "policy_frequency": 2}}, handle, indent=2)
-    print("wrote", os.path.relpath(out, ROOT))
+    out = {"runs_s": results, "gradient_s": {t: gradient(t) for t in BY_TAG},
+           "isolated": iso,
+           "summary": summary,
+           "note": "10k/4k env-step budgets with utd_ratio=20, ensemble N=10, on a laptop "
+                   "that also had a 1M-step REDQ run on it; floors are the same command "
+                   "with the update gate closed",
+           "config": {"utd_ratio": 20, "ensemble_size": 10, "num_min_critics": 2,
+                      "batch_size": 256, "policy_frequency": 2}}
+    print("wrote", write_artifact(out))
     return 0
 
 

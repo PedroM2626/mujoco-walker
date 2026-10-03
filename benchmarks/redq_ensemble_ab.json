@@ -1,0 +1,85 @@
+{
+  "runs_s": {
+    "b16": 143.7,
+    "l16": 309.3,
+    "b16r": 163.9,
+    "l16r": 434.1,
+    "f16b": 78.8,
+    "f16l": 88.4,
+    "b4": 224.8,
+    "l4": 898.6,
+    "f4b": 23.2,
+    "f4l": 12.2
+  },
+  "gradient_s": {
+    "b16": 64.9,
+    "l16": 220.9,
+    "b16r": 85.1,
+    "l16r": 345.7,
+    "f16b": null,
+    "f16l": null,
+    "b4": 201.6,
+    "l4": 886.4,
+    "f4b": null,
+    "f4l": null
+  },
+  "summary": {
+    "n=16 parallel": {
+      "loop_gradient_s": 220.9,
+      "batched_gradient_s": 64.9,
+      "update_phase_speedup": 3.4,
+      "whole_run_ratio": 2.15,
+      "floors_s": [
+        78.8,
+        88.4
+      ]
+    },
+    "n=4 sync": {
+      "loop_gradient_s": 886.4,
+      "batched_gradient_s": 201.6,
+      "update_phase_speedup": 4.4,
+      "whole_run_ratio": 4.0,
+      "floors_s": [
+        23.2,
+        12.2
+      ]
+    }
+  },
+  "note": "10k/4k env-step budgets with utd_ratio=20, ensemble N=10, on a laptop that also had a 1M-step REDQ run on it; floors are the same command with the update gate closed",
+  "config": {
+    "utd_ratio": 20,
+    "ensemble_size": 10,
+    "num_min_critics": 2,
+    "batch_size": 256,
+    "policy_frequency": 2
+  },
+  "isolated": {
+    "cuda": {
+      "critic_step_loop_ms": 8.61,
+      "critic_step_batched_ms": 0.95,
+      "critic_step_speedup": 9.06,
+      "soft_update_loop_ms": 3.38,
+      "soft_update_batched_ms": 0.15,
+      "soft_update_speedup": 22.53,
+      "forward_rel": 3.73e-07,
+      "weight_grad_rel_max": 5.52e-07
+    },
+    "cpu": {
+      "critic_step_loop_ms": 26.6,
+      "critic_step_batched_ms": 7.85,
+      "critic_step_speedup": 3.39,
+      "soft_update_loop_ms": 4.96,
+      "soft_update_batched_ms": 0.64,
+      "soft_update_speedup": 7.75,
+      "forward_rel": 3.29e-07,
+      "weight_grad_rel_max": 5.09e-07
+    },
+    "config": {
+      "batch": 256,
+      "ensemble_size": 10,
+      "obs_dim": 49,
+      "action_dim": 17,
+      "note": "critic step = forward all N + MSE + backward, grads cleared; soft update = the 3N kernels against the target copy"
+    }
+  }
+}

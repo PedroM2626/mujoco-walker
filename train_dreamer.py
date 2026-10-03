@@ -293,6 +293,188 @@ class SequenceReplayBuffer:
         
         return obs_t, action_t, reward_t.permute(1, 0, 2), done_t.permute(1, 0, 2)
 
+def dreamer_update(model, actor, critic, model_opt, actor_opt, critic_opt, batch, args,
+                   start_indices, zero_grad_set_to_none=True):
+    """One Dreamer update: fit the world model on a sequence batch, then train on imagination.
+
+    Moved out of the training loop unchanged, so that the update can be timed, tested and captured
+    without an environment in front of it. `start_indices` picks which latents start the rollout;
+    the caller draws it because a captured CUDA graph cannot reach the CPU RNG, and no other
+    torch-CPU RNG consumer sits between the replay sample and this call, so hoisting it one line
+    keeps the indices. `zero_grad_set_to_none=False` is what capture needs (an allocation per
+    parameter per replay is not replayable); it is numerically identical here because every
+    parameter of all three optimizers receives a gradient in this update.
+    """
+    obs_seq, action_seq, reward_seq, done_seq = batch
+
+    # Run through world model dynamics
+    h_seq, z_seq, prior_means, prior_stds, post_means, post_stds = model(obs_seq, action_seq, done_seq)
+
+    # --- World Model Losses ---
+    # Symlog target scaling for observations
+    target_obs = symlog(obs_seq)
+    reconstructed_obs = model.decoder(torch.cat([h_seq, z_seq], dim=-1))
+    rec_loss = F.mse_loss(reconstructed_obs, target_obs)
+
+    # Reward prediction loss
+    predicted_rewards = model.reward_net(torch.cat([h_seq[:-1], z_seq[:-1]], dim=-1))
+    reward_loss = F.mse_loss(predicted_rewards, reward_seq)
+
+    # Continue prediction loss (predicting terminates)
+    predicted_continues = model.continue_net(torch.cat([h_seq[:-1], z_seq[:-1]], dim=-1))
+    continue_loss = F.binary_cross_entropy(predicted_continues, 1.0 - done_seq.float())
+
+    # KL Divergence regularization loss.
+    # One batched pair of Normal distributions instead of 49 constructions: the
+    # loop cost 64.9 ms of a 289 ms update step - as much as the whole RSSM
+    # forward pass - while the stacked form measures 0.78 ms for the same value
+    # (0.492967 against 0.492967, 6e-8 relative, pure float reassociation).
+    #
+    # The pairing is also fixed here. prior_means[t] is p(z_{t+1} | h_{t+1}),
+    # produced inside loop iteration t of WorldModel.forward, while post_means[t]
+    # is q(z_t | h_t, x_t) - post_means[0] being the pre-action posterior at step
+    # 0. Indexing both with the same t compared the prediction of one step with
+    # the posterior of the previous one, so the regularizer was trained against a
+    # shifted target; [1:1+T] puts prior[t] against post[t+1].
+    T = len(prior_means)
+    # validate_args=False: the checks compare on the host, which is a synchronisation point, and a
+    # synchronisation point cannot be captured. They gate nothing here - the stds are softplus +
+    # 0.1 by construction - and skipping them changes no value.
+    p_dist = torch.distributions.Normal(
+        torch.stack(prior_means), torch.stack(prior_stds), validate_args=False)
+    q_dist = torch.distributions.Normal(
+        torch.stack(post_means[1:1 + T]), torch.stack(post_stds[1:1 + T]), validate_args=False)
+    kl_loss = torch.distributions.kl.kl_divergence(q_dist, p_dist).sum(dim=-1).mean()
+
+    # Total World Model loss
+    model_loss = rec_loss + reward_loss + continue_loss + args.kl_weight * torch.clamp(kl_loss, min=0.1)
+
+    model_opt.zero_grad(set_to_none=zero_grad_set_to_none)
+    model_loss.backward()
+    nn.utils.clip_grad_norm_(model.parameters(), 10.0)
+    model_opt.step()
+
+    # --- Actor-Critic Latent Space Imagination ---
+    # Pick a starting batch of states from the sequence
+    h_0 = h_seq.detach().view(-1, h_seq.shape[-1])
+    z_0 = z_seq.detach().view(-1, z_seq.shape[-1])
+
+    h_imag = h_0[start_indices]
+    z_imag = z_0[start_indices]
+
+    imag_h, imag_z, imag_actions = [h_imag], [z_imag], []
+    imag_rewards, imag_continues = [], []
+
+    # Rollout actor inside prior dynamics for H steps
+    for _ in range(args.imag_horizon):
+        action = actor.get_action(h_imag, z_imag, sample=True)
+        h_imag, z_imag, _, _ = model.rssm.transition(h_imag, z_imag, action)
+
+        imag_h.append(h_imag)
+        imag_z.append(z_imag)
+        imag_actions.append(action)
+
+        state_cat = torch.cat([h_imag, z_imag], dim=-1)
+        r_pred = model.reward_net(state_cat)
+        c_pred = model.continue_net(state_cat)
+        imag_rewards.append(r_pred)
+        imag_continues.append(c_pred)
+
+    imag_h = torch.stack(imag_h, dim=0) # (H+1, B, hidden_dim)
+    imag_z = torch.stack(imag_z, dim=0) # (H+1, B, stochastic_dim)
+    imag_rewards = torch.stack(imag_rewards, dim=0) # (H, B, 1)
+    imag_continues = torch.stack(imag_continues, dim=0) # (H, B, 1)
+
+    # Calculate Critic value estimates (detached from dynamics graph)
+    values = critic(imag_h.detach(), imag_z.detach()) # (H+1, B, 1)
+
+    # Compute targets (GAE/lambda returns in latent space)
+    lambda_ = 0.95
+    discount = args.gamma * imag_continues
+    returns = torch.zeros_like(imag_rewards)
+
+    # Detach values for target returns calculation so gradients only flow to actor through dynamics
+    detached_values = values.detach()
+    last_return = detached_values[-1]
+    for t in reversed(range(args.imag_horizon)):
+        returns[t] = imag_rewards[t] + discount[t] * ((1.0 - lambda_) * detached_values[t+1] + lambda_ * last_return)
+        last_return = returns[t]
+
+    # Actor Loss: maximize predicted value (lambda-returns)
+    actor_loss = -returns.mean()
+
+    actor_opt.zero_grad(set_to_none=zero_grad_set_to_none)
+    actor_loss.backward()
+    nn.utils.clip_grad_norm_(actor.parameters(), 10.0)
+    actor_opt.step()
+
+    # Critic Loss: minimize MSE with targets (returns is already detached)
+    critic_loss = F.mse_loss(values[:-1], returns.detach())
+
+    critic_opt.zero_grad(set_to_none=zero_grad_set_to_none)
+    critic_loss.backward()
+    nn.utils.clip_grad_norm_(critic.parameters(), 10.0)
+    critic_opt.step()
+
+    return {"rec_loss": rec_loss, "reward_loss": reward_loss, "continue_loss": continue_loss,
+            "kl_loss": kl_loss, "actor_loss": actor_loss, "critic_loss": critic_loss}
+
+
+def make_adam(params, lr, graph):
+    """Adam, in the one configuration CUDA graph capture accepts when the update is captured.
+
+    `capturable=True` moves the step counter onto the device so a replay advances it instead of
+    reading a frozen host value; that mode requires `foreach=False`, and the unfused path is worth
+    about 1e-6 on the weights against the fused one (measured, tests/test_dreamer_graph.py). The
+    eager default stays exactly as it always was.
+    """
+    if graph:
+        return optim.Adam(params, lr=lr, capturable=True, foreach=False)
+    return optim.Adam(params, lr=lr)
+
+
+class CapturedDreamerUpdate:
+    """The whole Dreamer update as one CUDA graph replay.
+
+    Why this rather than stacking tensors the way `BatchedSoftQEnsemble` does: one update walks 49
+    timesteps of world model plus `--imag-horizon` of imagination, and h_t depends on h_{t-1}, so
+    there is nothing to stack. What there is instead is dispatch cost - about 14,400 aten calls per
+    update on this box (benchmarks/dreamer_update_profile.json) against six 256-unit MLPs, so the
+    GPU spends the step waiting for Python. A graph records those calls once and replays them as a
+    single launch.
+
+    Capture is strict about what it records, and all of its rules are what the constructor sets up:
+    static shapes (the replay buffer always yields (seq_len, batch_size, dim)), static input buffers
+    that the new minibatch is copied into, no host tensor or synchronisation inside (hence
+    `start_indices` from the caller, `foreach=True` off, `set_to_none=False`, `validate_args=False`),
+    and a side-stream warmup that also lets Adam allocate its state before the capture owns it.
+    """
+
+    def __init__(self, fn, batch, start_indices, warmup=3):
+        self.static = [t.clone() for t in batch]
+        self.static_indices = start_indices.to(self.static[0].device).clone()
+        call = lambda: fn(tuple(self.static), self.static_indices)
+
+        side = torch.cuda.Stream()
+        side.wait_stream(torch.cuda.current_stream())
+        with torch.cuda.stream(side):
+            for _ in range(warmup):
+                call()
+        torch.cuda.current_stream().wait_stream(side)
+        torch.cuda.synchronize()
+
+        self.graph = torch.cuda.CUDAGraph()
+        with torch.cuda.graph(self.graph):
+            self.outputs = call()
+
+    def __call__(self, batch, start_indices):
+        for buffer, source in zip(self.static, batch):
+            buffer.copy_(source)
+        self.static_indices.copy_(start_indices)
+        self.graph.replay()
+        return self.outputs
+
+
 def parse_dreamer_args():
     parser = argparse.ArgumentParser(description="DreamerV3 Walker Ragdoll Training")
     parser.add_argument("--run-id", type=str, default="walker_dreamer_1m")
@@ -301,6 +483,9 @@ def parse_dreamer_args():
     parser.add_argument("--force", action="store_true", default=False)
     parser.add_argument("--total-timesteps", type=int, default=1000000)
     parser.add_argument("--learning-rate", type=float, default=3e-4)
+    parser.add_argument("--learning-starts", type=int, default=5000,
+                        help="Env steps before the first update. Was hardcoded at 5000; the flag "
+                             "exists so a test can reach the update path without a 5k-step budget.")
     parser.add_argument("--num-envs", type=int, default=4) # Smaller number of envs since sequential data logging is seq-based
     parser.add_argument("--buffer-size", type=int, default=200000)
     parser.add_argument("--gamma", type=float, default=0.99)
@@ -319,6 +504,9 @@ def parse_dreamer_args():
     parser.add_argument("--imag-horizon", type=int, default=15, help="Imagination sequence length (H)")
     parser.add_argument("--batch-size", type=int, default=16, help="Batch size of sequences")
     parser.add_argument("--kl-weight", type=float, default=1.0, help="KL divergence regularization weight")
+    parser.add_argument("--update-graph", action="store_true", default=False,
+                        help="capture the whole update as one CUDA graph (CUDA only; see "
+                             "CapturedDreamerUpdate)")
     
     return parser.parse_args()
 
@@ -380,6 +568,8 @@ def train_dreamer():
     torch.backends.cudnn.deterministic = True
     device = select_device(args)
     print(f"Using device: {device}")
+    if args.update_graph and device.type != "cuda":
+        raise SystemExit("--update-graph replays a captured CUDA graph, so it needs a CUDA device.")
 
     envs = build_vec_env(args, run_name, capture_video=False)
     envs = wrap_normalize_observation(envs)
@@ -394,9 +584,9 @@ def train_dreamer():
     critic = DreamerCritic(hidden_dim=256, stochastic_dim=32).to(device)
 
     # Optimizers
-    model_opt = optim.Adam(model.parameters(), lr=args.learning_rate)
-    actor_opt = optim.Adam(actor.parameters(), lr=args.learning_rate)
-    critic_opt = optim.Adam(critic.parameters(), lr=args.learning_rate)
+    model_opt = make_adam(model.parameters(), args.learning_rate, args.update_graph)
+    actor_opt = make_adam(actor.parameters(), args.learning_rate, args.update_graph)
+    critic_opt = make_adam(critic.parameters(), args.learning_rate, args.update_graph)
 
     rb = SequenceReplayBuffer(args.buffer_size, args.num_envs, envs.single_observation_space.shape, envs.single_action_space.shape, device)
     global_step = 0
@@ -415,6 +605,13 @@ def train_dreamer():
             ckpt_path = os.path.join(ckpt_dir, files[-1])
             print(f"[CHECKPOINT] Loading from {ckpt_path}")
             checkpoint = torch.load(ckpt_path, map_location=device, weights_only=False)
+            resumed_graph = bool(checkpoint["model_opt_state_dict"]["param_groups"][0].get("capturable"))
+            if resumed_graph != args.update_graph:
+                raise SystemExit(
+                    f"[CHECKPOINT] {ckpt_path} was written with "
+                    f"{'--update-graph' if resumed_graph else 'the eager update'}, and Adam's state is "
+                    "laid out differently between the two (the capturable one keeps its step counter on "
+                    "the device), so resuming across them is refused rather than half-loaded.")
             model.load_state_dict(checkpoint["model_state_dict"])
             actor.load_state_dict(checkpoint["actor_state_dict"])
             critic.load_state_dict(checkpoint["critic_state_dict"])
@@ -437,6 +634,7 @@ def train_dreamer():
     h_eval, z_eval = model.rssm.initial_state(args.num_envs, device)
     
     next_checkpoint_step = ((global_step // args.checkpoint_interval) + 1) * args.checkpoint_interval
+    captured_update = None
 
     try:
         while global_step < args.total_timesteps:
@@ -482,132 +680,39 @@ def train_dreamer():
             # 2. Update World Model and Actor/Critic
             # A sequence needs seq_len contiguous rows inside ONE env's stream, so the
             # gate is on rows written per env (rb.filled), not total transitions.
-            if global_step >= 5000 and rb.filled > args.seq_len + 10:
+            if global_step >= args.learning_starts and rb.filled > args.seq_len + 10:
                 # Sample a sequence batch (L, B, dim)
-                obs_seq, action_seq, reward_seq, done_seq = rb.sample(args.batch_size, args.seq_len)
-                
-                # Run through world model dynamics
-                h_seq, z_seq, prior_means, prior_stds, post_means, post_stds = model(obs_seq, action_seq, done_seq)
-                
-                # --- World Model Losses ---
-                # Symlog target scaling for observations
-                target_obs = symlog(obs_seq)
-                reconstructed_obs = model.decoder(torch.cat([h_seq, z_seq], dim=-1))
-                rec_loss = F.mse_loss(reconstructed_obs, target_obs)
-                
-                # Reward prediction loss
-                predicted_rewards = model.reward_net(torch.cat([h_seq[:-1], z_seq[:-1]], dim=-1))
-                reward_loss = F.mse_loss(predicted_rewards, reward_seq)
-                
-                # Continue prediction loss (predicting terminates)
-                predicted_continues = model.continue_net(torch.cat([h_seq[:-1], z_seq[:-1]], dim=-1))
-                continue_loss = F.binary_cross_entropy(predicted_continues, 1.0 - done_seq.float())
-                
-                # KL Divergence regularization loss.
-                # One batched pair of Normal distributions instead of 49 constructions: the
-                # loop cost 64.9 ms of a 289 ms update step - as much as the whole RSSM
-                # forward pass - while the stacked form measures 0.78 ms for the same value
-                # (0.492967 against 0.492967, 6e-8 relative, pure float reassociation).
-                #
-                # The pairing is also fixed here. prior_means[t] is p(z_{t+1} | h_{t+1}),
-                # produced inside loop iteration t of WorldModel.forward, while post_means[t]
-                # is q(z_t | h_t, x_t) - post_means[0] being the pre-action posterior at step
-                # 0. Indexing both with the same t compared the prediction of one step with
-                # the posterior of the previous one, so the regularizer was trained against a
-                # shifted target; [1:1+T] puts prior[t] against post[t+1].
-                T = len(prior_means)
-                p_dist = torch.distributions.Normal(
-                    torch.stack(prior_means), torch.stack(prior_stds))
-                q_dist = torch.distributions.Normal(
-                    torch.stack(post_means[1:1 + T]), torch.stack(post_stds[1:1 + T]))
-                kl_loss = torch.distributions.kl.kl_divergence(q_dist, p_dist).sum(dim=-1).mean()
-                
-                # Total World Model loss
-                model_loss = rec_loss + reward_loss + continue_loss + args.kl_weight * torch.clamp(kl_loss, min=0.1)
-
-                model_opt.zero_grad()
-                model_loss.backward()
-                nn.utils.clip_grad_norm_(model.parameters(), 10.0)
-                model_opt.step()
-
-                # --- Actor-Critic Latent Space Imagination ---
-                # Pick a starting batch of states from the sequence
-                h_0 = h_seq.detach().view(-1, h_seq.shape[-1])
-                z_0 = z_seq.detach().view(-1, z_seq.shape[-1])
-                
-                # Shuffle and take batch
-                indices = torch.randperm(h_0.size(0))[:args.batch_size]
-                h_imag = h_0[indices]
-                z_imag = z_0[indices]
-                
-                imag_h, imag_z, imag_actions = [h_imag], [z_imag], []
-                imag_rewards, imag_continues = [], []
-                
-                # Rollout actor inside prior dynamics for H steps
-                for _ in range(args.imag_horizon):
-                    action = actor.get_action(h_imag, z_imag, sample=True)
-                    h_imag, z_imag, _, _ = model.rssm.transition(h_imag, z_imag, action)
-                    
-                    imag_h.append(h_imag)
-                    imag_z.append(z_imag)
-                    imag_actions.append(action)
-                    
-                    state_cat = torch.cat([h_imag, z_imag], dim=-1)
-                    r_pred = model.reward_net(state_cat)
-                    c_pred = model.continue_net(state_cat)
-                    imag_rewards.append(r_pred)
-                    imag_continues.append(c_pred)
-
-                imag_h = torch.stack(imag_h, dim=0) # (H+1, B, hidden_dim)
-                imag_z = torch.stack(imag_z, dim=0) # (H+1, B, stochastic_dim)
-                imag_rewards = torch.stack(imag_rewards, dim=0) # (H, B, 1)
-                imag_continues = torch.stack(imag_continues, dim=0) # (H, B, 1)
-                
-                # Calculate Critic value estimates (detached from dynamics graph)
-                values = critic(imag_h.detach(), imag_z.detach()) # (H+1, B, 1)
-                
-                # Compute targets (GAE/lambda returns in latent space)
-                lambda_ = 0.95
-                discount = args.gamma * imag_continues
-                returns = torch.zeros_like(imag_rewards)
-                
-                # Detach values for target returns calculation so gradients only flow to actor through dynamics
-                detached_values = values.detach()
-                last_return = detached_values[-1]
-                for t in reversed(range(args.imag_horizon)):
-                    returns[t] = imag_rewards[t] + discount[t] * ((1.0 - lambda_) * detached_values[t+1] + lambda_ * last_return)
-                    last_return = returns[t]
-
-                # Actor Loss: maximize predicted value (lambda-returns)
-                actor_loss = -returns.mean()
-                
-                actor_opt.zero_grad()
-                actor_loss.backward()
-                nn.utils.clip_grad_norm_(actor.parameters(), 10.0)
-                actor_opt.step()
-                
-                # Critic Loss: minimize MSE with targets (returns is already detached)
-                critic_loss = F.mse_loss(values[:-1], returns.detach())
-                
-                critic_opt.zero_grad()
-                critic_loss.backward()
-                nn.utils.clip_grad_norm_(critic.parameters(), 10.0)
-                critic_opt.step()
+                batch = rb.sample(args.batch_size, args.seq_len)
+                # The imagination rollout's starting latents, drawn here because a captured
+                # CUDA graph cannot call the CPU RNG. Nothing between this and the old call site
+                # consumes torch's CPU generator, so the indices are the same ones as before.
+                start = torch.randperm(args.seq_len * args.batch_size)[:args.batch_size]
+                if args.update_graph:
+                    if captured_update is None:
+                        captured_update = CapturedDreamerUpdate(
+                            lambda b, i: dreamer_update(model, actor, critic, model_opt, actor_opt,
+                                                        critic_opt, b, args, i,
+                                                        zero_grad_set_to_none=False),
+                            batch, start)
+                    losses = captured_update(batch, start)
+                else:
+                    losses = dreamer_update(model, actor, critic, model_opt, actor_opt, critic_opt,
+                                            batch, args, start)
 
                 # Tensorboard/WandB Logs
                 if global_step % 1000 < args.num_envs:
-                    writer.add_scalar("losses/rec_loss", rec_loss.item(), global_step)
-                    writer.add_scalar("losses/reward_loss", reward_loss.item(), global_step)
-                    writer.add_scalar("losses/kl_loss", kl_loss.item(), global_step)
-                    writer.add_scalar("losses/actor_loss", actor_loss.item(), global_step)
-                    writer.add_scalar("losses/critic_loss", critic_loss.item(), global_step)
+                    writer.add_scalar("losses/rec_loss", losses["rec_loss"].item(), global_step)
+                    writer.add_scalar("losses/reward_loss", losses["reward_loss"].item(), global_step)
+                    writer.add_scalar("losses/kl_loss", losses["kl_loss"].item(), global_step)
+                    writer.add_scalar("losses/actor_loss", losses["actor_loss"].item(), global_step)
+                    writer.add_scalar("losses/critic_loss", losses["critic_loss"].item(), global_step)
                     writer.add_scalar("charts/SPS", int(global_step / (time.time() - start_time)), global_step)
                     log_mlflow_metrics(mlf_run, {
-                        "rec_loss": rec_loss.item(),
-                        "reward_loss": reward_loss.item(),
-                        "kl_loss": kl_loss.item(),
-                        "actor_loss": actor_loss.item(),
-                        "critic_loss": critic_loss.item(),
+                        "rec_loss": losses["rec_loss"].item(),
+                        "reward_loss": losses["reward_loss"].item(),
+                        "kl_loss": losses["kl_loss"].item(),
+                        "actor_loss": losses["actor_loss"].item(),
+                        "critic_loss": losses["critic_loss"].item(),
                         "sps": int(global_step / (time.time() - start_time)),
                     }, global_step)
 

@@ -173,7 +173,7 @@ def phase4_n1_reassessment(out="benchmarks/phase4_n1_vs_50ep.json"):
         raise SystemExit(f"final_results.txt labels with no mapping: {unmatched}")
 
     out_data = {
-        "protocol": f"single-episode draws from openai_walker/final_results.txt scored against "
+        "protocol": "single-episode draws from openai_walker/final_results.txt scored against "
                     f"evaluate_all.py --episodes {episodes['episodes']} --seed {episodes['seed']} "
                     "(per-episode returns in final_episodes_"
                     f"{episodes['episodes']}ep_seed{episodes['seed']}.json)",

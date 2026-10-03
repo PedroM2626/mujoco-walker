@@ -1,0 +1,62 @@
+{
+  "runs_s": {
+    "e1": 33.29,
+    "g1": 19.16,
+    "fe1": 15.67,
+    "fg1": 15.07,
+    "g2": 20.47,
+    "e2": 39.67,
+    "fg2": 16.56,
+    "fe2": 14.87
+  },
+  "summary": {
+    "rep 1": {
+      "eager_s": 33.29,
+      "graph_s": 19.16,
+      "floor_eager_s": 15.67,
+      "floor_graph_s": 15.07,
+      "end_to_end_ratio": 1.74,
+      "update_phase_eager_s": 17.62,
+      "update_phase_graph_s": 4.09,
+      "ms_per_update_eager": 176.2,
+      "ms_per_update_graph": 40.9,
+      "update_phase_ratio": 4.31,
+      "projected_1m": {
+        "updates": 248750,
+        "collection_s": 2902.0,
+        "eager_h": 13.0,
+        "graph_h": 3.6,
+        "ratio": 3.57
+      }
+    },
+    "rep 2": {
+      "eager_s": 39.67,
+      "graph_s": 20.47,
+      "floor_eager_s": 14.87,
+      "floor_graph_s": 16.56,
+      "end_to_end_ratio": 1.94,
+      "update_phase_eager_s": 24.8,
+      "update_phase_graph_s": 3.91,
+      "ms_per_update_eager": 248.0,
+      "ms_per_update_graph": 39.1,
+      "update_phase_ratio": 6.34,
+      "projected_1m": {
+        "updates": 248750,
+        "collection_s": 2754.0,
+        "eager_h": 17.9,
+        "graph_h": 3.5,
+        "ratio": 5.16
+      }
+    }
+  },
+  "config": {
+    "steps": 5400,
+    "num_envs": 4,
+    "seq_len": 50,
+    "batch_size": 16,
+    "imag_horizon": 15,
+    "learning_starts": 5000,
+    "updates_per_run": 100
+  },
+  "note": "whole short runs of the real trainer; the floor arms are the same command with --learning-starts above the budget, so they collect without ever updating. Order alternated between reps. The live REDQ 1M run shared the box with these. projected_1m is arithmetic on those two rates, not a run that was performed."
+}

@@ -642,6 +642,7 @@ laptop (RTX 4070 Laptop 8 GB, 32 threads, `.venv`), one process at a time:
 |:---|:---|:---|:---|
 | `train_ars.py` | linear policy, 10 directions | 1,005,153 steps in 544 s = 1848/s | 9 min |
 | `train_dreamer.py` | 4 envs, update each collect step | 5,000 steps in 37 s with the update gate closed; 14,000 in 898 s in one A/B window and in 205 s later, same build | ~4-18 h |
+| `train_dreamer.py`, captured update | same, plus `--update-graph` | 100 updates in 4.1 s against 17.6 s eager, in the same window | ~3.6 h in that window |
 | `train_redq.py` | 16 envs, `utd_ratio=20`, ensemble 10 | 10,000 steps in 478 s | ~13 h |
 | `train_redq.py`, batched ensemble | same config, `--ensemble-impl batched` (default now) | see the A/B below | ~4 h in that window |
 
@@ -715,9 +716,56 @@ paths, so `evaluate_merging.py`, the eval scorer and the merge arithmetic are un
 Adam's state is per parameter and the two layouts hold 6 versus 3N tensors, so `--resume` now
 *refuses* a checkpoint written by the other implementation instead of quietly rebuilding the
 optimizer (`--init-from-run-id` remains the weights-only route across them). And the same
-treatment is still owed to Dreamer, whose imagination rollout is a Python loop of exactly this
-kind - the KL batching above got 2.06x on one piece of it and 1.10x on the whole run precisely
-because that loop is still there.
+treatment is owed to Dreamer too, but not in that form: its per-timestep work is a recurrence, so
+there is nothing to stack - what shipped instead is the graph capture below.
+
+**Shipped: the Dreamer update as one graph replay.** The ensemble trick does not transfer here,
+because a Dreamer update walks 49 timesteps of world model plus `--imag-horizon` more of imagination
+and `h_t` depends on `h_{t-1}` - there is nothing to stack. What is left is dispatch. Running the
+real trainer under `torch.profiler` counts **14,400 aten calls per update** (1,439,168 over 100
+updates: 43,245 `aten::linear`, 249,460 `aten::t`, 7,814 `rssm_transition` calls) against six
+256-unit MLPs, and self CPU time lands at 1.04x self CUDA time - the GPU is waiting for Python.
+`CapturedDreamerUpdate` (`train_dreamer.py --update-graph`) records that update once and replays it
+as one launch.
+
+| Dreamer, 5,400 steps at n=4 (100 updates) | total s (rep 1 / rep 2) | ms per update | projected 1M |
+|:---|---:|---:|---:|
+| eager update | 33.3 / 39.7 | 176.2 / 248.0 | 13.0 / 17.9 h |
+| captured update | 19.2 / 20.5 | **40.9 / 39.1** | **3.6 / 3.5 h** |
+| collection floors, eager / captured | 15.7 / 15.1 and 14.9 / 16.6 | - | - |
+
+**4.31x and 6.34x on the update phase, 1.74x and 1.94x end to end at this budget.** The projection
+column is the one that matters for a real run, because 100 updates is not what a 1M-step budget does:
+at 1M the same rates buy **3.57x and 5.16x** (248,750 updates plus the floor arm's own collection
+cost - `benchmarks/dreamer_update_graph_ab.json` stores that as derived arithmetic, not as a run that
+was performed, and the two reps disagree with each other across that range for exactly the reason the
+machine-state caveat above gives). The other thing worth reading off the table is the spread: the
+eager arm's per-update cost moved 40.7% between reps on a box that also had the live REDQ run on it,
+the captured arm's moved 4.6%. Capture does not make the kernels faster; it deletes the host from the
+loop.
+
+Three obligations come with capture, and all three are tested rather than asserted
+(`tests/test_dreamer_graph.py`): the optimizer has to be `Adam(capturable=True, foreach=False)`,
+gradients get cleared in place instead of set to `None`, and the two `Normal`s stop validating their
+arguments because that check synchronises on the host. The first is the only numerical change, and
+the test carries a control arm for it - the same update run eagerly under the capture-only Adam
+configuration differs from the default configuration by the same ~1e-6 that the graph differs by, so
+the residual belongs to Adam's kernel choice and not to the graph. Checkpoints record which
+configuration their Adam state is in (read off `param_groups`, so pre-existing checkpoints answer
+correctly) and `--resume` refuses across the two. Replays also have to refresh their noise: a
+captured RNG that stopped advancing would imagine the same trajectory forever, which is the failure
+mode that test exists to catch.
+
+⚠️ **And Dreamer runs are not reproducible across processes, so "same seed" is not a pairing control
+for an outcome claim.** `python bench_dreamer_update.py --mode reproducibility` runs the identical
+build twice with the same seed and args and compares: **0 of 42 tensors bit-identical, worst
+|Δweight| 7.2e-2 after 100 updates**, and the two runs' 166 episodic returns do not match as a
+sequence (`benchmarks/dreamer_reproducibility.json`). Within one process the update *is* exact - the
+equivalence test above holds the captured update to 1e-5 on the losses and 1e-4 on the weights
+against the eager one with its noise frozen - so this is per-process kernel selection and reduction
+order, amplified by 100 updates of a world model that feeds on its own estimates. Timing comparisons
+are unaffected, and the KL-batching A/B above is one of those; any Dreamer comparison phrased as
+"the same run, but X" is not paired and should be read as two runs.
 
 **Measured and rejected, because "sounds faster" is not a measurement:**
 

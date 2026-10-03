@@ -20,8 +20,12 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 README = os.path.join(ROOT, "README.md")
 AB = os.path.join(ROOT, "benchmarks", "redq_ensemble_ab.json")
 BASELINE = os.path.join(ROOT, "benchmarks", "throughput_baseline_vs_now.json")
+PROFILE = os.path.join(ROOT, "benchmarks", "dreamer_update_profile.json")
+DREAMER_AB = os.path.join(ROOT, "benchmarks", "dreamer_update_graph_ab.json")
+REPRO = os.path.join(ROOT, "benchmarks", "dreamer_reproducibility.json")
 
 SECTION = "**Shipped: the REDQ critic ensemble as one batched pass.**"
+DREAMER_SECTION = "**Shipped: the Dreamer update as one graph replay.**"
 NEXT_SECTION = "**Measured and rejected"
 
 # The two A/B arms that produced the table ran 10k env steps at n=16 parallel.
@@ -33,24 +37,16 @@ def nums(text):
     return [float(t.replace(",", "")) for t in re.findall(r"\d[\d,]*\.?\d*", text.replace("*", ""))]
 
 
-class TestReadmeRedqEnsembleCells(unittest.TestCase):
-    def setUp(self):
-        with open(README, encoding="utf-8") as handle:
-            self.readme = handle.read()
-        start = self.readme.index(SECTION)
-        self.block = self.readme[start:self.readme.index(NEXT_SECTION, start)]
-        for path in (AB, BASELINE):
-            self.assertTrue(os.path.exists(path), f"the README quotes {path}, which is missing")
-        with open(AB, encoding="utf-8") as handle:
-            self.ab = json.load(handle)
-        with open(BASELINE, encoding="utf-8") as handle:
-            self.sps_single_env = json.load(handle)["phases"]["after_env_python_rewrite"][
-                "single_env_steps_per_s"]
-        self.bad = []
+class ReadmeGate:
+    """Cell-by-cell comparison plumbing: collect every disagreement, report them together.
+
+    Mixed into one class per README section. Subclasses set `self.readme`, `self.block`, the
+    artifacts they gate against, and `self.what` for the failure message.
+    """
 
     def tearDown(self):
         if self.bad:
-            self.fail("README REDQ ensemble numbers drifted from the artifacts:\n  "
+            self.fail(f"README {self.what} numbers drifted from the artifacts:\n  "
                       + "\n  ".join(self.bad))
 
     def cell(self, label, col):
@@ -62,12 +58,13 @@ class TestReadmeRedqEnsembleCells(unittest.TestCase):
     def check(self, what, typed, measured, places=1, slack=0.0):
         """Compare one or many typed figures against recomputed ones, at the README's precision.
 
-        `slack` is for figures the artifact cannot carry exactly: runs_s is stored in tenths of a
-        second, so a rate recomputed from it can sit up to 0.05 s / dt away from the rate the
-        harness printed, plus the printed figure's own rounding - ~0.12 env-steps/s at these
-        budgets. Anything wider than that is drift, not rounding.
+        `slack` is for figures the artifact cannot carry exactly: a benchmark stores elapsed seconds
+        in tenths, so a rate recomputed from it can sit up to 0.05 s / dt away from the rate the
+        harness printed, plus the printed figure's own rounding. Anything wider is drift, not
+        rounding, and the bound is derived from those two roundings rather than tuned to pass.
         """
-        a = [float(str(x).replace(",", "")) for x in (typed if isinstance(typed, (list, tuple)) else [typed])]
+        a = [float(str(x).replace(",", "")) for x in
+             (typed if isinstance(typed, (list, tuple)) else [typed])]
         b = [float(str(x).replace(",", "")) for x in
              (measured if isinstance(measured, (list, tuple)) else [measured])]
         if len(a) != len(b):
@@ -78,9 +75,36 @@ class TestReadmeRedqEnsembleCells(unittest.TestCase):
                 self.bad.append(f"{what}: README says {x}, artifact gives {y:.6g}")
 
     def sentence(self, pattern, what):
-        m = re.search(pattern, self.block)
+        """Search the section with its Markdown hard-wraps collapsed.
+
+        The README wraps at 90 columns, so a prose figure is never guaranteed to sit on one line;
+        matching against the reflowed text keeps the patterns about the numbers rather than about
+        where the author broke a line.
+        """
+        m = re.search(pattern, re.sub(r"\s+", " ", self.block))
         self.assertIsNotNone(m, f"the {what} sentence was reworded; re-point this test at it")
         return m
+
+    def read_artifacts(self, *paths):
+        out = []
+        for path in paths:
+            self.assertTrue(os.path.exists(path), f"the README quotes {path}, which is missing")
+            with open(path, encoding="utf-8") as handle:
+                out.append(json.load(handle))
+        return out
+
+
+class TestReadmeRedqEnsembleCells(ReadmeGate, unittest.TestCase):
+    def setUp(self):
+        with open(README, encoding="utf-8") as handle:
+            self.readme = handle.read()
+        start = self.readme.index(SECTION)
+        self.block = self.readme[start:self.readme.index(DREAMER_SECTION, start)]
+        self.ab, self.baseline = self.read_artifacts(AB, BASELINE)
+        self.sps_single_env = self.baseline["phases"]["after_env_python_rewrite"][
+            "single_env_steps_per_s"]
+        self.what = "REDQ ensemble"
+        self.bad = []
 
     def rate(self, tag):
         """env-steps/s for an arm, with the slack its own artifact can support.
@@ -201,6 +225,110 @@ class TestReadmeRedqEnsembleCells(unittest.TestCase):
         self.assertEqual(20, self.ab["config"]["utd_ratio"])
         self.assertEqual(10, self.ab["config"]["ensemble_size"])
         self.assertEqual(256, self.ab["config"]["batch_size"])
+
+
+class TestReadmeDreamerGraphCells(ReadmeGate, unittest.TestCase):
+    def setUp(self):
+        with open(README, encoding="utf-8") as handle:
+            self.readme = handle.read()
+        start = self.readme.index(DREAMER_SECTION)
+        self.block = self.readme[start:self.readme.index(NEXT_SECTION, start)]
+        self.profile, self.ab, self.repro = self.read_artifacts(PROFILE, DREAMER_AB, REPRO)
+        self.what = "Dreamer graph"
+        self.bad = []
+
+    def test_the_table_matches_both_reps(self):
+        s = self.ab["summary"]
+        rows = {"eager update": ("eager_s", "ms_per_update_eager", "eager_h"),
+                "captured update": ("graph_s", "ms_per_update_graph", "graph_h")}
+        for label, (total_key, ms_key, hour_key) in rows.items():
+            self.check(f"{label} total s", nums(self.cell(label, 1)),
+                       [s["rep 1"][total_key], s["rep 2"][total_key]])
+            self.check(f"{label} ms per update", nums(self.cell(label, 2)),
+                       [s["rep 1"][ms_key], s["rep 2"][ms_key]])
+            self.check(f"{label} projected 1M h", nums(self.cell(label, 3)),
+                       [s["rep 1"]["projected_1m"][hour_key], s["rep 2"]["projected_1m"][hour_key]])
+        floors = self.cell("collection floors, eager / captured", 1)
+        self.check("collection floors", nums(floors),
+                   [self.ab["runs_s"]["fe1"], self.ab["runs_s"]["fg1"],
+                    self.ab["runs_s"]["fe2"], self.ab["runs_s"]["fg2"]])
+
+    def test_the_profile_counts_in_the_prose(self):
+        n = self.ab["config"]["updates_per_run"]
+        m = self.sentence(r"\*\*([\d,]+) aten calls per update\*\* \(([\d,]+) over (\d+) updates: "
+                          r"([\d,]+) `aten::linear`, ([\d,]+) `aten::t`, ([\d,]+) "
+                          r"`rssm_transition` calls\)", "aten-count")
+        total = self.profile["aten_call_count"]
+        per_update = total / n
+        self.check("aten calls per update", nums(m.group(1))[0], round(per_update, -2), places=0)
+        self.check("aten calls total", nums(m.group(2))[0], total, places=0)
+        self.check("profiled updates", m.group(3), n, places=0)
+        ops = self.profile["top_ops_by_call_count"]
+        self.check("aten::linear calls", nums(m.group(4))[0], ops["aten::linear"], places=0)
+        self.check("aten::t calls", nums(m.group(5))[0], ops["aten::t"], places=0)
+        self.check("rssm_transition calls", nums(m.group(6))[0],
+                   self.profile["frames"]["rssm_transition"]["count"], places=0)
+
+        m = self.sentence(r"self CPU time lands at ([\d.]+)x self CUDA time", "cpu-over-cuda")
+        self.check("cpu/cuda ratio", m.group(1), self.profile["cpu_over_cuda_ratio"], places=2)
+
+    def test_the_ratios_and_the_projection(self):
+        s = self.ab["summary"]
+        m = self.sentence(r"\*\*([\d.]+)x and ([\d.]+)x on the update phase, ([\d.]+)x and "
+                          r"([\d.]+)x end to end", "measured ratios")
+        for i, key in enumerate(("update_phase_ratio", "end_to_end_ratio")):
+            self.check(f"{key} rep 1", m.group(2 * i + 1), s["rep 1"][key], places=2)
+            self.check(f"{key} rep 2", m.group(2 * i + 2), s["rep 2"][key], places=2)
+        m = self.sentence(r"the same rates buy \*\*([\d.]+)x and ([\d.]+)x\*\* \(([\d,]+) updates",
+                          "projected ratio")
+        self.check("projected ratio rep 1", m.group(1), s["rep 1"]["projected_1m"]["ratio"], places=2)
+        self.check("projected ratio rep 2", m.group(2), s["rep 2"]["projected_1m"]["ratio"], places=2)
+        self.check("updates at 1M", nums(m.group(3))[0], s["rep 1"]["projected_1m"]["updates"],
+                   places=0)
+
+    def test_the_spread_sentence(self):
+        s = self.ab["summary"]
+        eager = [s["rep 1"]["ms_per_update_eager"], s["rep 2"]["ms_per_update_eager"]]
+        graph = [s["rep 1"]["ms_per_update_graph"], s["rep 2"]["ms_per_update_graph"]]
+        m = self.sentence(r"per-update cost moved ([\d.]+)% between reps[\s\S]*?captured arm's moved "
+                          r"([\d.]+)%", "spread")
+        self.check("eager spread", m.group(1), (max(eager) / min(eager) - 1) * 100, places=1)
+        self.check("captured spread", m.group(2), (max(graph) / min(graph) - 1) * 100, places=1)
+
+    def test_the_reproducibility_numbers(self):
+        m = self.sentence(r"\*\*([\d,]+) of (\d+) tensors bit-identical, worst\s+\|[^|]*\| "
+                          r"([\d.e-]+) after (\d+) updates\*\*, and the two runs' ([\d,]+) "
+                          r"episodic returns", "reproducibility")
+        self.check("bit-identical tensors", m.group(1), self.repro["bit_identical_tensors"], places=0)
+        self.check("tensors compared", m.group(2), self.repro["tensors_compared"], places=0)
+        self.check("worst weight drift", float(m.group(3)), self.repro["worst_abs_weight_diff"],
+                   places=3)
+        self.check("updates in the reproducibility run", m.group(4),
+                   (self.repro["steps"] - 5000) // 4, places=0)
+        self.check("episodic returns per run", nums(m.group(5))[0],
+                   len(self.repro["episodic_returns"]["a"]), places=0)
+        self.assertFalse(self.repro["returns_sequence_equal"],
+                         "the README calls Dreamer runs unreproducible; the artifact says they matched")
+
+    def test_the_equivalence_tolerances_are_the_ones_the_test_asserts(self):
+        """The README quotes the numbers tests/test_dreamer_graph.py holds the graph to."""
+        m = self.sentence(r"holds the captured update to ([\d.e-]+) on the losses and ([\d.e-]+) on "
+                          r"the weights", "equivalence tolerances")
+        with open(os.path.join(ROOT, "tests", "test_dreamer_graph.py"), encoding="utf-8") as handle:
+            src = handle.read()
+        self.assertIn(f"loss_gap, {m.group(1)}", src, "the loss tolerance no longer matches the test")
+        self.assertIn(f"param_gap, {m.group(2)}", src, "the weight tolerance no longer matches the test")
+
+    def test_the_trainer_table_row(self):
+        s = self.ab["summary"]["rep 1"]
+        m = re.search(r"^\| `train_dreamer\.py`, captured update \|.*\|$", self.readme, re.M)
+        self.assertIsNotNone(m, "the captured-update row of the trainer table is gone")
+        cells = [c.strip() for c in m.group(0).strip("|").split("|")]
+        self.check("trainer-row numbers", nums(cells[2]),
+                   [self.ab["config"]["updates_per_run"], s["update_phase_graph_s"],
+                    s["update_phase_eager_s"]])
+        self.assertIn(str(round(s["projected_1m"]["graph_h"], 1)), cells[3],
+                      "the row's 1M figure is not the rep-1 projection")
 
 
 if __name__ == "__main__":

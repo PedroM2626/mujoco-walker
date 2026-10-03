@@ -520,29 +520,25 @@ contrast, is +0.47 sigma inside its own distribution and needed no explanation a
 | **Inverse RL (AIRL)** | -6.36 |
 | **IQL Offline** | -15.81 |
 
-**What only this record tells you.** Five things are here that the 50-episode table cannot say,
-because they are about how the models were built rather than how they scored:
+**What only this record tells you.** Five facts here are about how the models were built, which no
+score table can carry:
 
-1. **DT reached 1288.02 after 10 epochs (100k steps) of training** - the least-trained model in
-   the race, and also the widest spread in the seeded table (std 1101.18). Stated side by side, not
-   as cause and effect: nothing here separates under-training from the variance a
-   Return-To-Go-conditioned policy has on its own.
-2. **GAIL was trained to 1,000,000 steps and plateaued near 1000.** The dataset was too
-   deterministic, so the discriminator became a perfect judge and starved the actor of gradient.
-   That plateau, not a bad evaluation, is what the near-zero variance measures.
-3. **AIRL was rebuilt once.** The first version produced `NaN` gradients where deterministic
-   dataset actions hit the `atanh` limits; it came back with spectral normalisation, action
-   clipping ($\pm 0.95$) and an $h(s)$ reward-shaping baseline, and still sits near -6. A 20-hour
-   server restart killed a long run mid-training.
-4. **The BC+SAC (Regularized) mechanism** is what its row was measuring: start from BC weights,
-   keep exploring with SAC, and hold the actor near the clone with a BC loss to prevent
-   catastrophic forgetting. The 50-episode table says that arrangement lands below plain BC; this
-   record is where the "below the teacher and BCQ, so not the champion an earlier version claimed"
-   reading comes from.
-5. **Extra Trees was never in this race.** It is absent from `final_results.txt`, so it was never
-   ranked against the rest, and the "~2522 over 5 episodes / ~3900 in-distribution / ~900 when
-   forced to extrapolate" breakdown once quoted here exists nowhere in the repo as a measurement.
-   Its measured row is third in the table above.
+- **DT scored 1288.02 after 10 epochs (100k steps)** - the least-trained model in the race, and
+  separately the widest spread in the seeded table (std 1101.18). Side by side, not cause and
+  effect: nothing here separates under-training from the variance a Return-To-Go policy has anyway.
+- **GAIL was trained to 1,000,000 steps and plateaued near 1000** - the dataset was too
+  deterministic, the discriminator became a perfect judge, and the actor starved. That plateau, not
+  a bad evaluation, is what its near-zero variance measures.
+- **AIRL was rebuilt once**: the first version produced `NaN` gradients where deterministic dataset
+  actions hit the `atanh` limits, and came back with spectral normalisation, action clipping
+  ($\pm 0.95$) and an $h(s)$ shaping baseline. It still sits at -6, the measured value, where the
+  old prose said "near -5". A 20-hour server restart killed a long run mid-training.
+- **BC+SAC (Regularized)** means what it says: BC weights, then SAC exploration held near the clone
+  by a BC loss. This record is where "below BCQ and the teacher, so not the champion an earlier
+  version claimed" comes from; the seeded table says it also finishes below plain BC.
+- **Extra Trees was never in this race**, so it was never ranked against the rest - and the
+  "~2522 over 5 episodes / ~3900 in-distribution / ~900 extrapolating" breakdown once quoted here
+  exists nowhere in the repo as a measurement.
 
 ⚠️ **The environment this table needs is not the one in `.venv`.** Every Phase-4 script
 makes `Walker2d-v5`, which only exists from **gymnasium 1.0**; `.venv` is gymnasium 0.29.1

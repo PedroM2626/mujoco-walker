@@ -11,6 +11,8 @@ CI runs it against the committed artifacts, so it costs nothing and fails the mo
 README number without re-measuring it.
 """
 
+import glob
+import hashlib
 import json
 import os
 import re
@@ -31,10 +33,80 @@ NEXT_SECTION = "**Measured and rejected"
 # The two A/B arms that produced the table ran 10k env steps at n=16 parallel.
 STEPS = 10000
 
+PHASE4_SECTION = "## \U0001f3c6 Final Benchmark Results (Offline-to-Online Race)"
+PHASE4_HISTORY = "### Historical record: one unseeded episode per model"
+PHASE4_ENV_NOTE = "\u26a0\ufe0f **The environment this table needs"
+
+RACE_50EP = os.path.join(ROOT, "benchmarks", "phase4_race_50ep.json")
+N1_ART = os.path.join(ROOT, "benchmarks", "phase4_n1_vs_50ep.json")
+PAIRED_50EP = os.path.join(ROOT, "benchmarks", "phase4_paired_50ep_seed2026.json")
+PAIR_BCQ_TEACHER = "BCQ - Teacher (Upper Bound)"
+
+# README row label (as it sits in the Markdown, bold included) -> artifact model key. Explicit, so
+# renaming a row fails the gate instead of quietly un-gating it.
+RACE_ROWS = {
+    "**Behavioral Cloning (BC)**": "BC",
+    "**Teacher (Online SAC)**": "Teacher (Upper Bound)",
+    "**Extra Trees Cloner (sklearn)**": "Extra Trees Cloner (sklearn)",
+    "**BC+SAC (Regularized)**": "BC+SAC (Regularized)",
+    "**Batch-Constrained Q-learning (BCQ)**": "BCQ",
+    "**Decision Transformer (DT)**": "DT",
+    "**BC+SAC (Naive)**": "BC+SAC (Naive)",
+    "**Inverse RL (GAIL)**": "GAIL",
+    "**CQL+SAC**": "CQL+SAC",
+    "**CQL Offline**": "CQL",
+    "**MaxEnt IRL**": "MaxEnt",
+    "**BC+SAC (Constrained)**": "BC+SAC (Constrained)",
+    "**IQL Offline**": "IQL",
+    "**Inverse RL (AIRL)**": "AIRL",
+}
+# The retired table carries the same rows except Extra Trees, which was never in that race and so
+# has no single-episode score in any artifact.
+N1_ROWS = {k: v for k, v in RACE_ROWS.items() if "Extra Trees" not in k}
+
+MINUS = "\u2212"  # the README writes these gaps with a real minus sign
+
+# The Phase-4 policies the README lists as archived in the MLflow file store, and the paths that
+# hold both copies.
+P4 = os.path.join(ROOT, "openai_walker")
+MLRUNS = os.path.join(P4, "mlruns")
+ARCHIVED_WEIGHTS = ["bc_model.pt", "iql_model.pt", "cql_model.pt", "bc_sac_naive_model.pt",
+                    "bc_sac_regularized_model.pt", "bc_sac_constrained_model.pt",
+                    "cql_sac_model.pt"]
+
+
+def _digest(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+# Each retired draw as item 7 states it, and the artifact fields those figures must equal.
+N1_PROSE = [
+    ("BC", r"BC's ([\d.]+) is \*\*([-\d.]+) sigma\*\* and (\d+) of 50 episodes beat it",
+     ("n1_score", "n1_in_sigmas", "episodes_at_or_above_n1")),
+    ("BCQ", r"BCQ's ([\d.]+) is \*\*\+([-\d.]+) sigma\*\*, reached or exceeded in (\d+) of 50, "
+            r"with a max of ([\d.]+)",
+     ("n1_score", "n1_in_sigmas", "episodes_at_or_above_n1", "max")),
+    ("Teacher (Upper Bound)", r"the teacher's ([\d.]+) is \+([-\d.]+) sigma",
+     ("n1_score", "n1_in_sigmas")),
+    ("BC+SAC (Constrained)", r"BC\+SAC \(Constrained\) at \+([-\d.]+) sigma \(only (\d+) of 50",
+     ("n1_in_sigmas", "episodes_at_or_above_n1")),
+    ("BC+SAC (Regularized)", r"BC\+SAC \(Regularized\) at \+([-\d.]+) sigma",
+     ("n1_in_sigmas",)),
+]
+
 
 def nums(text):
     """Floats in a README cell, tolerating thousands separators and ** bold."""
     return [float(t.replace(",", "")) for t in re.findall(r"\d[\d,]*\.?\d*", text.replace("*", ""))]
+
+
+def snums(text):
+    """Same, but sign-preserving: three Phase-4 rows carry negative minimum scores."""
+    return [float(t.replace(",", "")) for t in
+            re.findall(r"-?\d[\d,]*\.?\d*", text.replace("*", ""))]
 
 
 class ReadmeGate:
@@ -329,6 +401,157 @@ class TestReadmeDreamerGraphCells(ReadmeGate, unittest.TestCase):
                     s["update_phase_eager_s"]])
         self.assertIn(str(round(s["projected_1m"]["graph_h"], 1)), cells[3],
                       "the row's 1M figure is not the rep-1 projection")
+
+
+class TestReadmePhase4RaceCells(ReadmeGate, unittest.TestCase):
+    """The Phase-4 tables and the retired-draw prose, cell by cell, against the artifacts.
+
+    These are the numbers this repository has already had to retract once, and until now nothing
+    in CI compared the typed table against `phase4_race_50ep.json`, `phase4_n1_vs_50ep.json` or the
+    paired-test file. A transposed digit here is exactly the defect class that cost the phase its
+    headline.
+    """
+
+    def setUp(self):
+        with open(README, encoding="utf-8") as handle:
+            self.readme = handle.read()
+        start = self.readme.index(PHASE4_SECTION)
+        end = self.readme.index(PHASE4_HISTORY, start)
+        self.block = self.readme[start:end]
+        hist_end = self.readme.index(PHASE4_ENV_NOTE, end)
+        self.hist = self.readme[end:hist_end]
+        self.race, self.n1art, self.paired = self.read_artifacts(RACE_50EP, N1_ART, PAIRED_50EP)
+        self.what = "Phase-4 race"
+        self.bad = []
+
+    def row(self, label, cols):
+        """The row's cells, or None with the miss recorded - one rename must not hide the rest."""
+        try:
+            return [self.cell(label, c) for c in range(cols)]
+        except AssertionError as exc:
+            self.bad.append(str(exc))
+            return None
+
+    def test_the_50_episode_table_matches_the_race_artifact(self):
+        for label, key in RACE_ROWS.items():
+            cells = self.row(label, 5)
+            if cells is None:
+                continue
+            s = self.race["models"].get(key)
+            self.assertIsNotNone(s, f"{key} is not in phase4_race_50ep.json")
+            self.check(label, [snums(cells[c])[0] for c in (1, 2, 3, 4)],
+                       [s["mean"], s["std"], s["min"], s["max"]], places=2)
+
+    def test_the_historical_table_matches_the_recorded_draws(self):
+        self.block = self.hist  # cell() reads the block under test
+        for label, key in N1_ROWS.items():
+            cells = self.row(label, 3)
+            if cells is None:
+                continue
+            self.check(f"{label} (n=1)", snums(cells[1])[0],
+                       self.n1art["models"][key]["n1_score"], places=2)
+
+    def test_every_retired_draw_is_reported_where_its_distribution_puts_it(self):
+        """Item 7 quotes each retired draw next to its sigma and its win count: check all three."""
+        for name, pattern, fields in N1_PROSE:
+            m = self.sentence(pattern, f"the {name} retired-draw sentence")
+            art = self.n1art["models"][name]
+            self.check(f"{name} retired draw against its own 50-episode distribution",
+                       [float(g) for g in m.groups()], [float(art[f]) for f in fields], places=2)
+
+    def test_the_bcq_teacher_verdict_is_the_paired_test_that_ran(self):
+        p = next(r for r in self.paired["results"] if r["pair"] == PAIR_BCQ_TEACHER)
+        m = self.sentence(r"BCQ is \*\*([\d.]+) below\*\* the teacher, 95% interval "
+                          r"\[(-?[\d.]+), (-?[\d.]+)\], paired-t p=([\d.e-]+), .*?dz=(-?[\d.]+) "
+                          r"- it wins \*\*(\d+) of the 50\*\*", "BCQ against the teacher")
+        self.check("BCQ - Teacher", [float(m.group(1)), float(m.group(2)), float(m.group(3)),
+                                     float(m.group(5)), int(m.group(6))],
+                   [abs(p["mean_difference"]), p["bootstrap_95ci"][0], p["bootstrap_95ci"][1],
+                    p["cohens_dz"], p["wins_a"]], places=2)
+        self.check("BCQ - Teacher paired-t p", float(m.group(4)), p["paired_t_p"], places=4)
+
+    def test_the_paired_rows_the_table_quotes_are_in_the_artifact(self):
+        # BCQ against the teacher has its own test; it is stated in prose, not as an "X - Y = n"
+        # gap, because the number the retired table published for it was a single episode.
+        for pair, label in (("BC - Teacher (Upper Bound)", "BC " + MINUS + " Teacher"),
+                            ("BCQ - BC+SAC (Regularized)",
+                             "BCQ " + MINUS + " BC+SAC (Regularized)"),
+                            ("Extra Trees - BCQ", "Extra Trees " + MINUS + " BCQ")):
+            r = next(x for x in self.paired["results"] if x["pair"] == pair)
+            m = self.sentence(re.escape(label) + r" = [\[*\-+]*([\d.]+)", f"the {pair} gap")
+            self.check(pair, abs(float(m.group(1))), abs(r["mean_difference"]), places=2)
+
+    def test_the_count_of_pairs_and_of_ties_is_what_the_artifact_says(self):
+        """The lead-in's "two are ties, one won on rank, one clear gap" is read off every pair."""
+        by_set = {}
+        for r in self.paired["results"]:
+            by_set.setdefault(frozenset(r["pair"].split(" - ")), r)
+        self.assertEqual(4, len(by_set),
+                         f"the README counts four distinct pairs, the artifact holds {len(by_set)}")
+        # A "tie" here is nothing significant on either test; Extra Trees against BCQ wins the rank
+        # test while the mean difference stays inside the interval, which is a different sentence.
+        ties = [p for p, r in by_set.items()
+                if not r["significant_at_95"] and r["wilcoxon_p"] >= 0.05]
+        rank_only = [p for p, r in by_set.items()
+                     if not r["significant_at_95"] and r["wilcoxon_p"] < 0.05]
+        clear = [p for p, r in by_set.items() if r["significant_at_95"]]
+        self.assertEqual(2, len(ties), f"the README calls two pairs ties, these are: {ties}")
+        self.assertEqual(1, len(rank_only),
+                         f"the README names one rank-only win, these are: {rank_only}")
+        self.assertEqual([frozenset(PAIR_BCQ_TEACHER.split(" - "))], clear,
+                         "the README says BCQ against the teacher is the only significant pair")
+
+
+
+class TestReadmePhase4WeightProvenance(unittest.TestCase):
+    """The historical-table note claims seven retired policies can still be replayed byte for byte.
+
+    That is a statement about files, not about numbers, and it is what tells a reader whether a
+    retired score is re-measurable at all. It costs one hash per model and fails the moment a
+    checkpoint on disk is retrained away from its archived copy.
+    """
+
+    def test_the_archived_weights_are_the_weights_being_scored(self):
+        with open(N1_ART, encoding="utf-8") as handle:
+            scored = json.load(handle)["models"]
+        self.assertEqual(13, len(scored),
+                         "the README says thirteen policies were scored in that race")
+        self.assertEqual(7, len(ARCHIVED_WEIGHTS),
+                         "the README says seven of them are archived; the list changed")
+        for name in ARCHIVED_WEIGHTS:
+            live = os.path.join(P4, name)
+            if not os.path.exists(live):
+                self.skipTest(f"{name} is not in this checkout (*.pt files are not committed)")
+            archived = sorted(glob.glob(os.path.join(MLRUNS, "**", name), recursive=True))
+            self.assertTrue(archived,
+                            f"the README calls {name} archived, but no copy is under mlruns/")
+            self.assertEqual(_digest(live), _digest(archived[0]),
+                             f"{name}: the copy on disk is no longer the copy MLflow holds, so "
+                             "the retired scores quoted next to it are not replayable")
+
+
+class TestReadmeTestCount(unittest.TestCase):
+    """The README states how many tests the suite holds, three times over, and that number is free
+    to go stale the moment anyone adds a test - including in the same edit that fixes it.
+
+    It was wrong twice in one file (32 in one section, 41 in another) before being measured. The
+    count here is discovered live rather than remembered, so the sentence cannot drift again.
+    """
+
+    COUNT_PATTERNS = [r"\*\*(\d+) tests",            # the "Running the tests" claim
+                      r"`Ran (\d+) tests \.\.\. OK",  # the citation of the run it came from
+                      r"# (\d+) tests in \.venv"]     # the reproduce-block comment
+
+    def test_every_published_test_count_is_the_suite_that_exists(self):
+        with open(README, encoding="utf-8") as handle:
+            readme = handle.read()
+        n = unittest.TestLoader().discover(os.path.join(ROOT, "tests"),
+                                           top_level_dir=ROOT).countTestCases()
+        typed = [int(m.group(1)) for p in self.COUNT_PATTERNS for m in re.finditer(p, readme)]
+        self.assertTrue(typed, "no published test count was found to check")
+        for value in typed:
+            self.assertEqual(n, value,
+                             f"the README says {value} tests, `discover` reports {n}")
 
 
 if __name__ == "__main__":

@@ -420,6 +420,36 @@ def dreamer_update(model, actor, critic, model_opt, actor_opt, critic_opt, batch
             "kl_loss": kl_loss, "actor_loss": actor_loss, "critic_loss": critic_loss}
 
 
+def latest_dreamer_checkpoint(ckpt_dir):
+    """The highest-step Dreamer checkpoint in `ckpt_dir`, or None. Shared by the resume guard and
+    the update-mode resolution below, which have to agree on which file they are talking about."""
+    if not os.path.isdir(ckpt_dir):
+        return None
+    files = [f for f in os.listdir(ckpt_dir)
+             if f.startswith("dreamer_ckpt_") and f.endswith(".pt")]
+    if not files:
+        return None
+    files.sort(key=lambda x: int(x.split("_")[-1].split(".")[0]))
+    return os.path.join(ckpt_dir, files[-1])
+
+
+def resolve_update_graph(requested, device_type, resumed_graph=None):
+    """Decide whether the Dreamer update runs captured, and say why, in one testable place.
+
+    Three inputs, in priority order: an explicit flag from the user, the configuration of the
+    checkpoint being resumed, and the device. The middle one exists because the default flipped to
+    "capture when CUDA is present" - without it, every pre-existing eager run would refuse to
+    resume the day this ships, since Adam's state is laid out differently between the two.
+    """
+    if requested is not None:
+        if requested and device_type != "cuda":
+            raise SystemExit("--update-graph replays a captured CUDA graph, so it needs a CUDA device.")
+        return requested
+    if resumed_graph is not None:
+        return resumed_graph
+    return device_type == "cuda"
+
+
 def make_adam(params, lr, graph):
     """Adam, in the one configuration CUDA graph capture accepts when the update is captured.
 
@@ -504,9 +534,10 @@ def parse_dreamer_args():
     parser.add_argument("--imag-horizon", type=int, default=15, help="Imagination sequence length (H)")
     parser.add_argument("--batch-size", type=int, default=16, help="Batch size of sequences")
     parser.add_argument("--kl-weight", type=float, default=1.0, help="KL divergence regularization weight")
-    parser.add_argument("--update-graph", action="store_true", default=False,
-                        help="capture the whole update as one CUDA graph (CUDA only; see "
-                             "CapturedDreamerUpdate)")
+    parser.add_argument("--update-graph", action=argparse.BooleanOptionalAction, default=None,
+                        help="capture the whole update as one CUDA graph. Unset means auto: on for "
+                             "CUDA, off elsewhere, and on resume it follows the configuration the "
+                             "checkpoint was written in (see resolve_update_graph).")
     
     return parser.parse_args()
 
@@ -568,8 +599,29 @@ def train_dreamer():
     torch.backends.cudnn.deterministic = True
     device = select_device(args)
     print(f"Using device: {device}")
-    if args.update_graph and device.type != "cuda":
-        raise SystemExit("--update-graph replays a captured CUDA graph, so it needs a CUDA device.")
+    # Resolve the update mode before the optimizers exist: Adam's state layout is the thing that
+    # differs between the two, so the choice has to be made once, here, and every later check
+    # compares against what was actually resolved.
+    ckpt_dir = get_checkpoint_dir(args.run_id)
+    requested = args.update_graph
+    resume_ckpt = latest_dreamer_checkpoint(ckpt_dir) if args.resume else None
+    # The mode is read out of the checkpoint, so the file has to be opened before the optimizers
+    # are built. This is the same read the resume path always did, moved up rather than widened:
+    # it happens only under --resume, only on checkpoints this trainer wrote, and these files carry
+    # obs_rms / rng_state objects, so a weights-only read cannot open them at all.
+    checkpoint = None
+    if resume_ckpt:
+        print(f"[CHECKPOINT] Loading from {resume_ckpt}")
+        checkpoint = torch.load(resume_ckpt, map_location=device, weights_only=False)
+    resumed_graph = (
+        bool(checkpoint["model_opt_state_dict"]["param_groups"][0].get("capturable"))
+        if checkpoint is not None else None)
+    args.update_graph = resolve_update_graph(requested, device.type, resumed_graph)
+    mode = "captured CUDA graph" if args.update_graph else "eager"
+    source = ("--update-graph" if requested else "--no-update-graph") if requested is not None else \
+        ("follows " + os.path.basename(resume_ckpt)) if resumed_graph is not None else \
+        f"auto for device={device.type}"
+    print(f"[DREAMER] update: {mode} ({source})")
 
     envs = build_vec_env(args, run_name, capture_video=False)
     envs = wrap_normalize_observation(envs)
@@ -591,40 +643,35 @@ def train_dreamer():
     rb = SequenceReplayBuffer(args.buffer_size, args.num_envs, envs.single_observation_space.shape, envs.single_action_space.shape, device)
     global_step = 0
     restored_obs_rms = None
-    ckpt_dir = get_checkpoint_dir(args.run_id)
 
     # Setup WandB (removido: tracking canônico é MLflow + TensorBoard; wandb não é dependência)
     # Setup MLflow
     mlf_run = start_mlflow_run(args, run_name, "dreamer")
 
-    # Resume handling
-    if args.resume:
-        files = [f for f in os.listdir(ckpt_dir) if f.startswith("dreamer_ckpt_") and f.endswith(".pt")] if os.path.exists(ckpt_dir) else []
-        if files:
-            files.sort(key=lambda x: int(x.split("_")[-1].split(".")[0]))
-            ckpt_path = os.path.join(ckpt_dir, files[-1])
-            print(f"[CHECKPOINT] Loading from {ckpt_path}")
-            checkpoint = torch.load(ckpt_path, map_location=device, weights_only=False)
-            resumed_graph = bool(checkpoint["model_opt_state_dict"]["param_groups"][0].get("capturable"))
-            if resumed_graph != args.update_graph:
-                raise SystemExit(
-                    f"[CHECKPOINT] {ckpt_path} was written with "
-                    f"{'--update-graph' if resumed_graph else 'the eager update'}, and Adam's state is "
-                    "laid out differently between the two (the capturable one keeps its step counter on "
-                    "the device), so resuming across them is refused rather than half-loaded.")
-            model.load_state_dict(checkpoint["model_state_dict"])
-            actor.load_state_dict(checkpoint["actor_state_dict"])
-            critic.load_state_dict(checkpoint["critic_state_dict"])
-            model_opt.load_state_dict(checkpoint["model_opt_state_dict"])
-            actor_opt.load_state_dict(checkpoint["actor_opt_state_dict"])
-            critic_opt.load_state_dict(checkpoint["critic_opt_state_dict"])
-            if checkpoint.get("obs_rms") is not None:
-                from train_walker import set_obs_rms, adapt_obs_rms
-                restored_obs_rms = adapt_obs_rms(checkpoint["obs_rms"], envs.single_observation_space.shape)
-                set_obs_rms(envs, restored_obs_rms)
-            if checkpoint.get("rng_state") is not None:
-                set_rng_state(checkpoint["rng_state"])
-            global_step = checkpoint["global_step"]
+    # Resume handling (the file was already opened above, to settle the update mode)
+    if checkpoint is not None:
+        ckpt_path = resume_ckpt
+        ckpt_graph = resumed_graph
+        if ckpt_graph != args.update_graph:
+            raise SystemExit(
+                f"[CHECKPOINT] {ckpt_path} was written with "
+                f"{'the captured update' if ckpt_graph else 'the eager update'}, and Adam's state is "
+                "laid out differently between the two (the capturable one keeps its step counter on "
+                "the device), so resuming across them is refused rather than half-loaded. Pass "
+                f"{'--update-graph' if ckpt_graph else '--no-update-graph'} to continue this run.")
+        model.load_state_dict(checkpoint["model_state_dict"])
+        actor.load_state_dict(checkpoint["actor_state_dict"])
+        critic.load_state_dict(checkpoint["critic_state_dict"])
+        model_opt.load_state_dict(checkpoint["model_opt_state_dict"])
+        actor_opt.load_state_dict(checkpoint["actor_opt_state_dict"])
+        critic_opt.load_state_dict(checkpoint["critic_opt_state_dict"])
+        if checkpoint.get("obs_rms") is not None:
+            from train_walker import set_obs_rms, adapt_obs_rms
+            restored_obs_rms = adapt_obs_rms(checkpoint["obs_rms"], envs.single_observation_space.shape)
+            set_obs_rms(envs, restored_obs_rms)
+        if checkpoint.get("rng_state") is not None:
+            set_rng_state(checkpoint["rng_state"])
+        global_step = checkpoint["global_step"]
 
     writer = SummaryWriter(os.path.join("runs", run_name))
 

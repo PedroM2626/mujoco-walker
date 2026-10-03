@@ -1,0 +1,160 @@
+{
+  "device": "cuda",
+  "note": "isolated dreamer_update calls at the shipped sizes (seq_len 50, batch 16, imag_horizon 15), one config at a time; marginal costs come from the one-axis sweeps",
+  "gpu_other_contexts": 5,
+  "configs": {
+    "L50_B16_H15": {
+      "seq_len": 50,
+      "batch": 16,
+      "imag_horizon": 15,
+      "eager": {
+        "median_ms": 132.63,
+        "min_ms": 106.06,
+        "max_ms": 279.91,
+        "reps": 60
+      },
+      "captured": {
+        "median_ms": 12.41,
+        "min_ms": 11.81,
+        "max_ms": 24.92,
+        "reps": 60
+      }
+    },
+    "L50_B16_H1": {
+      "seq_len": 50,
+      "batch": 16,
+      "imag_horizon": 1,
+      "eager": {
+        "median_ms": 84.78,
+        "min_ms": 71.06,
+        "max_ms": 114.98,
+        "reps": 60
+      },
+      "captured": {
+        "median_ms": 8.99,
+        "min_ms": 8.72,
+        "max_ms": 23.33,
+        "reps": 60
+      }
+    },
+    "L50_B16_H4": {
+      "seq_len": 50,
+      "batch": 16,
+      "imag_horizon": 4,
+      "eager": {
+        "median_ms": 92.66,
+        "min_ms": 74.52,
+        "max_ms": 130.13,
+        "reps": 60
+      },
+      "captured": {
+        "median_ms": 9.93,
+        "min_ms": 9.37,
+        "max_ms": 19.14,
+        "reps": 60
+      }
+    },
+    "L50_B16_H30": {
+      "seq_len": 50,
+      "batch": 16,
+      "imag_horizon": 30,
+      "eager": {
+        "median_ms": 161.31,
+        "min_ms": 140.72,
+        "max_ms": 244.22,
+        "reps": 60
+      },
+      "captured": {
+        "median_ms": 16.7,
+        "min_ms": 15.28,
+        "max_ms": 104.26,
+        "reps": 60
+      }
+    },
+    "L6_B16_H15": {
+      "seq_len": 6,
+      "batch": 16,
+      "imag_horizon": 15,
+      "eager": {
+        "median_ms": 55.81,
+        "min_ms": 48.09,
+        "max_ms": 129.81,
+        "reps": 60
+      },
+      "captured": {
+        "median_ms": 6.17,
+        "min_ms": 5.41,
+        "max_ms": 15.42,
+        "reps": 60
+      }
+    },
+    "L25_B16_H15": {
+      "seq_len": 25,
+      "batch": 16,
+      "imag_horizon": 15,
+      "eager": {
+        "median_ms": 86.22,
+        "min_ms": 74.61,
+        "max_ms": 284.0,
+        "reps": 60
+      },
+      "captured": {
+        "median_ms": 8.72,
+        "min_ms": 8.23,
+        "max_ms": 21.72,
+        "reps": 60
+      }
+    },
+    "L50_B64_H15": {
+      "seq_len": 50,
+      "batch": 64,
+      "imag_horizon": 15,
+      "eager": {
+        "median_ms": 125.19,
+        "min_ms": 111.26,
+        "max_ms": 316.99,
+        "reps": 60
+      },
+      "captured": {
+        "median_ms": 14.48,
+        "min_ms": 14.22,
+        "max_ms": 29.44,
+        "reps": 60
+      }
+    },
+    "L50_B256_H15": {
+      "seq_len": 50,
+      "batch": 256,
+      "imag_horizon": 15,
+      "eager": {
+        "median_ms": 126.52,
+        "min_ms": 109.8,
+        "max_ms": 306.42,
+        "reps": 60
+      },
+      "captured": {
+        "median_ms": 23.29,
+        "min_ms": 22.8,
+        "max_ms": 45.07,
+        "reps": 60
+      }
+    }
+  },
+  "marginal_ms_per_unit": {
+    "imag_horizon_eager": 2.692,
+    "seq_len_eager": 1.752,
+    "imag_horizon_captured": 0.262,
+    "seq_len_captured": 0.142
+  },
+  "batch_scaling_eager": {
+    "16": 132.63,
+    "64": 125.19,
+    "256": 126.52
+  },
+  "batch_scaling_captured": {
+    "16": 12.41,
+    "64": 14.48,
+    "256": 23.29
+  },
+  "baseline_captured_ms": 12.41
+}

@@ -684,7 +684,7 @@ laptop (RTX 4070 Laptop 8 GB, 32 threads, `.venv`), one process at a time:
 |:---|:---|:---|:---|
 | `train_ars.py` | linear policy, 10 directions | 1,005,153 steps in 544 s = 1848/s | 9 min |
 | `train_dreamer.py` | 4 envs, update each collect step | 5,000 steps in 37 s with the update gate closed; 14,000 in 898 s in one A/B window and in 205 s later, same build | ~4-18 h |
-| `train_dreamer.py`, captured update | same, plus `--update-graph` | 100 updates in 4.1 s against 17.6 s eager, in the same window | ~3.6 h in that window |
+| `train_dreamer.py`, captured update | same config, and the CUDA default now (`--no-update-graph` opts out) | 100 updates in 4.1 s against 17.6 s eager, in the same window | ~3.6 h in that window |
 | `train_redq.py` | 16 envs, `utd_ratio=20`, ensemble 10 | 10,000 steps in 478 s | ~13 h |
 | `train_redq.py`, batched ensemble | same config, `--ensemble-impl batched` (default now) | see the A/B below | ~4 h in that window |
 
@@ -785,6 +785,35 @@ machine-state caveat above gives). The other thing worth reading off the table i
 eager arm's per-update cost moved 40.7% between reps on a box that also had the live REDQ run on it,
 the captured arm's moved 4.6%. Capture does not make the kernels faster; it deletes the host from the
 loop.
+
+**What is left after capture, priced instead of assumed.** This section used to point at the
+imagination rollout and the actor-critic losses as "where the same technique would go next".
+`python bench_dreamer_update.py --mode scaling` measures that claim on isolated `dreamer_update`
+calls at the shipped sizes (seq 50, batch 16, horizon 15): one imagination step costs **2.692 ms**
+eager against **0.262 ms** captured, one world-model timestep **1.752 ms** against **0.142 ms**, and
+the whole update 132.63 ms against **12.41 ms** - so of a captured update the imagination loop is
+about 3.9 ms and the world model about 7.1 ms. Neither loop can be collapsed the way the REDQ
+ensemble was: `h_t` depends on `h_{t-1}`, and prior and posterior take different inputs. The only
+fusion left is across heads that share an input - `reward_net` and `continue_net` have identical
+trunk shapes and one optimizer - worth about a fifth of the imagination loop, i.e. ~6% of the
+update. Small, and the honest answer to "what else can be vectorised here".
+
+The other axis says more: on the eager path the update is **flat in batch** (16 -> 132.63 ms,
+64 -> 125.19 ms, 256 -> 126.52 ms), sixteen times the samples for free, because that time was all
+dispatch; on the captured path it grows (12.41 -> 14.48 -> 23.29 ms), which is what happens once the
+launches are gone and arithmetic starts to matter. Raw seconds, per-config medians and the GPU
+context count of the window are in `benchmarks/dreamer_update_scaling.json`.
+
+**Capture is the CUDA default now.** `--update-graph` is tri-state: unset means capture on CUDA and
+eager elsewhere, `--no-update-graph` forces the old path. A `--resume` with no flag follows the mode
+the checkpoint was written in, because Adam's state is laid out differently between the two and an
+unmarked default would have refused every eager run already in `checkpoints/`; that inheritance is
+what makes the flip safe for old runs, and it was checked by resuming a checkpoint written with
+`--no-update-graph` on a CUDA box and watching it stay eager. For the same reason the A/B, profile
+and reproducibility arms in `bench_dreamer_update.py` now name their mode explicitly - an unmarked
+arm would quietly measure the captured path and report it as eager. New runs carry the ~1e-6
+Adam-kernel difference described below, on a trainer that is already not reproducible across
+processes.
 
 Three obligations come with capture, and all three are tested rather than asserted
 (`tests/test_dreamer_graph.py`): the optimizer has to be `Adam(capturable=True, foreach=False)`,
@@ -1035,7 +1064,8 @@ from the start.
 
 The suite is plain `unittest` (no pytest required) and covers the environment contract, the
 golden reward rollouts, the parallel/serial vector-env parity, checkpointing and the race
-harness — **91 tests, ~4 min** (`Ran 91 tests in 234.768s ... OK (skipped=7)` under `.venv`):
+harness — **102 tests, ~3 min** (`Ran 102 tests in 176.256s ... OK (skipped=7)`; the same suite
+took 234.8 s two hours earlier, so the duration is a property of the window and the count is not):
 
 ```bash
 python -m unittest discover -s tests -t .
@@ -1106,7 +1136,7 @@ artifact can be absent while its metrics are present.
 ## 🔬 Reproducing and measuring
 
 ```bash
-python -m unittest discover -s tests -t .   # 91 tests in .venv, ~4 min; see "Running the tests"
+python -m unittest discover -s tests -t .   # 102 tests in .venv, ~3 min; see "Running the tests"
 python bench_env.py --seconds 4             # env throughput, physics vs Python split
 python bench_mjx.py --sizes 32,128          # MJX/JAX batched stepping
 python verify.py                            # Phase-2 artifact check (exits 2 when missing)

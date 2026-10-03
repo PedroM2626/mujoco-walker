@@ -18,15 +18,25 @@ caller - so this file pins what they are worth:
 import contextlib
 import os
 import sys
+import tempfile
 import unittest
 
 import torch
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, ROOT)
 
 import train_dreamer as td  # noqa: E402
 
 L, B, OBS, ACT, IMAG, WARMUP = 6, 3, 49, 17, 4, 3
+
+
+class _OpaqueRMS:
+    """Stand-in for the running-mean object a real Dreamer checkpoint pickles: no tensor, so a
+    weights-only load rejects the whole file - which is the point of the test that builds it."""
+
+    def __init__(self):
+        self.count = 1
 GOLDEN = {  # dreamer_update on CPU, frozen noise, seeds 0/1/2 below
     "rec_loss": 0.4104127287864685, "reward_loss": 1.271732211112976,
     "continue_loss": 0.6954019069671631, "kl_loss": 0.42284923791885376,
@@ -169,6 +179,92 @@ class TestCapturedDreamerUpdate(unittest.TestCase):
             seen.append(float(outputs["actor_loss"]))
         self.assertEqual(3, len(set(seen)), f"three replays produced the same loss {seen}: "
                                             "the captured RNG is not advancing")
+
+
+class TestUpdateGraphResolution(unittest.TestCase):
+    """Which update a run gets is now a three-way decision, and the default changed.
+
+    Unset `--update-graph` means capture on CUDA and eager elsewhere. That flip is the measured
+    8.4x on an isolated update (benchmarks/dreamer_update_scaling.json), but it would have silently
+    stranded every checkpoint written by the eager path, because Adam's state is laid out
+    differently - hence the checkpoint's own configuration outranks the device.
+    """
+
+    def test_an_explicit_flag_outranks_the_device_and_the_checkpoint(self):
+        self.assertIs(True, td.resolve_update_graph(True, "cuda", False))
+        self.assertIs(False, td.resolve_update_graph(False, "cuda", True))
+        self.assertIs(False, td.resolve_update_graph(False, "cpu", None))
+
+    def test_forcing_capture_on_a_device_that_cannot_replay_is_refused(self):
+        with self.assertRaises(SystemExit):
+            td.resolve_update_graph(True, "cpu")
+
+    def test_a_resumed_checkpoint_decides_when_nothing_was_asked(self):
+        self.assertIs(True, td.resolve_update_graph(None, "cpu", True))
+        self.assertIs(False, td.resolve_update_graph(None, "cuda", False))
+
+    def test_unasked_and_unresumed_follows_the_device(self):
+        self.assertIs(True, td.resolve_update_graph(None, "cuda"))
+        self.assertIs(False, td.resolve_update_graph(None, "cpu"))
+        self.assertIs(False, td.resolve_update_graph(None, "mps"))
+
+    def test_the_mode_is_readable_only_by_the_load_real_checkpoints_need(self):
+        """Why the update mode is settled by the trainer's own load, not by a safe peek.
+
+        These checkpoints carry `obs_rms` and `rng_state` objects, so `weights_only=True` refuses
+        the file outright - a safe read would report "unknown" for every checkpoint that exists and
+        the inheritance would never fire. This pins both halves: the mode is readable, and the safe
+        variant genuinely cannot be used.
+        """
+        for graph, want in ((False, False), (True, True)):
+            arm = build(torch.device("cpu"), graph=graph)
+            with tempfile.TemporaryDirectory() as d:
+                path = os.path.join(d, "dreamer_ckpt_20.pt")
+                torch.save({"model_opt_state_dict": arm[3].state_dict(),
+                            "obs_rms": _OpaqueRMS(), "global_step": 20}, path)
+                loaded = torch.load(path, map_location="cpu", weights_only=False)
+                mode = bool(loaded["model_opt_state_dict"]["param_groups"][0].get("capturable"))
+                self.assertIs(want, mode, f"a {want} checkpoint did not read back as {want}")
+                with self.assertRaises(Exception):
+                    torch.load(path, map_location="cpu", weights_only=True)
+
+    def test_latest_checkpoint_picks_the_highest_step_and_survives_an_absent_dir(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.assertIsNone(td.latest_dreamer_checkpoint(d))
+            for step in (100, 9_000, 2_000):
+                open(os.path.join(d, f"dreamer_ckpt_{step}.pt"), "wb").close()
+            open(os.path.join(d, "sac_ckpt_99999.pt"), "wb").close()
+            self.assertEqual(os.path.join(d, "dreamer_ckpt_9000.pt"),
+                             td.latest_dreamer_checkpoint(d))
+
+
+class TestBenchArmsNameTheirMode(unittest.TestCase):
+    """`bench_dreamer_update.py` cannot be allowed to measure the default by accident.
+
+    Capture became the CUDA default, so an arm that passes nothing now runs captured. The A/B, the
+    profile and the reproducibility run all publish eager-vs-captured claims, and every one of them
+    would have turned into two identical arms without saying so.
+    """
+
+    def setUp(self):
+        import bench_dreamer_update as bench
+        self.bench = bench
+
+    def test_every_ab_arm_states_which_update_it_measures(self):
+        for label, tag, extra in self.bench.AB_ARMS:
+            flags = [f for f in extra if f in ("--update-graph", "--no-update-graph")]
+            self.assertEqual(1, len(flags), f"arm {label!r} does not name its update mode: {extra}")
+        eager = [e for l, t, e in self.bench.AB_ARMS if l == "eager"]
+        graph = [e for l, t, e in self.bench.AB_ARMS if l == "graph"]
+        self.assertNotEqual(sorted(map(str, eager)), sorted(map(str, graph)),
+                            "the two arms would run the same code and report a speedup of nothing")
+
+    def test_the_profile_and_reproducibility_arms_stay_on_the_path_they_publish(self):
+        src = open(os.path.join(ROOT, "bench_dreamer_update.py"), encoding="utf-8").read()
+        self.assertIn("--no-update-graph", src[src.index("def run_profile"):],
+                      "the dispatch-count profile would silently start measuring the graph")
+        self.assertIn('run_trainer("bdr_a", args, EAGER)', src[src.index("def reproducibility"):],
+                      "the reproducibility artifact says CUDA-graph-free; keep it that way")
 
 
 if __name__ == "__main__":

@@ -71,10 +71,13 @@ with open(os.environ["DREAMER_PROFILE_OUT"], "w", encoding="utf-8") as handle:
 
 def parse_args():
     p = argparse.ArgumentParser()
-    p.add_argument("--mode", choices=["profile", "ab", "reproducibility"], default="profile")
+    p.add_argument("--mode", choices=["profile", "ab", "reproducibility", "scaling"],
+                   default="profile")
     p.add_argument("--steps", type=int, default=9000)
     p.add_argument("--num-envs", type=int, default=4)
     p.add_argument("--seed", type=int, default=7)
+    p.add_argument("--reps", type=int, default=60,
+                   help="timed updates per config in --mode scaling (5 untimed warmup run first)")
     return p.parse_args()
 
 
@@ -82,12 +85,17 @@ BASE = ["--device", "cuda", "--vec-backend", "sync", "--num-envs", "4", "--batch
         "--seq-len", "50", "--checkpoint-interval", "100000000", "--buffer-size", "20000",
         "--task-phase", "target", "--reset-mode", "upright"]
 # Order alternates between reps so a run sharing this box hits both arms about equally.
-AB_ARMS = [("eager", "e1", []), ("graph", "g1", ["--update-graph"]),
-           ("floor_eager", "fe1", ["--learning-starts", "999999"]),
-           ("floor_graph", "fg1", ["--learning-starts", "999999", "--update-graph"]),
-           ("graph", "g2", ["--update-graph"]), ("eager", "e2", []),
-           ("floor_graph", "fg2", ["--learning-starts", "999999", "--update-graph"]),
-           ("floor_eager", "fe2", ["--learning-starts", "999999"])]
+# Both arms name their mode explicitly: `--update-graph` became the CUDA default, so an arm that
+# passes nothing would quietly measure the captured path and report it as eager.
+EAGER = ["--no-update-graph"]
+GRAPH = ["--update-graph"]
+FLOOR = ["--learning-starts", "999999"]
+AB_ARMS = [("eager", "e1", EAGER), ("graph", "g1", GRAPH),
+           ("floor_eager", "fe1", FLOOR + EAGER),
+           ("floor_graph", "fg1", FLOOR + GRAPH),
+           ("graph", "g2", GRAPH), ("eager", "e2", EAGER),
+           ("floor_graph", "fg2", FLOOR + GRAPH),
+           ("floor_eager", "fe2", FLOOR + EAGER)]
 
 
 def trainer_cmd(run_id, args, extra):
@@ -129,7 +137,120 @@ def main():
         return ab(args)
     if args.mode == "reproducibility":
         return reproducibility(args)
+    if args.mode == "scaling":
+        return scaling(args)
     return run_profile(args)
+
+
+SCALING_CONFIGS = [  # (seq_len, batch, imag_horizon) - the shipped one first, then one-axis sweeps
+    (50, 16, 15), (50, 16, 1), (50, 16, 4), (50, 16, 30), (6, 16, 15), (25, 16, 15),
+    # The batch sweep answers the other half: if the update barely grows with batch, the box is
+    # not doing arithmetic, it is paying per launch, and the head count is what to cut.
+    (50, 64, 15), (50, 256, 15),
+]
+
+
+def _other_gpu_contexts():
+    """How many processes already hold a CUDA context on this GPU - the window the rate came from."""
+    try:
+        proc = subprocess.run(["nvidia-smi", "--query-compute-apps=pid", "--format=csv,noheader"],
+                              capture_output=True, text=True, timeout=15,
+                              creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    pids = [int(x) for x in proc.stdout.split() if x.strip().isdigit()]
+    return len([p for p in pids if p != os.getpid()])
+
+
+def _slope(points):
+    """Least-squares slope of (x, y) - used here for ms per extra loop step."""
+    n = len(points)
+    mx = sum(x for x, _ in points) / n
+    my = sum(y for _, y in points) / n
+    den = sum((x - mx) ** 2 for x, _ in points)
+    return sum((x - mx) * (y - my) for x, y in points) / den if den else float("nan")
+
+
+def scaling(args):
+    """What one imagination step and one world-model timestep actually cost, eager and captured.
+
+    Graph capture removed the dispatch, so the question the README leaves open - "the imagination
+    rollout and the actor-critic losses are Python loops too, that is where the same technique
+    would go next" - needs a number before any code: both loops are recurrences (h_t depends on
+    h_{t-1}) and cannot be collapsed the way the REDQ ensemble was. The only fusion left is across
+    heads that share an input, so it is worth exactly the fraction of the update those heads
+    occupy. This measures that fraction by sweeping one axis at a time.
+    """
+    import statistics as st
+    import torch
+    import train_dreamer as td
+    from types import SimpleNamespace
+
+    dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    OBS, ACT = 49, 17
+
+    def build(L, B, H, graph):
+        torch.manual_seed(0)
+        mods = [td.WorldModel(OBS, ACT).to(dev), td.DreamerActor(256, 32, ACT).to(dev),
+                td.DreamerCritic(256, 32).to(dev)]
+        opts = [td.make_adam(m.parameters(), 3e-4, graph) for m in mods]
+        torch.manual_seed(1)
+        batch = (torch.randn(L, B, OBS, device=dev), torch.randn(L - 1, B, ACT, device=dev),
+                 torch.randn(L - 1, B, 1, device=dev),
+                 torch.zeros(L - 1, B, 1, device=dev, dtype=torch.bool))
+        torch.manual_seed(2)
+        idx = torch.randperm(L * B)[:B].to(dev)
+        a = SimpleNamespace(seq_len=L, batch_size=B, imag_horizon=H, gamma=0.99, kl_weight=1.0)
+        fn = lambda b, i: td.dreamer_update(*mods, *opts, b, a, i,
+                                            zero_grad_set_to_none=not graph)
+        if graph:
+            return td.CapturedDreamerUpdate(fn, batch, idx), batch, idx
+        return fn, batch, idx
+
+    def time_arm(L, B, H, graph):
+        fn, batch, idx = build(L, B, H, graph)
+        for _ in range(5):
+            fn(batch, idx)
+        if dev.type == "cuda":
+            torch.cuda.synchronize()
+        samples = []
+        for _ in range(args.reps):
+            t0 = time.perf_counter()
+            fn(batch, idx)
+            if dev.type == "cuda":
+                torch.cuda.synchronize()
+            samples.append((time.perf_counter() - t0) * 1e3)
+        return {"median_ms": round(st.median(samples), 2), "min_ms": round(min(samples), 2),
+                "max_ms": round(max(samples), 2), "reps": args.reps}
+
+    out = {"device": str(dev), "note": "isolated dreamer_update calls at the shipped sizes "
+                                      "(seq_len 50, batch 16, imag_horizon 15), one config at a "
+                                      "time; marginal costs come from the one-axis sweeps",
+           "gpu_other_contexts": _other_gpu_contexts(), "configs": {}}
+    print(f"{'seq':>4}{'batch':>7}{'imag':>6}  {'eager ms':>18}  {'captured ms':>18}")
+    for L, B, H in SCALING_CONFIGS:
+        eager, cap = time_arm(L, B, H, False), time_arm(L, B, H, True)
+        out["configs"][f"L{L}_B{B}_H{H}"] = {"seq_len": L, "batch": B, "imag_horizon": H,
+                                             "eager": eager, "captured": cap}
+        print(f"{L:>4}{B:>7}{H:>6}  {eager['median_ms']:>9} /{eager['min_ms']:<8}"
+              f"  {cap['median_ms']:>9} /{cap['min_ms']:<8}")
+
+    base = out["configs"]["L50_B16_H15"]
+    out["marginal_ms_per_unit"] = {}
+    for arm in ("eager", "captured"):
+        pts_h = [(v, out["configs"][f"L50_B16_H{v}"][arm]["median_ms"]) for v in (1, 4, 15, 30)]
+        pts_l = [(v, out["configs"][f"L{v}_B16_H15"][arm]["median_ms"]) for v in (6, 25, 50)]
+        pts_b = [(v, out["configs"][f"L50_B{v}_H15"][arm]["median_ms"]) for v in (16, 64, 256)]
+        out["marginal_ms_per_unit"][f"imag_horizon_{arm}"] = round(_slope(pts_h), 3)
+        out["marginal_ms_per_unit"][f"seq_len_{arm}"] = round(_slope(pts_l), 3)
+        out[f"batch_scaling_{arm}"] = {str(x): y for x, y in pts_b}
+    out["baseline_captured_ms"] = base["captured"]["median_ms"]
+    target = os.path.join(ROOT, "benchmarks", "dreamer_update_scaling.json")
+    with open(target, "w", encoding="utf-8") as handle:
+        json.dump(out, handle, indent=2)
+    print("wrote", os.path.relpath(target, ROOT), "marginal:",
+          out.get("marginal_ms_per_unit"))
+    return 0
 
 
 def ab(args):
@@ -196,8 +317,11 @@ def reproducibility(args):
     args.steps = 5400
     a_ret, b_ret = [], []
     try:
-        ta, a_ret = run_trainer("bdr_a", args, [])
-        tb, b_ret = run_trainer("bdr_b", args, [])
+        # EAGER on purpose, and named: the published artifact says "a CUDA-graph-free
+        # comparison", and since capture became the CUDA default an unmarked arm would no longer be
+        # one.
+        ta, a_ret = run_trainer("bdr_a", args, EAGER)
+        tb, b_ret = run_trainer("bdr_b", args, EAGER)
     finally:
         pass
     import torch
@@ -242,6 +366,10 @@ def run_profile(args):
     tmp.close()
     db = "sqlite:///" + os.path.join(tempfile.gettempdir(), "bench_dreamer_profile.db").replace(os.sep, "/")
     trainer_args = ["--run-id", "bre_dreamer_profile", "--seed", str(args.seed), "--device", "cuda",
+                    # The eager path, explicitly: this profile exists to count the per-timestep
+                    # Python dispatch (14,400 aten calls) that graph capture removes, so a run that
+                    # silently captured would report a different thing than the published numbers.
+                    "--no-update-graph",
                     "--vec-backend", "sync", "--num-envs", str(args.num_envs),
                     "--total-timesteps", str(args.steps), "--batch-size", "16", "--seq-len", "50",
                     "--checkpoint-interval", "1000000", "--buffer-size", "20000",

@@ -20,6 +20,7 @@ from train_walker import (
     select_device,
     SACAgent,
     SoftQNetwork,
+    BatchedSoftQEnsemble,
     ReplayBuffer,
     force_delete_run,
     get_checkpoint_dir,
@@ -37,6 +38,47 @@ from train_walker import (
     log_mlflow_artifact,
     end_mlflow_run,
 )
+
+def make_ensemble(obs_dim, action_dim, size, impl, device):
+    """REDQ's N critics: the original nn.ModuleList, or one batched bmm stack.
+
+    Same weights, same numbers - measured on batch 256 with N=10: max relative difference 3.9e-7
+    on the forward and 5.7e-7 across all 30 weight gradients, which is float32 reduction order,
+    not a different function. The reason to switch is that the loop's cost is kernel launches, not
+    arithmetic: 13.35 ms per critic step against 1.60 ms for the batched one on this GPU.
+    """
+    if impl == "batched":
+        return BatchedSoftQEnsemble(obs_dim, action_dim, size).to(device)
+    return nn.ModuleList([SoftQNetwork(obs_dim, action_dim) for _ in range(size)]).to(device)
+
+
+def ensemble_q(ens, obs, action):
+    """Every critic's value for a batch, shaped (N, B, 1) either way."""
+    if isinstance(ens, BatchedSoftQEnsemble):
+        return ens(obs, action)
+    return torch.stack([q(obs, action) for q in ens], dim=0)
+
+
+def soft_update_ensemble(target, source, tau):
+    if isinstance(target, BatchedSoftQEnsemble):
+        target.lerp_from(source, tau)
+        return
+    for q_net, t_net in zip(source, target):
+        for p, tp in zip(q_net.parameters(), t_net.parameters()):
+            tp.data.copy_(tau * p.data + (1.0 - tau) * tp.data)
+
+
+def ensemble_state_dict(ens):
+    """Checkpoints are always written in the nn.ModuleList layout, whichever impl ran."""
+    return ens.as_module_list_state_dict() if isinstance(ens, BatchedSoftQEnsemble) else ens.state_dict()
+
+
+def load_ensemble_state(ens, state):
+    if isinstance(ens, BatchedSoftQEnsemble):
+        ens.load_module_list_state_dict(state)
+    else:
+        ens.load_state_dict(state)
+
 
 def parse_redq_args():
     parser = argparse.ArgumentParser(description="REDQ Walker Ragdoll Training")
@@ -74,8 +116,12 @@ def parse_redq_args():
     # REDQ specific arguments
     parser.add_argument("--ensemble-size", type=int, default=10, help="Number of Q-networks in ensemble (N)")
     parser.add_argument("--num-min-critics", type=int, default=2, help="Number of Q-networks sampled for target (M)")
-    parser.add_argument("--utd-ratio", type=int, default=20, help="Updates to Data ratio (G)")
-    
+    parser.add_argument("--utd-ratio", type=int, default=20,  help="Updates to Data ratio (G)")
+    parser.add_argument("--ensemble-impl", type=str, default="batched", choices=["batched", "loop"],
+                        help="batched = one bmm over the N critics (default; measured equivalent to "
+                             "the loop and ~8x faster per critic step on the GPU). loop = the "
+                             "original nn.ModuleList, kept for A/B runs against old numbers.")
+
     return parser.parse_args()
 
 def save_redq_checkpoint(
@@ -108,8 +154,8 @@ def save_redq_checkpoint(
         "env_version": ENV_VERSION,
         "global_step": global_step,
         "actor_state_dict": actor.state_dict(),
-        "q_ensemble_state_dict": q_ensemble.state_dict(),
-        "target_ensemble_state_dict": target_ensemble.state_dict(),
+        "q_ensemble_state_dict": ensemble_state_dict(q_ensemble),
+        "target_ensemble_state_dict": ensemble_state_dict(target_ensemble),
         "actor_optimizer_state_dict": actor_optimizer.state_dict(),
         "q_optimizer_state_dict": q_optimizer.state_dict(),
         "log_alpha": log_alpha.detach().cpu(),
@@ -120,6 +166,10 @@ def save_redq_checkpoint(
         "ensemble_size": ensemble_size,
         "num_min_critics": num_min_critics,
         "utd_ratio": utd_ratio,
+        # Adam's state is per parameter, and the two ensemble layouts have a different number of
+        # parameters (6 stacks vs 3N tensors), so a checkpoint is only resumable by the
+        # implementation that wrote it. Record which one that was.
+        "ensemble_impl": "batched" if isinstance(q_ensemble, BatchedSoftQEnsemble) else "loop",
     }
     if alpha_optimizer is not None:
         state["alpha_optimizer_state_dict"] = alpha_optimizer.state_dict()
@@ -154,10 +204,11 @@ def train_redq():
 
     actor = SACAgent(obs_dim, envs.single_action_space).to(device)
     
-    # Initialize REDQ Q-ensemble (List of N SoftQNetworks)
-    q_ensemble = nn.ModuleList([SoftQNetwork(obs_dim, action_dim) for _ in range(args.ensemble_size)]).to(device)
-    target_ensemble = nn.ModuleList([SoftQNetwork(obs_dim, action_dim) for _ in range(args.ensemble_size)]).to(device)
-    target_ensemble.load_state_dict(q_ensemble.state_dict())
+    # Initialize REDQ Q-ensemble (N critics, batched or as a list - see --ensemble-impl)
+    q_ensemble = make_ensemble(obs_dim, action_dim, args.ensemble_size, args.ensemble_impl, device)
+    target_ensemble = make_ensemble(obs_dim, action_dim, args.ensemble_size, args.ensemble_impl, device)
+    load_ensemble_state(target_ensemble, ensemble_state_dict(q_ensemble))
+    print(f"[REDQ] ensemble: N={args.ensemble_size} impl={args.ensemble_impl}")
 
     actor_optimizer = optim.Adam(actor.parameters(), lr=args.learning_rate)
     q_optimizer = optim.Adam(q_ensemble.parameters(), lr=args.learning_rate)
@@ -185,9 +236,17 @@ def train_redq():
             ckpt_path = os.path.join(ckpt_dir, files[-1])
             print(f"[CHECKPOINT] Loading from {ckpt_path}")
             checkpoint = load_torch_checkpoint(ckpt_path, device)
+            saved_impl = checkpoint.get("ensemble_impl", "loop")
+            if saved_impl != args.ensemble_impl:
+                raise SystemExit(
+                    f"[REDQ] {ckpt_path} foi gravado com --ensemble-impl {saved_impl!r}. O estado "
+                    f"do optimizador e por-parametro e as duas implementacoes tem um numero "
+                    f" diferente de tensores (6 vs 3N), entao retoma com "
+                    f"--ensemble-impl {saved_impl}; para levar apenas os pesos de uma "
+                    f"implementacao para a outra usa --init-from-run-id.")
             actor.load_state_dict(checkpoint["actor_state_dict"])
-            q_ensemble.load_state_dict(checkpoint["q_ensemble_state_dict"])
-            target_ensemble.load_state_dict(checkpoint["target_ensemble_state_dict"])
+            load_ensemble_state(q_ensemble, checkpoint["q_ensemble_state_dict"])
+            load_ensemble_state(target_ensemble, checkpoint["target_ensemble_state_dict"])
             actor_optimizer.load_state_dict(checkpoint["actor_optimizer_state_dict"])
             q_optimizer.load_state_dict(checkpoint["q_optimizer_state_dict"])
             log_alpha = checkpoint["log_alpha"].to(device).requires_grad_()
@@ -272,23 +331,21 @@ def train_redq():
                     with torch.no_grad():
                         next_state_actions, next_state_log_pi, _ = actor.get_action(batch.next_obs)
                         
-                        # Sample M critics from N ensemble size (REDQ core)
+                        # Sample M critics from N ensemble size (REDQ core). Indexing the (N, B, 1)
+                        # stack takes the same subset the ModuleList path pulled one critic at a time.
                         sampled_indices = random.sample(range(args.ensemble_size), args.num_min_critics)
-                        
-                        # Calculate target Q-values for sampled critics
-                        target_qs = []
-                        for idx in sampled_indices:
-                            target_qs.append(target_ensemble[idx](batch.next_obs, next_state_actions))
-                        target_qs = torch.cat(target_qs, dim=1)
-                        min_target_q, _ = torch.min(target_qs, dim=1, keepdim=True)
-                        
+                        target_qs = ensemble_q(
+                            target_ensemble, batch.next_obs, next_state_actions)[sampled_indices]
+                        min_target_q = target_qs.min(dim=0, keepdim=True)[0]
+
                         alpha = log_alpha.exp()
                         next_q_value = min_target_q - alpha * next_state_log_pi
                         target_q_value = batch.rewards + (1.0 - batch.dones) * args.gamma * next_q_value
 
-                    # Update all Q-networks in the ensemble
-                    q_values = [q_net(batch.obs, batch.actions) for q_net in q_ensemble]
-                    qf_loss = sum(F.mse_loss(q_val, target_q_value) for q_val in q_values) / args.ensemble_size
+                    # Update all Q-networks in the ensemble. Mean over the stack is the same
+                    # number as the mean of the per-critic means the loop path summed.
+                    qf_loss = F.mse_loss(ensemble_q(q_ensemble, batch.obs, batch.actions),
+                                         target_q_value)
 
                     q_optimizer.zero_grad()
                     qf_loss.backward()
@@ -304,11 +361,7 @@ def train_redq():
                         pi, log_pi, _ = actor.get_action(batch.obs)
                         
                         # Update actor to maximize the mean Q-value of all critics in the ensemble
-                        actor_qs = []
-                        for q_net in q_ensemble:
-                            actor_qs.append(q_net(batch.obs, pi))
-                        actor_qs = torch.cat(actor_qs, dim=1)
-                        mean_actor_q = torch.mean(actor_qs, dim=1, keepdim=True)
+                        mean_actor_q = ensemble_q(q_ensemble, batch.obs, pi).mean(dim=0, keepdim=True)
                         
                         alpha = log_alpha.exp()
                         actor_loss = ((alpha * log_pi) - mean_actor_q).mean()
@@ -325,10 +378,9 @@ def train_redq():
                         else:
                             alpha_loss = torch.tensor(0.0)
 
-                    # Soft update targets for all Q-networks
-                    for q_net, target_net in zip(q_ensemble, target_ensemble):
-                        for param, target_param in zip(q_net.parameters(), target_net.parameters()):
-                            target_param.data.copy_(args.tau * param.data + (1.0 - args.tau) * target_param.data)
+                    # Soft update targets for all Q-networks: six kernels on the batched stack,
+                    # 3N on the ModuleList. Same tau, same schedule (every gradient step).
+                    soft_update_ensemble(target_ensemble, q_ensemble, args.tau)
 
                 # Logging
                 if global_step % 1000 < args.num_envs:

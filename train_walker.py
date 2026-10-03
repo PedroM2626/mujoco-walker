@@ -412,6 +412,76 @@ class SoftQNetwork(nn.Module):
         return self.net(torch.cat([obs, action], dim=1))
 
 
+class BatchedSoftQEnsemble(nn.Module):
+    """N SoftQNetworks held as one stack of (N, in, out) weights and run as a single bmm.
+
+    REDQ's gradient step touches every critic twice (target values, critic loss), all N again for
+    the actor, and then does a 3N-kernel soft update of the target copy. On 256-unit nets that is
+    kernel-launch time, not arithmetic, which is why `--utd-ratio 20` with
+    `--ensemble-size 10` runs at ~37 env-steps/s while the physics behind one of those steps
+    costs 1/1560 s. Batching keeps the weights, the initialisation RNG stream and the numbers;
+    it only collapses the launches.
+
+    Checkpoints stay in the `nn.ModuleList` layout (`0.net.0.weight`, ...) through
+    as_module_list_state_dict / load_module_list_state_dict, so an ensemble written by either
+    implementation loads in the other and no external reader changes.
+    """
+
+    def __init__(self, obs_dim, action_dim, ensemble_size):
+        super().__init__()
+        self.ensemble_size = ensemble_size
+        self.obs_dim, self.action_dim = obs_dim, action_dim
+        nets = nn.ModuleList([SoftQNetwork(obs_dim, action_dim) for _ in range(ensemble_size)])
+        layer1 = [n.net[0] for n in nets]
+        layer2 = [n.net[2] for n in nets]
+        layer3 = [n.net[4] for n in nets]
+        self.w1 = nn.Parameter(torch.stack([l.weight.t() for l in layer1]).contiguous())
+        self.b1 = nn.Parameter(torch.stack([l.bias for l in layer1]).view(-1, 1, 256).contiguous())
+        self.w2 = nn.Parameter(torch.stack([l.weight.t() for l in layer2]).contiguous())
+        self.b2 = nn.Parameter(torch.stack([l.bias for l in layer2]).view(-1, 1, 256).contiguous())
+        self.w3 = nn.Parameter(torch.stack([l.weight.t() for l in layer3]).contiguous())
+        self.b3 = nn.Parameter(torch.stack([l.bias for l in layer3]).view(-1, 1, 1).contiguous())
+
+    def forward(self, obs, action):
+        """(B, obs) x (B, act) -> (N, B, 1); same numbers as N separate SoftQNetwork forwards."""
+        x = torch.cat([obs, action], dim=1).unsqueeze(0).expand(self.ensemble_size, -1, -1)
+        x = F.relu(torch.baddbmm(self.b1, x, self.w1))
+        x = F.relu(torch.baddbmm(self.b2, x, self.w2))
+        return torch.baddbmm(self.b3, x, self.w3)
+
+    def _stacks(self):
+        return (self.w1, self.b1, self.w2, self.b2, self.w3, self.b3)
+
+    @torch.no_grad()
+    def lerp_from(self, source, tau):
+        """target <- tau * source + (1 - tau) * target, in six kernels instead of 3N."""
+        for dst, src in zip(self._stacks(), source._stacks()):
+            dst.mul_(1.0 - tau).add_(src.detach(), alpha=tau)
+
+    def as_module_list_state_dict(self):
+        """The same key layout an nn.ModuleList of SoftQNetwork would have written."""
+        sd = {}
+        for i in range(self.ensemble_size):
+            sd[f"{i}.net.0.weight"] = self.w1[i].t().detach().clone()
+            sd[f"{i}.net.0.bias"] = self.b1[i, 0].detach().clone()
+            sd[f"{i}.net.2.weight"] = self.w2[i].t().detach().clone()
+            sd[f"{i}.net.2.bias"] = self.b2[i, 0].detach().clone()
+            sd[f"{i}.net.4.weight"] = self.w3[i].t().detach().clone()
+            sd[f"{i}.net.4.bias"] = self.b3[i, 0].detach().clone()
+        return sd
+
+    def load_module_list_state_dict(self, state_dict):
+        with torch.no_grad():
+            for i in range(self.ensemble_size):
+                self.w1[i].copy_(state_dict[f"{i}.net.0.weight"].t())
+                self.b1[i, 0].copy_(state_dict[f"{i}.net.0.bias"])
+                self.w2[i].copy_(state_dict[f"{i}.net.2.weight"].t())
+                self.b2[i, 0].copy_(state_dict[f"{i}.net.2.bias"])
+                self.w3[i].copy_(state_dict[f"{i}.net.4.weight"].t())
+                self.b3[i, 0].copy_(state_dict[f"{i}.net.4.bias"])
+        return self
+
+
 class SACAgent(nn.Module):
     def __init__(self, obs_dim, action_space):
         super().__init__()

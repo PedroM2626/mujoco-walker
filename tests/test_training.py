@@ -170,5 +170,67 @@ class TestTrainingIntegration(unittest.TestCase):
         self.assertTrue(any(f.startswith("td3_ckpt_") for f in os.listdir(ckpt_dir)), "No TD3 checkpoint files found")
 
 
+class TestRedqBatchedEnsembleRuns(unittest.TestCase):
+    """The real REDQ loop with the batched critics.
+
+    tests/test_redq_ensemble.py proves the arithmetic; this proves the wiring, because the batched
+    stack changes tensor shape in three places the unit test does not exercise: the M-of-N target
+    index, the actor back-propagating through the ensemble mean, and the checkpoint round-trip.
+    Pinned to CPU for the same reason as the other trainer subprocess tests - a CUDA-using test
+    subprocess competes with whatever is training on the machine.
+    """
+
+    def setUp(self):
+        self.run_id = "integration_test_redq"
+        for path in (os.path.join("checkpoints", self.run_id),):
+            if os.path.exists(path):
+                shutil.rmtree(path)
+
+    def tearDown(self):
+        path = os.path.join("checkpoints", self.run_id)
+        if os.path.exists(path):
+            shutil.rmtree(path)
+        runs = os.path.join("runs")
+        if os.path.isdir(runs):
+            for d in os.listdir(runs):
+                if d.startswith(self.run_id):
+                    shutil.rmtree(os.path.join(runs, d))
+
+    def _train(self, impl, extra=()):
+        return subprocess.run(
+            [sys.executable, "train_redq.py", "--run-id", self.run_id, "--seed", "42",
+             "--device", "cpu", "--vec-backend", "sync", "--num-envs", "2",
+             "--total-timesteps", "512", "--learning-starts", "128", "--batch-size", "32",
+             "--buffer-size", "512", "--ensemble-size", "3", "--num-min-critics", "2",
+             "--utd-ratio", "2", "--policy-frequency", "2", "--checkpoint-interval", "1000",
+             "--ensemble-impl", impl, "--task-phase", "target", *extra],
+            cwd=os.path.dirname(os.path.dirname(__file__)), capture_output=True, text=True)
+
+    def test_short_redq_training_with_batched_ensemble(self):
+        result = self._train("batched")
+        self.assertEqual(result.returncode, 0, f"batched REDQ failed: {result.stderr[-1500:]}")
+        files = os.listdir(os.path.join("checkpoints", self.run_id))
+        self.assertTrue(any(f.startswith("redq_ckpt_") for f in files), files)
+
+    def test_batched_checkpoint_resumes(self):
+        self.assertEqual(self._train("batched").returncode, 0)
+        again = self._train("batched", extra=["--resume"])
+        self.assertEqual(again.returncode, 0,
+                         "resuming a batched checkpoint into the batched ensemble failed: "
+                         + again.stderr[-1500:])
+
+    def test_switching_ensemble_impl_on_resume_is_refused_with_a_reason(self):
+        """Adam state is per parameter, so the layout that wrote it has to resume it.
+
+        Weights do cross over - that is what --init-from-run-id is for - but silently rebuilding
+        an optimizer over a different parameter set would quietly change the run, so the trainer
+        says no instead.
+        """
+        self.assertEqual(self._train("loop").returncode, 0)
+        cross = self._train("batched", extra=["--resume"])
+        self.assertNotEqual(cross.returncode, 0, "cross-impl resume should not be allowed")
+        self.assertIn("ensemble-impl", cross.stderr + cross.stdout)
+
+
 if __name__ == "__main__":
     unittest.main()

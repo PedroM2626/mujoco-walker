@@ -474,6 +474,18 @@ What this measurement changes, stated plainly:
    the pairs tested, and the sign is the opposite of what was published: the gap is not too small
    to measure, it is large and points the other way.
 
+9. **A second protocol, recorded back in June, reproduces the level.** The teacher run's own
+   TensorBoard log holds 50 evaluations of 100 deterministic unseeded episodes each (SB3's
+   `EvalCallback` default) - a different harness, a different episode count, and the only
+   evaluation series in the repository that predates the retracted README. Its last 11 checkpoints
+   after 400k steps give min **2389.32**, max **3891.31**, mean **3534.66**, against the seeded
+   50-episode table's **3516.95**: 0.5% apart. Its final evaluation, **3857.97**, is within 7.44 of
+   the single-episode record's 3865.41. So the ~3.5k level is not an artefact of one harness, and
+   the two ~3.86k readings are both single evaluations - the same selection effect that produced the
+   retired table. The extraction is `benchmarks/teacher_eval_curve.json`, and it settles a negative
+   too: those are the teacher's numbers, and nothing in the repository logged a score for any of the
+   13 offline policies before 2026-06-26.
+
 ### Historical record: one unseeded episode per model (`final_results.txt`)
 
 Kept for the numbers themselves - this is the file the earlier version of this README
@@ -1123,10 +1135,10 @@ Three facts to keep in mind:
 
 The suite is plain `unittest` (no pytest required) and covers the environment contract, the
 golden reward rollouts, the parallel/serial vector-env parity, checkpointing and the race
-harness — **127 tests, ~4 min** (`Ran 127 tests in 261.119s ... OK (skipped=7)` under `.venv`;
-windows of this suite measured 176.3 s at 102 tests, 269.995 s at 121 and 261.119 s now, so the
-duration belongs to the window and the count does not - a gate checks the count, which is why
-it appears three times and why it cannot silently go stale):
+harness — **128 tests, 330 s in this window** (`Ran 128 tests in 329.964s ... OK
+(skipped=7)` under `.venv`). Windows of this suite have measured 176.3 s at 102 tests, 269.995 s
+at 121, 261.1 s at 127 and 329.964 s at 128: the duration belongs to the machine's state, the
+count does not, and a gate checks the count so it cannot go stale quietly):
 
 ```bash
 python -m unittest discover -s tests -t .
@@ -1171,7 +1183,7 @@ that they ran - see Phase 4, item 6. How each of those states was found, with th
 ## 🔬 Reproducing and measuring
 
 ```bash
-python -m unittest discover -s tests -t .   # 127 tests in .venv, ~3-4.5 min; see "Running the tests"
+python -m unittest discover -s tests -t .   # 128 tests in .venv, 330 s; see "Running the tests"
 python bench_env.py --seconds 4             # env throughput, physics vs Python split
 python bench_mjx.py --sizes 32,128          # MJX/JAX batched stepping
 python verify.py                            # Phase-2 artifact check (exits 2 when missing)

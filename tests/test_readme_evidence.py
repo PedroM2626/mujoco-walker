@@ -40,6 +40,7 @@ PHASE4_ENV_NOTE = "\u26a0\ufe0f **The environment this table needs"
 RACE_50EP = os.path.join(ROOT, "benchmarks", "phase4_race_50ep.json")
 N1_ART = os.path.join(ROOT, "benchmarks", "phase4_n1_vs_50ep.json")
 PAIRED_50EP = os.path.join(ROOT, "benchmarks", "phase4_paired_50ep_seed2026.json")
+CURVE = os.path.join(ROOT, "benchmarks", "teacher_eval_curve.json")
 PAIR_BCQ_TEACHER = "BCQ - Teacher (Upper Bound)"
 
 # README row label (as it sits in the Markdown, bold included) -> artifact model key. Explicit, so
@@ -469,6 +470,24 @@ class TestReadmePhase4RaceCells(ReadmeGate, unittest.TestCase):
                    [abs(p["mean_difference"]), p["bootstrap_95ci"][0], p["bootstrap_95ci"][1],
                     p["cohens_dz"], p["wins_a"]], places=2)
         self.check("BCQ - Teacher paired-t p", float(m.group(4)), p["paired_t_p"], places=4)
+
+    def test_the_second_protocol_paragraph_is_the_curve_that_was_mined(self):
+        """Item 9: the teacher's 100-episode evaluations, checked against both artifacts."""
+        curve = self.read_artifacts(CURVE)[0]
+        late, want = curve["after_400k_steps"], self.race["models"]["Teacher (Upper Bound)"]
+        m = self.sentence(r"give min \*\*([\d.]+)\*\*, max \*\*([\d.]+)\*\*, mean \*\*([\d.]+)\*\*,"
+                          r" against the seeded\s*50-episode table's \*\*([\d.]+)\*\*", "second protocol")
+        self.check("after-400k late-checkpoint spread",
+                   [float(m.group(1)), float(m.group(2)), float(m.group(3))],
+                   [late["min"], late["max"], late["mean"]], places=2)
+        self.check("seeded teacher mean", float(m.group(4)), want["mean"], places=2)
+
+        n1 = self.n1art["models"]["Teacher (Upper Bound)"]["n1_score"]
+        m = self.sentence(r"final evaluation, \*\*([\d.]+)\*\*, is within ([\d.]+) of\s*"
+                          r"the single-episode record's (\d+(?:\.\d+)?)", "final evaluation")
+        self.check("final evaluation", [float(m.group(1)), float(m.group(2))],
+                   [curve["final_eval"], round(abs(n1 - curve["final_eval"]), 2)], places=2)
+        self.check("recorded single draw", float(m.group(3)), n1, places=2)
 
     def test_the_paired_rows_the_table_quotes_are_in_the_artifact(self):
         # BCQ against the teacher has its own test; it is stated in prose, not as an "X - Y = n"

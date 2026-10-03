@@ -1,0 +1,264 @@
+{
+  "source": "openai_walker/sac_walker_tensorboard/SAC_2/events.out.tfevents.1780843517.pedro.36828.0",
+  "protocol": "SB3 EvalCallback during train_teacher.py: eval_freq=10000, n_eval_episodes default 100, deterministic=True, unseeded resets",
+  "evaluations": [
+    {
+      "step": 10000,
+      "mean_reward": 5.45,
+      "mean_ep_length": 26.0
+    },
+    {
+      "step": 20000,
+      "mean_reward": 226.43,
+      "mean_ep_length": 121.8
+    },
+    {
+      "step": 30000,
+      "mean_reward": 263.92,
+      "mean_ep_length": 216.4
+    },
+    {
+      "step": 40000,
+      "mean_reward": 482.57,
+      "mean_ep_length": 288.2
+    },
+    {
+      "step": 50000,
+      "mean_reward": 359.55,
+      "mean_ep_length": 194.2
+    },
+    {
+      "step": 60000,
+      "mean_reward": 409.95,
+      "mean_ep_length": 265.4
+    },
+    {
+      "step": 70000,
+      "mean_reward": 587.48,
+      "mean_ep_length": 301.6
+    },
+    {
+      "step": 80000,
+      "mean_reward": 463.19,
+      "mean_ep_length": 229.0
+    },
+    {
+      "step": 90000,
+      "mean_reward": 426.5,
+      "mean_ep_length": 302.6
+    },
+    {
+      "step": 100000,
+      "mean_reward": 405.04,
+      "mean_ep_length": 206.8
+    },
+    {
+      "step": 110000,
+      "mean_reward": 655.53,
+      "mean_ep_length": 238.4
+    },
+    {
+      "step": 120000,
+      "mean_reward": 950.06,
+      "mean_ep_length": 471.2
+    },
+    {
+      "step": 130000,
+      "mean_reward": 1058.71,
+      "mean_ep_length": 383.2
+    },
+    {
+      "step": 140000,
+      "mean_reward": 528.55,
+      "mean_ep_length": 199.6
+    },
+    {
+      "step": 150000,
+      "mean_reward": 624.39,
+      "mean_ep_length": 246.6
+    },
+    {
+      "step": 160000,
+      "mean_reward": 734.53,
+      "mean_ep_length": 283.2
+    },
+    {
+      "step": 170000,
+      "mean_reward": 1032.47,
+      "mean_ep_length": 339.0
+    },
+    {
+      "step": 180000,
+      "mean_reward": 756.17,
+      "mean_ep_length": 318.6
+    },
+    {
+      "step": 190000,
+      "mean_reward": 710.65,
+      "mean_ep_length": 267.6
+    },
+    {
+      "step": 200000,
+      "mean_reward": 1402.98,
+      "mean_ep_length": 493.8
+    },
+    {
+      "step": 210000,
+      "mean_reward": 1341.04,
+      "mean_ep_length": 456.4
+    },
+    {
+      "step": 220000,
+      "mean_reward": 1913.85,
+      "mean_ep_length": 655.2
+    },
+    {
+      "step": 230000,
+      "mean_reward": 1155.15,
+      "mean_ep_length": 461.8
+    },
+    {
+      "step": 240000,
+      "mean_reward": 169.59,
+      "mean_ep_length": 90.8
+    },
+    {
+      "step": 250000,
+      "mean_reward": 333.19,
+      "mean_ep_length": 132.4
+    },
+    {
+      "step": 260000,
+      "mean_reward": 1584.39,
+      "mean_ep_length": 481.2
+    },
+    {
+      "step": 270000,
+      "mean_reward": 1959.33,
+      "mean_ep_length": 591.0
+    },
+    {
+      "step": 280000,
+      "mean_reward": 3059.7,
+      "mean_ep_length": 840.2
+    },
+    {
+      "step": 290000,
+      "mean_reward": 285.9,
+      "mean_ep_length": 121.8
+    },
+    {
+      "step": 300000,
+      "mean_reward": 434.68,
+      "mean_ep_length": 153.6
+    },
+    {
+      "step": 310000,
+      "mean_reward": 950.13,
+      "mean_ep_length": 297.8
+    },
+    {
+      "step": 320000,
+      "mean_reward": 2296.38,
+      "mean_ep_length": 644.2
+    },
+    {
+      "step": 330000,
+      "mean_reward": 2201.75,
+      "mean_ep_length": 607.0
+    },
+    {
+      "step": 340000,
+      "mean_reward": 3275.75,
+      "mean_ep_length": 865.4
+    },
+    {
+      "step": 350000,
+      "mean_reward": 2425.41,
+      "mean_ep_length": 644.0
+    },
+    {
+      "step": 360000,
+      "mean_reward": 650.22,
+      "mean_ep_length": 200.4
+    },
+    {
+      "step": 370000,
+      "mean_reward": 176.73,
+      "mean_ep_length": 90.6
+    },
+    {
+      "step": 380000,
+      "mean_reward": 344.4,
+      "mean_ep_length": 129.2
+    },
+    {
+      "step": 390000,
+      "mean_reward": 1474.64,
+      "mean_ep_length": 410.6
+    },
+    {
+      "step": 400000,
+      "mean_reward": 3046.7,
+      "mean_ep_length": 844.6
+    },
+    {
+      "step": 410000,
+      "mean_reward": 3238.12,
+      "mean_ep_length": 845.0
+    },
+    {
+      "step": 420000,
+      "mean_reward": 2389.32,
+      "mean_ep_length": 698.2
+    },
+    {
+      "step": 430000,
+      "mean_reward": 3642.03,
+      "mean_ep_length": 967.0
+    },
+    {
+      "step": 440000,
+      "mean_reward": 3697.59,
+      "mean_ep_length": 1000.0
+    },
+    {
+      "step": 450000,
+      "mean_reward": 3891.31,
+      "mean_ep_length": 1000.0
+    },
+    {
+      "step": 460000,
+      "mean_reward": 3719.48,
+      "mean_ep_length": 1000.0
+    },
+    {
+      "step": 470000,
+      "mean_reward": 3856.52,
+      "mean_ep_length": 1000.0
+    },
+    {
+      "step": 480000,
+      "mean_reward": 3702.94,
+      "mean_ep_length": 951.4
+    },
+    {
+      "step": 490000,
+      "mean_reward": 3839.23,
+      "mean_ep_length": 1000.0
+    },
+    {
+      "step": 500000,
+      "mean_reward": 3857.97,
+      "mean_ep_length": 1000.0
+    }
+  ],
+  "after_400k_steps": {
+    "n": 11,
+    "min": 2389.32,
+    "max": 3891.31,
+    "mean": 3534.66
+  },
+  "final_eval": 3857.97,
+  "note": "The scored teacher (`sac_walker2d_final.zip`) measures 3516.95 mean over 50 seeded episodes in the Phase-4 table; its final 100-episode training-time evaluation is above. The two protocols differ in episodes-per-point, seeding and which checkpoint is in play (EvalCallback also wrote logs/best_model.zip), so the gap is an open question, not a number to reconcile by averaging."
+}

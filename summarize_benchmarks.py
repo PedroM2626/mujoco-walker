@@ -199,6 +199,55 @@ def phase4_n1_reassessment(out="benchmarks/phase4_n1_vs_50ep.json"):
     return out_data, out
 
 
+TEACHER_EVENTS = os.path.join("openai_walker", "sac_walker_tensorboard", "SAC_2",
+                              "events.out.tfevents.1780843517.pedro.36828.0")
+
+
+def teacher_eval_curve(out="benchmarks/teacher_eval_curve.json"):
+    """The teacher's own training-time evaluations, mined out of its committed TensorBoard log.
+
+    Worth extracting for two reasons. It is the only evaluation series in the repository from
+    before the retracted README, and its protocol is *independent* of `evaluate_all.py`: SB3's
+    `EvalCallback` defaults to 100 deterministic episodes per point, unseeded, on a freshly made
+    `Walker2d-v5`. So it is the closest thing to a second opinion on the teacher's level - and
+    where the two protocols disagree is information, not noise to average away.
+
+    It also settles a negative: these are the teacher's numbers, not the offline policies', so
+    nothing in the repository ever logged a score for BC, BCQ or GAIL before 2026-06-26.
+    """
+    try:
+        from tensorboard.backend.event_processing import event_accumulator as ea
+    except ImportError:
+        raise SystemExit("teacher_eval_curve needs tensorboard to read the event file")
+    path = os.path.join(ROOT, TEACHER_EVENTS)
+    if not os.path.exists(path):
+        raise SystemExit(f"{TEACHER_EVENTS} is missing; the curve cannot be rebuilt")
+    acc = ea.EventAccumulator(path)
+    acc.Reload()
+    if "eval/mean_reward" not in acc.Tags().get("scalars", []):
+        raise SystemExit(f"{path} has no eval/mean_reward scalars")
+    rows = [{"step": s.step, "mean_reward": round(float(s.value), 2),
+             "mean_ep_length": round(float(s.value), 2)} for s in acc.Scalars("eval/mean_reward")]
+    lengths = [round(float(s.value), 2) for s in acc.Scalars("eval/mean_ep_length")]
+    for row, length in zip(rows, lengths):
+        row["mean_ep_length"] = length
+    late = [r["mean_reward"] for r in rows if r["step"] >= 400_000]
+    return {
+        "source": TEACHER_EVENTS.replace(os.sep, "/"),
+        "protocol": "SB3 EvalCallback during train_teacher.py: eval_freq=10000, "
+                    "n_eval_episodes default 100, deterministic=True, unseeded resets",
+        "evaluations": rows,
+        "after_400k_steps": {"n": len(late), "min": min(late), "max": max(late),
+                              "mean": round(sum(late) / len(late), 2)},
+        "final_eval": rows[-1]["mean_reward"],
+        "note": "The scored teacher (`sac_walker2d_final.zip`) measures 3516.95 mean over 50 "
+                "seeded episodes in the Phase-4 table; its final 100-episode training-time "
+                "evaluation is above. The two protocols differ in episodes-per-point, seeding "
+                "and which checkpoint is in play (EvalCallback also wrote logs/best_model.zip), "
+                "so the gap is an open question, not a number to reconcile by averaging.",
+    }, out
+
+
 BENCHMARKS = [
     phase3,
     lambda: phase3("eval_phase3_100ep.log", seed=11,
@@ -223,6 +272,9 @@ BENCHMARKS = [
     # Where each retired single-episode draw sits inside the distribution the same weights
     # produce today, so "the old table was a poor estimator" can be said per model.
     phase4_n1_reassessment,
+    # The teacher's own 100-episode evaluations, mined from its committed TensorBoard log: the only
+    # pre-retraction evaluation series in the repo, and an independent protocol.
+    teacher_eval_curve,
 ]
 
 
@@ -236,7 +288,8 @@ if __name__ == "__main__":
             continue
         with open(os.path.join(ROOT, target), "w", encoding="utf-8") as handle:
             json.dump(data, handle, indent=2, ensure_ascii=False)
-        print(f"{target}: {len(data['models'])} models")
-        for name, s in data["models"].items():
+        models = data.get("models", {})
+        print(f"{target}: {len(models)} models" if models else f"{target}")
+        for name, s in models.items():
             print(f"   {name:32s} mean={s['mean']:>10} median={s.get('median', '-'):>10} "
                   f"std={s['std']}")

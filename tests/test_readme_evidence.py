@@ -746,5 +746,65 @@ class TestReadmeLinks(unittest.TestCase):
                             f"README links to {target}, which is not in the repository")
 
 
+REPLICATION = os.path.join(ROOT, "benchmarks", "throughput_replication.json")
+
+
+class TestReadmeThroughputReplication(unittest.TestCase):
+    """The re-measurement paragraph against the JSON that one `bench_env.py --mode all --reps 3` writes.
+
+    These cells exist to pin a *correction*, not a headline: the section used to publish percentages
+    of a window-dependent denominator, and the paragraph below re-derives them from the artifact.
+    """
+
+    def setUp(self):
+        with open(README, encoding="utf-8") as handle:
+            readme = handle.read()
+        start = readme.index("**Re-measured in one process, three reps each**")
+        # The block runs to the end of the section, because the sparse_info gain that the
+        # replication prices is stated down in the numbered list, not beside the table.
+        self.block = re.sub(r"\s+", " ", readme[start:readme.index(
+            "**Physics was left alone on purpose.**", start)])
+        with open(REPLICATION, encoding="utf-8") as handle:
+            rows = json.load(handle)
+        self.rows = {r["label"]: r for r in rows}
+        self.physics = next(r for r in rows if r["label"].startswith("physics only"))
+        self.env1 = next(r for r in rows if r["label"].startswith("gym env.step"))
+
+    def row(self, prefix):
+        return next(r for label, r in self.rows.items() if label.startswith(prefix))
+
+    def find(self, pattern, what):
+        m = re.search(pattern, self.block)
+        self.assertIsNotNone(m, f"the {what} sentence was reworded; re-point this test at it")
+        return m
+
+    def test_the_microseconds_and_the_share_they_imply(self):
+        skip = int(re.search(r"frame_skip=(\d+)", self.physics["note"]).group(1))
+        physics_us = self.physics["us_per_step"] * skip
+        python_us = self.env1["us_per_step"] - physics_us
+        m = self.find(r"the Python side came out at\s*\*\*(\d+) µs\*\* again.*"
+                      r"the physics side took (\d+) µs instead of \d+"
+                      r".*Python share as (\d+)% rather than \d+%", "microseconds and share")
+        # The README quotes what the harness prints, so the check formats the same way.
+        self.assertEqual(m.group(1), f"{python_us:.0f}")
+        self.assertEqual(int(m.group(2)), round(physics_us))
+        self.assertEqual(int(m.group(3)), round(100 * python_us / self.env1["us_per_step"]))
+
+    def test_the_spreads_and_ratios_the_paragraph_quotes(self):
+        par = self.row("ParallelVectorEnv (n=32, per_worker=auto, sparse=True)")
+        dense = self.row("ParallelVectorEnv (n=32, per_worker=auto, sparse=False)")
+        sync = self.row("SyncVectorEnv (n=32, copy=True)")
+        m = self.find(r"reached \*\*(\d+)%\*\*\s*on the physics row and (\d+)%\s*"
+                      r"on the sparse-parallel row", "spreads")
+        self.assertEqual(int(m.group(1)), round(self.physics["spread_pct"]))
+        self.assertEqual(int(m.group(2)), round(par["spread_pct"]))
+        m = self.find(r"sync-to-parallel ratio came out ([\d.]+)x", "sync to parallel")
+        self.assertAlmostEqual(float(m.group(1)), round(par["steps_per_s"] / sync["steps_per_s"], 1),
+                               places=1)
+        m = self.find(r"(\d+\.\d+)x in the replication above", "sparse gain")
+        self.assertAlmostEqual(float(m.group(1)),
+                               round(par["steps_per_s"] / dense["steps_per_s"], 2), places=2)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1,0 +1,70 @@
+[
+  {
+    "label": "physics only (mj_step x1)",
+    "steps_per_s": 7520.03350993985,
+    "us_per_step": 132.97813083920667,
+    "note": "integrator=mjINT_RK4 timestep=0.002 frame_skip=5",
+    "frame_skip": 5,
+    "reps": 3,
+    "min_steps_per_s": 6936.532072938672,
+    "max_steps_per_s": 12752.558476752904,
+    "spread_pct": 77.3
+  },
+  {
+    "label": "gym env.step (n=1)",
+    "steps_per_s": 1452.6731738152355,
+    "us_per_step": 688.3860857522722,
+    "reps": 3,
+    "min_steps_per_s": 1357.547925204053,
+    "max_steps_per_s": 1515.0695389852017,
+    "spread_pct": 10.8
+  },
+  {
+    "label": "SyncVectorEnv (n=32, copy=True)",
+    "steps_per_s": 1411.5334494196707,
+    "vec_steps_per_s": 44.11042029436471,
+    "us_per_step": 22670.38022595659,
+    "n_envs": 32,
+    "note": "steps/s counts env steps across all n envs",
+    "reps": 3,
+    "min_steps_per_s": 1146.517040220149,
+    "max_steps_per_s": 1922.8775982948773,
+    "spread_pct": 55.0
+  },
+  {
+    "label": "SyncVectorEnv (n=32, copy=False)",
+    "steps_per_s": 1274.1970834931417,
+    "vec_steps_per_s": 39.81865885916068,
+    "us_per_step": 25113.854375081246,
+    "n_envs": 32,
+    "note": "steps/s counts env steps across all n envs",
+    "reps": 3,
+    "min_steps_per_s": 1246.5845032940604,
+    "max_steps_per_s": 1307.1920170470012,
+    "spread_pct": 4.8
+  },
+  {
+    "label": "ParallelVectorEnv (n=32, per_worker=auto, sparse=False)",
+    "steps_per_s": 5242.692167333618,
+    "vec_steps_per_s": 163.83413022917557,
+    "us_per_step": 6103.734298837325,
+    "n_envs": 32,
+    "note": "steps/s counts env steps across all n envs; 32 workers, startup 9.0s",
+    "reps": 3,
+    "min_steps_per_s": 5079.604552784283,
+    "max_steps_per_s": 5628.971894521536,
+    "spread_pct": 10.5
+  },
+  {
+    "label": "ParallelVectorEnv (n=32, per_worker=auto, sparse=True)",
+    "steps_per_s": 11242.009133301595,
+    "vec_steps_per_s": 351.31278541567485,
+    "us_per_step": 2846.466287347884,
+    "n_envs": 32,
+    "note": "steps/s counts env steps across all n envs; 32 workers, startup 9.3s",
+    "reps": 3,
+    "min_steps_per_s": 7281.421515525087,
+    "max_steps_per_s": 12905.347318213779,
+    "spread_pct": 50.0
+  }
+]

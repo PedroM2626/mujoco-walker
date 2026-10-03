@@ -568,6 +568,7 @@ Python around it, so speedups can be A/B'd rather than asserted:
 ```bash
 python bench_env.py --seconds 4                     # physics, single env, sync and parallel vec
 python bench_env.py --mode parallel --n 32          # one backend only
+python bench_env.py --reps 3 --seconds 4            # median of 3 reps, with the spread printed
 python bench_env.py --sweep --n 32                  # envs-per-worker curve
 python bench_env.py --json benchmarks/my_run.json   # machine-readable
 ```
@@ -593,10 +594,28 @@ what to trust, because each was measured back-to-back in one process against the
 baseline. Re-measure on your own hardware with `python bench_env.py --seconds 4` before
 quoting a multiplier.
 
-What the rewrite actually bought is visible in the last line `bench_env.py` prints: the
+What the rewrite actually bought is a constant number of microseconds, not a percentage: the
 Python around MuJoCo in one `env.step` fell from ~46% of wall clock to **7%** (23 µs of a
-312 µs step, physics 289 µs), which is why the remaining headroom is in parallelism and
-in the integrator rather than in Python.
+312 µs step, physics 289 µs), which is why the remaining headroom is in parallelism and in
+the integrator rather than in Python.
+
+**Re-measured in one process, three reps each** (`python bench_env.py --mode all --n 32
+--seconds 4 --reps 3 --json benchmarks/throughput_replication.json`): the Python side came out at
+**23 µs** again, exactly as published, while the physics side took 665 µs instead of 289 - so
+the same run reports the Python share as 3% rather than 7%. That is the whole lesson about this
+section's percentages: the µs are the measurement and the ratio is whatever the window's
+clocks make of it. The spread between the three reps of the same configuration reached **77%**
+on the physics row and 50% on the sparse-parallel row, so a single `bench_env.py` number on this
+machine is not quotable at all, and the same-process sync-to-parallel ratio came out 8.0x against
+the table's 6.5x (which was measured against the *pre-rewrite* baseline, so the two are different
+comparisons, not a disagreement).
+
+The tool also had a unit bug, found by this replication: `bench_vec_env` and
+`bench_parallel_vec` timed one *vector* step and published the rate as if it were env-steps, so
+the printed number for n=32 was 32x smaller than the table it was meant to be compared with -
+and the README's own instruction here is "re-measure with `bench_env.py` before quoting a
+multiplier". `steps_per_s` now multiplies by n, with `vec_steps_per_s` and the per-vector-step
+`us_per_step` kept beside it.
 
 Three things mattered, and one deliberate non-change:
 
@@ -614,8 +633,10 @@ Three things mattered, and one deliberate non-change:
    `tests/test_parallel_vec_env.py` proves the two backends agree step-for-step. Because
    each worker costs ~1s to start, `--vec-backend auto` only enables it from 16 envs up.
 3. **`sparse_info`**: the ~30-key step info dict is only read on the step that ends an
-   episode, so it is dropped from every other reply (~40% of parallel throughput).
-   `--vec-dense-info` restores it.
+   episode, so it is dropped from every other reply. Measured as an A/B it is the biggest single
+   switch in the env path - 40% in the window that shipped it, 2.14x in the replication above -
+   but the arms' own spread reached 50%, so treat it as "large, and not pinned".
+   `--vec-dense-info` restores the dict.
 
 **Physics was left alone on purpose.** `walker_ragdoll.xml` still compiles RK4 at
 `timestep=0.002` with `frame_skip=5`. Euler measures 2.1x on physics-only, but diverges
@@ -1135,9 +1156,10 @@ Three facts to keep in mind:
 
 The suite is plain `unittest` (no pytest required) and covers the environment contract, the
 golden reward rollouts, the parallel/serial vector-env parity, checkpointing and the race
-harness — **128 tests, 330 s in this window** (`Ran 128 tests in 329.964s ... OK
+harness — **130 tests, 319 s in this window** (`Ran 130 tests in 319.168s ... OK
 (skipped=7)` under `.venv`). Windows of this suite have measured 176.3 s at 102 tests, 269.995 s
-at 121, 261.1 s at 127 and 329.964 s at 128: the duration belongs to the machine's state, the
+at 121, 261.1 s at 127, 329.964 s at 128, and at 130 three runs on one afternoon: 311.995 s,
+319.168 s and 420.962 s. The duration belongs to the machine's state, the
 count does not, and a gate checks the count so it cannot go stale quietly):
 
 ```bash
@@ -1183,7 +1205,7 @@ that they ran - see Phase 4, item 6. How each of those states was found, with th
 ## 🔬 Reproducing and measuring
 
 ```bash
-python -m unittest discover -s tests -t .   # 128 tests in .venv, 330 s; see "Running the tests"
+python -m unittest discover -s tests -t .   # 130 tests in .venv, 312 s; see "Running the tests"
 python bench_env.py --seconds 4             # env throughput, physics vs Python split
 python bench_mjx.py --sizes 32,128          # MJX/JAX batched stepping
 python verify.py                            # Phase-2 artifact check (exits 2 when missing)

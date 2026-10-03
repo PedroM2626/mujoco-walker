@@ -1044,8 +1044,8 @@ python -m unittest discover -s tests -t .
 All seven skips are `tests/test_phase4_behaviour`, which needs `Walker2d-v5` and cannot get it on
 gymnasium 0.29; nothing else skips here (torch in `.venv` is a cu121 build and the device answers,
 so the CUDA graph-capture test runs). The reverse does not hold: run the same command under
-`.venv-phase4` and the suite does not assemble - seven of the twelve modules fail to import and
-seven further tests fail (`Ran 44 tests ... FAILED (failures=7, errors=7, skipped=7)`).
+`.venv-phase4` and the suite does not assemble - seven of the eleven test modules fail to import
+and seven further tests fail (`Ran 44 tests ... FAILED (failures=7, errors=7, skipped=7)`).
 `.github/workflows/ci.yml` is written for that reality: it runs this suite on the root interpreter
 and, on the Phase-4 one, only the import check plus `tests/test_phase4_behaviour`.
 

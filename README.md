@@ -875,20 +875,17 @@ are unaffected, and the KL-batching A/B above is one of those; any Dreamer compa
   drops. Kept sequential.
 
 **Three traps for anyone measuring this.** Rates read off the training logs are wrong: the
-trainers print only when an episode ends, so sampling the last `global_step=` line twice a
-minute reported 48 env-steps/s for a Dreamer that actually runs at 15.6 - only wall clock over
-a whole run is trustworthy. And a long job started with `nohup` from an ordinary shell call is
-killed along with that call's process tree some minutes later: three runs died that way in one
-afternoon, silently, with no traceback and the wrapper's exit line never written. Launch long
-runs detached and tracked.
+trainers print only when an episode ends, so sampling the last `global_step=` line twice a minute
+reported 48 env-steps/s for a Dreamer that actually runs at 15.6 - only wall clock over a whole run
+is trustworthy. And a long job started with `nohup` from an ordinary shell call is killed along with
+that call's process tree some minutes later: three runs died that way in one afternoon, silently,
+with no traceback. Both are written up, with what they cost, in
+[docs/lab-notes.md](docs/lab-notes.md).
 
 **A third way to lose a run: sharing this laptop's GPU.** The Dreamer 1M attempt of 2026-10-02 got
-to 84,456 steps and died with `RuntimeError: CUDA error: unspecified launch failure` - inside a
-window in which two other processes were also using the CUDA device (a Phase-3 re-score and a
-checkpoint sweep). It left no checkpoint, because `train_dreamer.py` writes one at the default
-interval and 84k steps had not reached it. The queue has therefore been relaunched detached with
-`--checkpoint-interval 100000`, so the next such crash costs at most one checkpoint interval
-instead of the whole run, and GPU-using measurement jobs are not run alongside training.
+to 84,456 steps and died with `CUDA error: unspecified launch failure`, inside a window where two
+other processes were on the device - and left no checkpoint, because the default interval was 200k
+and it had not reached one. Full account in [docs/lab-notes.md](docs/lab-notes.md).
 
 **What was done about it.** `utils/gpu_window.py` reads the window before a run starts, and
 `python -m utils.gpu_window` prints it: on this box that is the RTX 4070 Laptop with **371 MiB**
@@ -899,7 +896,9 @@ run of **200000 steps** or more is refused above a **1024 MiB** ceiling unless
 `--allow-shared-gpu` is passed; shorter runs report the window and start anyway, because what a
 contended window costs is the hours lost when a run dies, and a 5k-step test loses minutes. The
 window is also logged into the run's MLflow params (`gpu_memory_used_mib_before_run`,
-`gpu_other_cuda_contexts`), so a rate can be traced to the contention it was measured in.
+`gpu_other_cuda_contexts`), so a rate can be traced to the contention it was measured in. The
+guard is the mechanical half of a habit that predates it: GPU-using measurement jobs are not run
+alongside training, and a run that has to survive does not start until the window says it can.
 
 `--checkpoint-interval` on Dreamer went from 200k to 50k on the arithmetic in
 `benchmarks/dreamer_checkpoint_cost.json`: one full checkpoint is **6.96 MiB** taking **22.16 ms**
@@ -1076,14 +1075,12 @@ is in the mlflow-3 schema, so a 3.8 environment can run the trainers but cannot 
 
 ## 🧹 Repository size
 
-`.git` was **1.2 GB** while the real history is only ~28 MB. The difference was a single
-**unreachable** 1.15 GB object: `openai_walker/extratrees_model.pkl` had been `git add`ed
-(force-added past the `*.pkl` ignore rule) on 2026-06-28 and later reset, leaving the blob
-dangling — no commit ever referenced it, so `git rev-list --objects --all` did not show it
-and GitHub never received it. `git prune --expire=now && git gc --prune=now` removed it and
-`git fsck` is clean; the history is untouched and the clone is now small.
+`.git` was 1.2 GB while the real history is only ~28 MB: one unreachable, never-pushed 1.15 GB
+blob left by a force-added `extratrees_model.pkl` that was later reset. `git prune --expire=now`
+plus `git gc --prune=now` cleared it and `git fsck` is clean - the story, with the commands that
+found it, is in [docs/lab-notes.md](docs/lab-notes.md).
 
-Two facts to keep in mind:
+Three facts to keep in mind:
 
 - `openai_walker/extratrees_model.pkl` (2.24 GB on disk) is **not** version-controlled and
   is regenerable with `python train_extratrees.py`. Do not force-add it.
@@ -1091,38 +1088,17 @@ Two facts to keep in mind:
   of the Phase-4 dataset, and every table here is measured against it. If the repo ever
   needs to shed it, migrate with `git lfs migrate import --include=...` and a force-push -
   that rewrites published history, so it needs every clone to re-fetch.
-
-Everything under `checkpoints/` is local and ignored, so it never affected the clone size.
-The working directory here was 31 GB, of which 12.8 GB was `checkpoints/walker_recovery_v1`:
-twenty hourly checkpoints from the same 20M-step run. Two carry the published Phase-3 numbers
-(`sac_ckpt_20000000.pt`, the recovery expert) and the transfer-learning starting point
-(`sac_ckpt_1000000.pt`, `merge_models.py --base-ckpt`); the other eighteen were deleted on
-2026-10-01, freeing 11.4 GB (`checkpoints/`: 12,853 MB -> 1,454 MB), and the Phase-3 evaluation
-reproduces its four strategy means exactly afterwards (36496.42 / 31237.52 / -8015.85 /
--30245.87 at two episodes, seed 11).
-
-**"No script names them" is not the same statement as "nothing can use them", and the
-difference matters.** Any checkpoint in a run directory is addressable by step number:
-`play.py --run-id <id> --checkpoint-step <step>`, `--checkpoint <path>`,
-`merge_models.py --base-ckpt/--rec-ckpt`, and
-`train_walker.py --init-from-run-id <id> --init-from-checkpoint-step <step>`
-(`resolve_checkpoint_any`, which is how the recovery run was seeded from `walker_target_v1` in
-the first place). Those eighteen were therefore valid inputs for a linear-mode-connectivity or
-task-vector sweep *along the recovery trajectory* - interpolate 2M against 19M, or ask when the
-recovery policy left the walking policy's basin - and that study now needs the 20M-step run
-repeated to do. Nothing published here depended on them, but they were not dead weight, and
-this was the more irreversible of the two available choices. The same sweep remains open on the
-other expert (`walker_target_v1` keeps 41 steps, each as `sac_actor_*` plus `sac_ckpt_*`), and
-the Phase-1 runs recorded below checkpoint every 200k steps so the analysis is possible on them
-from the start.
+- Everything under `checkpoints/` is local and ignored, so it never affected the clone size -
+  but 11.4 GB of recovery-run checkpoints were deleted here on 2026-10-01, and what that closed
+  off is written up in the lab notes rather than glossed over.
 
 ## ✅ Running the tests
 
 The suite is plain `unittest` (no pytest required) and covers the environment contract, the
 golden reward rollouts, the parallel/serial vector-env parity, checkpointing and the race
-harness — **121 tests, ~3-4.5 min** (`Ran 121 tests in 269.995s ... OK (skipped=7)` under
-`.venv`; the same suite took 176.3 s and 200.4 s in two other windows, so the duration belongs to
-the window and the count does not):
+harness — **122 tests, ~3-4.5 min** (the same suite measured 176.3 s, 200.4 s and 269.995 s
+in three windows, so the duration belongs to the window and the count does not; the exact
+`Ran ...` line is refreshed whenever the suite changes, because a gate checks it):
 
 ```bash
 python -m unittest discover -s tests -t .
@@ -1150,50 +1126,24 @@ mlflow ui --backend-store-uri sqlite:///mlruns.db
 ```
 Navigate to `http://localhost:5000` in your browser.
 
-**Version requirement: mlflow 3.x, which needs Python 3.10+.** `mlruns.db` is at schema
-revision `b7e2c1a4d9f3`, which only mlflow 3.x understands. With the `mlflow 2.17.2` that the
-old Python 3.8 `.venv` shipped, opening it raises
-`alembic.util.exc.CommandError: Can't locate revision identified by 'b7e2c1a4d9f3'` - and
-because the trainers' mlflow helper is deliberately fault-tolerant, that error was swallowed,
-so runs appeared to log while writing nothing. `requirements.txt` pins `mlflow>=3.0` for that
-reason. (Found while adding the stale-run tool, which had to open the same database.)
+**Version requirement: mlflow 3.x, which needs Python 3.10+.** `mlruns.db` is at schema revision
+`b7e2c1a4d9f3`, which only mlflow 3.x understands; opening it with mlflow 2.x raises
+`Can't locate revision identified by 'b7e2c1a4d9f3'`, and because the trainers' mlflow helper is
+deliberately fault-tolerant, that error used to be swallowed - runs looked like they were logging
+while writing nothing. `requirements.txt` pins `mlflow>=3.0` for that reason, and
+`start_mlflow_run` prints the version and the remedy when it hits the wall.
 
-mlflow 3.x publishes no Python 3.8 distribution - `pip download --no-deps "mlflow>=3.0"`
-returns `No matching distribution found` - so the fix had to be the interpreter, not a
-`pip install`. `.venv` is now Python 3.11.9 with mlflow 3.16.1, and the logging path was
-checked end-to-end: `start_mlflow_run` → `log_mlflow_metrics` → `end_mlflow_run` against a
-throwaway sqlite backend produced a FINISHED run carrying both metrics and the `seed` param.
-The swap is numerically invisible: the same 200-step rollout from seed 7 gives reward
--2506.5429333387096 in the 3.8 and 3.11 environments, and `evaluate_merging.py --num-episodes
-2 --seed 11` reproduces all four strategy means to the last printed digit. The old
-environment is kept as `.venv-py38-backup/` (two `mv` commands to go back), and
-`start_mlflow_run` still prints the version and the remedy when it hits the wall, so a
-freshly-cloned 3.8 venv fails loudly instead of silently.
-
-The history now lives in **one** database, at the repository root: 21 runs, 5 experiments,
-252,856 metric rows. It used to be two: 11 Phase-4 scripts wrote `sqlite:///mlruns.db` and 5
-wrote `sqlite:///../mlruns.db`, and because `run_all.bat` runs from inside `openai_walker/`,
-half the runs landed in `openai_walker/mlruns.db` while `mlflow ui` from the root showed only
-the other half. `utils/mlflow_uri.py` (wrapped by `openai_walker/mlflow_backend.py`) now
-resolves the path from the repository root, so the working directory no longer decides where
-a run goes. The 13 runs that had already landed in the wrong file were merged in with
-`python openai_walker/mlflow_backend.py merge --source sqlite:///.../openai_walker/mlruns.db
---apply`; the source file is kept untouched as `openai_walker/mlruns.merged-into-root.db`,
-and the merge is keyed on `run_uuid`, so re-running it moves nothing (verified: `0 new run(s)`).
-
-Three runs were left in RUNNING by killed processes - `AIRL_IRL` (74,297 metric rows),
-`Deep_PQR_IRL` (0 rows) and `IQL_SAC_FineTuning_Walker2d` (653 rows), started 97, 96 and 115
-days before this was written. `python openai_walker/mlflow_backend.py stale-runs --apply`
-closed them and stamped a `closed_as_stale` tag on each, because `set_terminated` writes
-today's date into `end_time` and a run that died in June would otherwise read as an 87-day
-training session. Every trainer already wraps its work in `with mlflow.start_run(...)`, so
-these are abandoned-by-kill runs, not missing `end_run` calls, and they are the reason an
-artifact can be absent while its metrics are present.
+The history lives in **one** database at the repository root (21 runs, 5 experiments, 252,856
+metric rows); `utils/mlflow_uri.py` resolves its path from the repo root, so the working directory
+no longer decides where a run goes. Three runs killed mid-training were closed with a
+`closed_as_stale` tag rather than deleted, because the metric history is the only surviving evidence
+that they ran - see Phase 4, item 6. How each of those states was found, with the commands, is in
+[docs/lab-notes.md](docs/lab-notes.md).
 
 ## 🔬 Reproducing and measuring
 
 ```bash
-python -m unittest discover -s tests -t .   # 121 tests in .venv, ~3-4.5 min; see "Running the tests"
+python -m unittest discover -s tests -t .   # 122 tests in .venv, ~3-4.5 min; see "Running the tests"
 python bench_env.py --seconds 4             # env throughput, physics vs Python split
 python bench_mjx.py --sizes 32,128          # MJX/JAX batched stepping
 python verify.py                            # Phase-2 artifact check (exits 2 when missing)

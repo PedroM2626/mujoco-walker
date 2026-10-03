@@ -713,5 +713,23 @@ class TestReadmeJaxProbeCells(unittest.TestCase):
         self.assertEqual(float(m.group(3)), self.jax["arithmetic_floor_ms"])
 
 
+class TestReadmeLinks(unittest.TestCase):
+    """Relative links in the README resolve to files in the repository.
+
+    Added when three sections moved to docs/lab-notes.md: a pointer to a file that is not there is
+    how documentation quietly loses its evidence.
+    """
+
+    def test_every_relative_link_points_at_a_committed_file(self):
+        with open(README, encoding="utf-8") as handle:
+            readme = handle.read()
+        targets = [t for t in re.findall(r"\]\(([^)#][^)]*)\)", readme)
+                   if not t.startswith(("http://", "https://", "mailto:"))]
+        self.assertTrue(targets, "no relative links to check")
+        for target in targets:
+            self.assertTrue(os.path.exists(os.path.join(ROOT, target.replace("/", os.sep))),
+                            f"README links to {target}, which is not in the repository")
+
+
 if __name__ == "__main__":
     unittest.main()

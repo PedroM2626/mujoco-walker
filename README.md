@@ -1035,7 +1035,7 @@ from the start.
 
 The suite is plain `unittest` (no pytest required) and covers the environment contract, the
 golden reward rollouts, the parallel/serial vector-env parity, checkpointing and the race
-harness — **91 tests, ~4 min**:
+harness — **91 tests, ~4 min** (`Ran 91 tests in 234.768s ... OK (skipped=7)` under `.venv`):
 
 ```bash
 python -m unittest discover -s tests -t .

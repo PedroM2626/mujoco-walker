@@ -538,9 +538,9 @@ class TestReadmeTestCount(unittest.TestCase):
     count here is discovered live rather than remembered, so the sentence cannot drift again.
     """
 
-    COUNT_PATTERNS = [r"\*\*(\d+) tests",            # the "Running the tests" claim
-                      r"`Ran (\d+) tests \.\.\. OK",  # the citation of the run it came from
-                      r"# (\d+) tests in \.venv"]     # the reproduce-block comment
+    COUNT_PATTERNS = [r"\*\*(\d+) tests",                    # the "Running the tests" claim
+                      r"`Ran (\d+) tests in [\d.]+s \.\.\. OK",  # the citation of the run it came from
+                      r"# (\d+) tests in \.venv"]             # the reproduce-block comment
 
     def test_every_published_test_count_is_the_suite_that_exists(self):
         with open(README, encoding="utf-8") as handle:
@@ -608,6 +608,67 @@ class TestReadmeDreamerScalingCells(ReadmeGate, unittest.TestCase):
         self.check("loop shares", [float(m.group(1)), float(m.group(2))],
                    [round(marg["imag_horizon_captured"] * imag, 1),
                     round(marg["seq_len_captured"] * seq, 1)], places=1)
+
+
+class TestReadmeGpuWindowCells(unittest.TestCase):
+    """The GPU-guard paragraph: its thresholds are the code's, and its costs are the artifact's.
+
+    Two independent sources, because the paragraph claims both a policy (refuse above X, at budgets
+    of Y) and measured numbers (checkpoint bytes, milliseconds, per-1M cost). A drift in either half
+    would make the README tell a reader to do something the code does not do.
+    """
+
+    COST = os.path.join(ROOT, "benchmarks", "dreamer_checkpoint_cost.json")
+    BLOCK_START = "**What was done about it.**"
+    BLOCK_END = "**The dial that is not free"
+
+    def setUp(self):
+        with open(README, encoding="utf-8") as handle:
+            readme = handle.read()
+        start = readme.index(self.BLOCK_START)
+        self.block = re.sub(r"\s+", " ", readme[start:readme.index(self.BLOCK_END, start)])
+        with open(self.COST, encoding="utf-8") as handle:
+            self.cost = json.load(handle)
+
+    def find(self, pattern, what):
+        m = re.search(pattern, self.block)
+        self.assertIsNotNone(m, f"the {what} sentence was reworded; re-point this test at it")
+        return m
+
+    def test_the_thresholds_in_prose_are_the_ones_the_module_uses(self):
+        import utils.gpu_window as gw
+        m = self.find(r"A CUDA run of \*\*(\d+) steps\*\* or more is refused above a "
+                      r"\*\*(\d+) MiB\*\* ceiling", "guard threshold")
+        self.assertEqual(gw.LONG_RUN_STEPS, int(m.group(1)))
+        self.assertEqual(gw.DEFAULT_CEILING_MIB, int(m.group(2)))
+
+    def test_the_checkpoint_default_matches_the_documented_interval(self):
+        with open(os.path.join(ROOT, "train_dreamer.py"), encoding="utf-8") as handle:
+            src = handle.read()
+        self.assertIn('parser.add_argument("--checkpoint-interval", type=int, default=50000)', src,
+                      "the README says Dreamer now defaults to a 50k interval; the code decides")
+
+    def test_the_cost_figures_come_from_the_artifact(self):
+        mib = self.cost["checkpoint_bytes"] / 2 ** 20
+        m = self.find(r"\*\*([\d.]+) MiB\*\* taking \*\*([\d.]+) ms\*\* to write, so (\d+) saves "
+                      r"per 1M steps cost \*\*([\d.]+) s\*\* and ([\d.]+) MiB",
+                      "checkpoint cost")
+        for typed, want in ((m.group(1), mib), (m.group(2), self.cost["save_ms_median"]),
+                            (m.group(4), self.cost["per_1m_steps"]["50000"]["write_s"]),
+                            (m.group(5), self.cost["per_1m_steps"]["50000"]["disk_mib"])):
+            self.assertAlmostEqual(float(typed), round(want, 2), places=2,
+                                   msg=f"README says {typed}, artifact gives {want}")
+        self.assertEqual(self.cost["per_1m_steps"]["50000"]["saves"], int(m.group(3)))
+
+    def test_the_driver_and_card_quoted_as_wsl_are_this_box(self):
+        """The WSL claim is that it is the *same* GPU, so its numbers must be the ones Windows sees."""
+        import utils.gpu_window as gw
+        m = self.find(r"\(`([\d.]+)`, `(\d+)` MiB total\)", "WSL card identity")
+        window = gw.read_gpu_window()
+        if not window:
+            self.skipTest("no NVIDIA GPU visible to nvidia-smi in this checkout")
+        self.assertEqual(window["gpu"]["driver_version"], m.group(1))
+        self.assertEqual(window["gpu"]["memory_total_mib"], int(m.group(2)))
 
 
 if __name__ == "__main__":

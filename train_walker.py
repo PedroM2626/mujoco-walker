@@ -17,6 +17,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+from utils.gpu_window import check_gpu_window, read_gpu_window, window_params
 import torch.optim as optim
 from torch.utils.tensorboard import SummaryWriter
 
@@ -114,16 +116,35 @@ def add_device_arg(parser):
         help="auto = cuda when available (measured 2.4x faster than CPU on these SAC "
              "updates at batch 512); cpu reproduces the pre-GPU behaviour.",
     )
+    parser.add_argument(
+        "--allow-shared-gpu",
+        action="store_true",
+        help="start a CUDA run even when other processes already hold GPU memory. Off by "
+             "default: this box lost a 1M-step Dreamer run at 84k steps to a CUDA launch "
+             "failure inside a contended window, and the same build measured 15.6 and 68 "
+             "env-steps/s in two of them (utils/gpu_window.py).",
+    )
 
 
 def select_device(args):
+    """Pick the compute device, and report the GPU window the run is starting into.
+
+    The window check lives here because every ragdoll trainer reaches it: the SAC/TD3/PPO mains,
+    REDQ and Dreamer all call this before building an environment, so a long run that would die in
+    a contended window is refused before it has cost anything. Short budgets are only reported, not
+    refused - see `utils.gpu_window.LONG_RUN_STEPS` for why the distinction is the whole point.
+    """
     if args.device == "cpu":
-        return torch.device("cpu")
-    if args.device == "cuda":
+        device = torch.device("cpu")
+    elif args.device == "cuda":
         if not torch.cuda.is_available():
             raise SystemExit("--device cuda requested but torch.cuda.is_available() is False")
-        return torch.device("cuda")
-    return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        device = torch.device("cuda")
+    else:
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    check_gpu_window(device.type, getattr(args, "allow_shared_gpu", False),
+                     getattr(args, "total_timesteps", 0))
+    return device
 
 
 def add_vec_env_args(parser):
@@ -822,7 +843,7 @@ except Exception:
     _mlflow = None
 
 
-def start_mlflow_run(args, run_name, algo_name):
+def start_mlflow_run(args, run_name, algo_name, extra_params=None):
     """Inicia um run MLflow de forma tolerante a falhas (retorna None se indisponível)."""
     if _mlflow is None:
         return None
@@ -841,6 +862,12 @@ def start_mlflow_run(args, run_name, algo_name):
                 value = getattr(args, key, None)
                 if value is None or isinstance(value, (str, int, float, bool)):
                     _mlflow.log_param(key, value)
+            # The GPU window this run started in, so any rate read off this run can be traced to
+            # the contention it saw - the same build measured 15.6 and 68 env-steps/s here.
+            for key, value in window_params(read_gpu_window()).items():
+                _mlflow.log_param(key, value)
+            for key, value in (extra_params or {}).items():
+                _mlflow.log_param(key, value)
         except Exception:
             pass
         return run

@@ -869,6 +869,26 @@ interval and 84k steps had not reached it. The queue has therefore been relaunch
 `--checkpoint-interval 100000`, so the next such crash costs at most one checkpoint interval
 instead of the whole run, and GPU-using measurement jobs are not run alongside training.
 
+**What was done about it.** `utils/gpu_window.py` reads the window before a run starts, and
+`python -m utils.gpu_window` prints it: on this box that is the RTX 4070 Laptop with **371 MiB**
+already held by **5** other CUDA contexts - and that is its *idle* state, because Medal, Overwolf
+and two Brave renderers keep a context permanently while `--query-compute-apps` reports their
+memory as `N/A`. The usable signal is therefore megabytes committed, not the process count. A CUDA
+run of **200000 steps** or more is refused above a **1024 MiB** ceiling unless
+`--allow-shared-gpu` is passed; shorter runs report the window and start anyway, because what a
+contended window costs is the hours lost when a run dies, and a 5k-step test loses minutes. The
+window is also logged into the run's MLflow params (`gpu_memory_used_mib_before_run`,
+`gpu_other_cuda_contexts`), so a rate can be traced to the contention it was measured in.
+
+`--checkpoint-interval` on Dreamer went from 200k to 50k on the arithmetic in
+`benchmarks/dreamer_checkpoint_cost.json`: one full checkpoint is **6.96 MiB** taking **22.16 ms**
+to write, so 20 saves per 1M steps cost **0.44 s** and 139.3 MiB - while 200k was precisely the gap
+that left the death at 84,456 steps with nothing to resume from.
+
+**WSL2 does not escape this.** `wsl -d Ubuntu-24.04` reports the same card and the same driver
+(`556.29`, `8188` MiB total), so a Linux interpreter buys the CUDA-JAX path that native-Windows
+`jaxlib` ships no wheel for - not a quieter GPU.
+
 **The dial that is not free: gradient steps per environment step.** `--utd-ratio` (REDQ,
 default 20) and "update every collected batch" (Dreamer with `--num-envs 4`) are how much
 learning each environment step buys. Raising `--num-envs` at a fixed `--total-timesteps` keeps
@@ -1064,8 +1084,9 @@ from the start.
 
 The suite is plain `unittest` (no pytest required) and covers the environment contract, the
 golden reward rollouts, the parallel/serial vector-env parity, checkpointing and the race
-harness — **102 tests, ~3 min** (`Ran 102 tests in 176.256s ... OK (skipped=7)`; the same suite
-took 234.8 s two hours earlier, so the duration is a property of the window and the count is not):
+harness — **118 tests, ~3 min** (`Ran 118 tests in 200.413s ... OK (skipped=7)` under `.venv`;
+the same suite took 176.3 s and 234.8 s in two other windows, so the duration belongs to the
+window and the count does not):
 
 ```bash
 python -m unittest discover -s tests -t .
@@ -1136,11 +1157,14 @@ artifact can be absent while its metrics are present.
 ## 🔬 Reproducing and measuring
 
 ```bash
-python -m unittest discover -s tests -t .   # 102 tests in .venv, ~3 min; see "Running the tests"
+python -m unittest discover -s tests -t .   # 118 tests in .venv, ~3 min; see "Running the tests"
 python bench_env.py --seconds 4             # env throughput, physics vs Python split
 python bench_mjx.py --sizes 32,128          # MJX/JAX batched stepping
 python verify.py                            # Phase-2 artifact check (exits 2 when missing)
 python bench_device.py                        # SAC update cost, CPU vs CUDA
+python bench_dreamer_update.py --mode scaling # per-loop-step cost, eager vs captured, 3 batch points
+python bench_dreamer_update.py --mode checkpoint-cost  # bytes and ms per Dreamer save, per interval
+python -m utils.gpu_window                    # the GPU window a long run would start into
 ```
 
 `verify.py` currently exits non-zero because `dataset.csv` is not in the repository — see the

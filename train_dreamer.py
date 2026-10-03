@@ -519,7 +519,11 @@ def parse_dreamer_args():
     parser.add_argument("--num-envs", type=int, default=4) # Smaller number of envs since sequential data logging is seq-based
     parser.add_argument("--buffer-size", type=int, default=200000)
     parser.add_argument("--gamma", type=float, default=0.99)
-    parser.add_argument("--checkpoint-interval", type=int, default=200000)
+    # 50k, not the 200k this started at: a full checkpoint measures 7.3 MB and takes 15.8 ms to
+    # write (timed on the real architectures), so 20 saves per 1M steps cost 0.32 s and 146 MB,
+    # while a 200k interval is what left the 1M-step run that died at 84,456 steps with nothing to
+    # resume from.
+    parser.add_argument("--checkpoint-interval", type=int, default=50000)
     parser.add_argument("--reset-mode", type=str, default="upright")
     parser.add_argument("--fixed-reset-probability", type=float, default=0.25)
     parser.add_argument("--upright-reset-probability", type=float, default=0.15)
@@ -646,7 +650,8 @@ def train_dreamer():
 
     # Setup WandB (removido: tracking canônico é MLflow + TensorBoard; wandb não é dependência)
     # Setup MLflow
-    mlf_run = start_mlflow_run(args, run_name, "dreamer")
+    mlf_run = start_mlflow_run(args, run_name, "dreamer",
+                               extra_params={"update_graph": args.update_graph})
 
     # Resume handling (the file was already opened above, to settle the update mode)
     if checkpoint is not None:

@@ -71,8 +71,8 @@ with open(os.environ["DREAMER_PROFILE_OUT"], "w", encoding="utf-8") as handle:
 
 def parse_args():
     p = argparse.ArgumentParser()
-    p.add_argument("--mode", choices=["profile", "ab", "reproducibility", "scaling"],
-                   default="profile")
+    p.add_argument("--mode", choices=["profile", "ab", "reproducibility", "scaling",
+                                      "checkpoint-cost"], default="profile")
     p.add_argument("--steps", type=int, default=9000)
     p.add_argument("--num-envs", type=int, default=4)
     p.add_argument("--seed", type=int, default=7)
@@ -139,6 +139,8 @@ def main():
         return reproducibility(args)
     if args.mode == "scaling":
         return scaling(args)
+    if args.mode == "checkpoint-cost":
+        return checkpoint_cost(args)
     return run_profile(args)
 
 
@@ -357,6 +359,72 @@ def reproducibility(args):
     print(f"{identical}/{n} tensors bit-identical, worst |diff| {worse:.3e}; "
           f"return sequences equal: {payload['returns_sequence_equal']}")
     print("wrote", os.path.relpath(out, ROOT))
+    return 0
+
+
+CHECKPOINT_INTERVALS = (200_000, 100_000, 50_000, 20_000)
+
+
+def checkpoint_cost(args):
+    """What a Dreamer checkpoint costs to write, and what each interval would have saved.
+
+    The 1M-step run that died at 84,456 steps lost everything because the default interval was
+    200,000 - larger than the run had reached. Choosing a new default is arithmetic on two measured
+    numbers (bytes and milliseconds per save), so they are measured here rather than guessed at.
+    """
+    import statistics as st
+    import torch
+    import train_dreamer as td
+
+    dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = td.WorldModel(49, 17).to(dev)
+    actor = td.DreamerActor(256, 32, 17).to(dev)
+    critic = td.DreamerCritic(256, 32).to(dev)
+    mods = (model, actor, critic)
+    opts = [td.make_adam(m.parameters(), 3e-4, False) for m in mods]
+    for o in opts:  # materialise Adam's state, as a training run would before the first save
+        for p in o.param_groups[0]["params"]:
+            p.grad = torch.zeros_like(p)
+        o.step()
+    state = {"model_state_dict": model.state_dict(), "actor_state_dict": actor.state_dict(),
+             "critic_state_dict": critic.state_dict(),
+             "model_opt_state_dict": opts[0].state_dict(),
+             "actor_opt_state_dict": opts[1].state_dict(),
+             "critic_opt_state_dict": opts[2].state_dict(),
+             "global_step": 1000, "obs_rms": None, "rng_state": td.get_rng_state()}
+
+    times, size = [], 0
+    with tempfile.TemporaryDirectory() as d:
+        path = os.path.join(d, "dreamer_ckpt_1000.pt")
+        for _ in range(5):
+            t0 = time.perf_counter()
+            torch.save(state, path)
+            if dev.type == "cuda":
+                torch.cuda.synchronize()
+            times.append((time.perf_counter() - t0) * 1e3)
+            size = os.path.getsize(path)
+
+    median = st.median(times)
+    out = {"device": str(dev), "reps": len(times),
+           "checkpoint_bytes": size, "save_ms_median": round(median, 2),
+           "save_ms_min": round(min(times), 2),
+           "per_1m_steps": {str(iv): {"saves": 1_000_000 // iv,
+                                      "disk_mib": round(1_000_000 // iv * size / 2**20, 1),
+                                      "write_s": round(1_000_000 // iv * median / 1e3, 2),
+                                      # The point of the exercise: how much progress a crash throws away.
+                                      "max_progress_lost_steps": iv}
+                             for iv in CHECKPOINT_INTERVALS},
+           "note": "isolated torch.save of one full Dreamer checkpoint (three networks, three "
+                   "Adam states, rng) at the shipped sizes; written by "
+                   "python bench_dreamer_update.py --mode checkpoint-cost"}
+    target = os.path.join(ROOT, "benchmarks", "dreamer_checkpoint_cost.json")
+    with open(target, "w", encoding="utf-8") as handle:
+        json.dump(out, handle, indent=2)
+    print(f"one checkpoint: {size/2**20:.2f} MiB, {median:.1f} ms to write (min {min(times):.1f})")
+    for iv, v in out["per_1m_steps"].items():
+        print(f"  interval {int(iv):>7}: {v['saves']:>3} saves, {v['disk_mib']:>6.1f} MiB, "
+              f"{v['write_s']:>5.2f} s per 1M steps, up to {v['max_progress_lost_steps']} steps lost")
+    print("wrote", os.path.relpath(target, ROOT))
     return 0
 
 

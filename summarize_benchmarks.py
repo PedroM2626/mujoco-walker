@@ -128,6 +128,77 @@ def phase4_with_extratrees(data):
     return data
 
 
+N1_LABELS = {
+    # `final_results.txt` is captured Portuguese console output from play_race.py; these are the
+    # keys the 50-episode per-episode file uses. An explicit map, so a rename in either file fails
+    # the builder instead of silently dropping a row from the comparison.
+    "Teacher (Upper Bound)": "Teacher (Upper Bound)",
+    "Behavioral Cloning Puro": "BC",
+    "Implicit Q-Learning": "IQL",
+    "Conservative Q-Learning": "CQL",
+    "BC+SAC (Naive Initialization)": "BC+SAC (Naive)",
+    "BC+SAC (Regularization Penalty)": "BC+SAC (Regularized)",
+    "BC+SAC (Action Constraints)": "BC+SAC (Constrained)",
+    "CQL+SAC (Offline-to-Online)": "CQL+SAC",
+    "Inverse RL (GAIL)": "GAIL",
+    "Inverse RL (AIRL)": "AIRL",
+    "Batch-Constrained Q-learning (BCQ)": "BCQ",
+    "Decision Transformer (DT)": "DT",
+    "MaxEnt IRL": "MaxEnt",
+}
+
+
+def phase4_n1_reassessment(out="benchmarks/phase4_n1_vs_50ep.json"):
+    """Score every single-episode record against the distribution the same weights produce now.
+
+    `final_results.txt` is one unseeded episode per model, and the README retired it for being a
+    poor estimator. That is only half a statement: for some models the old draw sits comfortably
+    inside today's spread (it was a real, high episode), for others it sits outside anything the
+    recorded protocol can produce (it cannot be episode luck). The distinction decides whether a
+    retired number is a measurement of a different thing or a bad estimate of this one, and it is
+    arithmetic over two committed files, so it belongs in an artifact rather than in prose.
+    """
+    text = open(os.path.join(ROOT, "openai_walker", "final_results.txt"),
+                encoding="utf-8", errors="replace").read()
+    draws = {m: float(v) for m, v in re.findall(
+        r"\[(.+?)\] Preparando para a corrida.*?\[\1\] Episodio 1 - Pontuacao: (-?[\d.]+)",
+        text, re.S)}
+    if not draws:
+        raise SystemExit("final_results.txt: no 'Episodio 1 - Pontuacao' rows parsed")
+    path = os.path.join(ROOT, "openai_walker", "final_episodes_50ep_seed2026.json")
+    episodes = json.load(open(path, encoding="utf-8"))
+    models = episodes["models"]
+    unmatched = [label for label in draws if label not in N1_LABELS]
+    if unmatched:
+        raise SystemExit(f"final_results.txt labels with no mapping: {unmatched}")
+
+    out_data = {
+        "protocol": f"single-episode draws from openai_walker/final_results.txt scored against "
+                    f"evaluate_all.py --episodes {episodes['episodes']} --seed {episodes['seed']} "
+                    "(per-episode returns in final_episodes_"
+                    f"{episodes['episodes']}ep_seed{episodes['seed']}.json)",
+        "std_convention": "population std, the same one evaluate_all.py prints and the README "
+                          "table quotes",
+        "models": {},
+    }
+    for label, n1 in draws.items():
+        name = N1_LABELS[label]
+        arr = np.asarray(models[name], dtype=float)
+        stats = _stats(models[name])
+        z = (n1 - stats["mean"]) / stats["std"] if stats["std"] else None
+        entry = dict(stats)
+        entry.update({
+            "n1_score": n1,
+            "n1_in_sigmas": round(float(z), 2) if z is not None else None,
+            "episodes_at_or_above_n1": int((arr >= n1).sum()),
+            # Episode luck cannot reach outside the band the 50 seeded resets span; a draw that
+            # does came from something other than the reset.
+            "explainable_as_episode_luck": bool(stats["min"] <= n1 <= stats["max"]),
+        })
+        out_data["models"][name] = entry
+    return out_data, out
+
+
 BENCHMARKS = [
     phase3,
     lambda: phase3("eval_phase3_100ep.log", seed=11,
@@ -149,6 +220,9 @@ BENCHMARKS = [
         phase4(os.path.join("openai_walker", "eval_phase4_50ep.log"), seed=2026,
                out="benchmarks/phase4_race_50ep.json")[0]),
         "benchmarks/phase4_race_50ep.json"),
+    # Where each retired single-episode draw sits inside the distribution the same weights
+    # produce today, so "the old table was a poor estimator" can be said per model.
+    phase4_n1_reassessment,
 ]
 
 

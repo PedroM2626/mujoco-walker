@@ -936,6 +936,21 @@ scans with a single solver-friendly contact set, not on a 17-actuator ragdoll wi
 integrator. Native Windows GPU is unavailable for jaxlib regardless — the GPU numbers above
 were taken under WSL2 with `XLA_PYTHON_CLIENT_MEM_FRACTION=0.6` on the 8 GB card.
 
+**The learner was the other half of the JAX question, and it does not win either.** The physics is
+one reason to stay off XLA; the argument for porting anyway was that the learner is a recurrence of
+about ten tiny kernels per step, which is exactly what XLA fusion is good at.
+`python bench_jax_update.py` rebuilds the imagination rollout in JAX (`lax.scan` + `jit`, the
+sampled `z` feeding the next step as `RSSM.transition` does) on the same RTX 4070 Laptop, under
+WSL2. Forward only: **1.578 ms** for the 15 steps against the **3.93 ms** the captured torch path
+spends on that loop (`benchmarks/dreamer_update_scaling.json`) - 2.5x. But a training step needs
+the gradient, and with `value_and_grad` the same loop costs **5.15 ms**: slower than the path it
+would replace. Neither is arithmetic - the loop is 195 MFLOP and the card measured
+**15.2 TFLOP/s** on a square matmul, a floor of **0.0128 ms** against that 1.578 ms forward - so
+what dominates is per-step overhead, which fusion does not delete either. Two caveats that matter:
+the torch figure was taken on the Windows host and the JAX one in WSL2, so this is a bound and not
+a paired A/B; and the prototype is the rollout, not the world model, the losses or the optimizers.
+Together with the table above, there is currently no measured case for a JAX port here.
+
 `Dockerfile.mjx` is the third route: an `nvidia/cuda` base so these numbers can be reproduced
 on any Linux host with the NVIDIA Container Toolkit, without WSL. It is **written but not
 executed** - this machine has no Docker daemon (`docker: command not found`) - so unlike the
@@ -1084,9 +1099,8 @@ from the start.
 
 The suite is plain `unittest` (no pytest required) and covers the environment contract, the
 golden reward rollouts, the parallel/serial vector-env parity, checkpointing and the race
-harness — **118 tests, ~3 min** (`Ran 118 tests in 200.413s ... OK (skipped=7)` under `.venv`;
-the same suite took 176.3 s and 234.8 s in two other windows, so the duration belongs to the
-window and the count does not):
+harness — **121 tests, ~3 min** (the same suite took 176.3 s and 200.4 s in two other
+windows, so the duration belongs to the window and the count does not):
 
 ```bash
 python -m unittest discover -s tests -t .
@@ -1157,7 +1171,7 @@ artifact can be absent while its metrics are present.
 ## 🔬 Reproducing and measuring
 
 ```bash
-python -m unittest discover -s tests -t .   # 118 tests in .venv, ~3 min; see "Running the tests"
+python -m unittest discover -s tests -t .   # 121 tests in .venv, ~3 min; see "Running the tests"
 python bench_env.py --seconds 4             # env throughput, physics vs Python split
 python bench_mjx.py --sizes 32,128          # MJX/JAX batched stepping
 python verify.py                            # Phase-2 artifact check (exits 2 when missing)
@@ -1165,6 +1179,8 @@ python bench_device.py                        # SAC update cost, CPU vs CUDA
 python bench_dreamer_update.py --mode scaling # per-loop-step cost, eager vs captured, 3 batch points
 python bench_dreamer_update.py --mode checkpoint-cost  # bytes and ms per Dreamer save, per interval
 python -m utils.gpu_window                    # the GPU window a long run would start into
+python bench_jax_update.py                    # JAX imagination rollout, fwd + fwd/rev (needs a
+                                              # CUDA jaxlib: WSL2, see the MJX section)
 ```
 
 `verify.py` currently exits non-zero because `dataset.csv` is not in the repository — see the

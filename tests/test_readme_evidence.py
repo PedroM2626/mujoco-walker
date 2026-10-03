@@ -671,5 +671,47 @@ class TestReadmeGpuWindowCells(unittest.TestCase):
         self.assertEqual(window["gpu"]["memory_total_mib"], int(m.group(2)))
 
 
+class TestReadmeJaxProbeCells(unittest.TestCase):
+    """The learner-port paragraph: every figure comes from one of the two artifacts, checked."""
+
+    JAX = os.path.join(ROOT, "benchmarks", "jax_rssm_imagination.json")
+    SCALING = os.path.join(ROOT, "benchmarks", "dreamer_update_scaling.json")
+
+    def setUp(self):
+        with open(README, encoding="utf-8") as handle:
+            readme = handle.read()
+        start = readme.index("**The learner was the other half")
+        self.block = re.sub(r"\s+", " ", readme[start:readme.index("`Dockerfile.mjx`", start)])
+        with open(self.JAX, encoding="utf-8") as handle:
+            self.jax = json.load(handle)
+        with open(self.SCALING, encoding="utf-8") as handle:
+            self.marg = json.load(handle)["marginal_ms_per_unit"]
+
+    def find(self, pattern, what):
+        m = re.search(pattern, self.block)
+        self.assertIsNotNone(m, f"the {what} sentence was reworded; re-point this test at it")
+        return m
+
+    def test_the_two_loop_costs_are_the_ones_measured(self):
+        m = self.find(r"Forward only: \*\*([\d.]+) ms\*\* for the 15 steps against the "
+                      r"\*\*([\d.]+) ms\*\* the captured torch path", "loop costs")
+        horizon = int(self.jax["protocol"].split("horizon ")[1].split(",")[0])
+        self.assertEqual(float(m.group(1)), self.jax["jax_loop_ms"])
+        self.assertEqual(float(m.group(2)),
+                         round(self.marg["imag_horizon_captured"] * horizon, 2))
+
+    def test_the_gradient_number_is_the_one_that_changed_the_conclusion(self):
+        m = self.find(r"with `value_and_grad` the same loop costs \*\*([\d.]+) ms\*\*",
+                      "forward+backward")
+        self.assertEqual(float(m.group(1)), self.jax["jax_forward_backward_ms"])
+
+    def test_the_arithmetic_context_is_derived_from_the_artifact(self):
+        m = self.find(r"the loop is (\d+) MFLOP and the card measured \*\*([\d.]+) TFLOP/s\*\* "
+                      r"on a square matmul, a floor of \*\*([\d.]+) ms\*\*", "arithmetic floor")
+        self.assertEqual(int(m.group(1)), round(self.jax["loop_flops"] / 1e6))
+        self.assertEqual(float(m.group(2)), self.jax["gpu_fp32_tflops_measured"])
+        self.assertEqual(float(m.group(3)), self.jax["arithmetic_floor_ms"])
+
+
 if __name__ == "__main__":
     unittest.main()

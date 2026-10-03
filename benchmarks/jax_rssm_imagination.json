@@ -1,0 +1,17 @@
+{
+  "protocol": "jax 0.10.2 on cuda:0, imagination loop only, batch 16, horizon 15, median of 50 jit calls",
+  "jax_loop_ms": 1.578,
+  "jax_ms_per_step": 0.1052,
+  "jax_forward_backward_ms": 5.15,
+  "jax_forward_backward_per_step": 0.3434,
+  "gpu_fp32_tflops_measured": 15.2,
+  "matmul_4096_ms": 9.033,
+  "loop_flops": 195256320,
+  "arithmetic_floor_ms": 0.0128,
+  "fraction_of_time_that_is_arithmetic": 0.0081,
+  "torch_captured_for_reference": {
+    "per_imag_step_ms": 0.262,
+    "loop_ms_at_15_steps": 3.93
+  },
+  "torch_source": "benchmarks/dreamer_update_scaling.json, captured path, measured on the same RTX 4070 Laptop under Windows. Different host, so this is a bound on what a port could win, not a paired A/B."
+}

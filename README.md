@@ -614,15 +614,23 @@ and the parent process now spends its time shuttling 32 observations and 32 acti
 Windows pipes - so neither the physics rewrite nor the GPU learner is the bottleneck any more,
 and the worker startup (~200 s) is paid in full by a run this length.
 
-That is also the honest answer to "how much did training time improve": **1.5-1.6x where the
-learner dominates at small `num_envs`, 1.9x where collection dominates, 1.13x at the exact
-configuration this repo's flagship run used.** Multiply nothing across rows. And note the third
+That is also the honest answer to "how much did training time improve", for as long as the update
+loops are left alone: **1.5-1.6x where the learner dominates at small `num_envs`, 1.9x where
+collection dominates, 1.13x at the exact configuration this repo's flagship run used.** Multiply
+nothing across rows. And note the third
 column of the table above disagrees with history: the checkpoint mtimes say the same committed
 code ran at 14.5 min per 1M steps in May, against 38.6 min per 1M for that identical code replayed
 here on an AC-powered, otherwise idle laptop - a 2.7x machine-state gap that no code change
 explains (`OMP_NUM_THREADS=1` did not move it: 24.2 ms per CPU update against 27.5 ms at 24
 threads). Absolute minutes-per-million on this box are therefore per-window, not per-commit; the
 back-to-back ratios are the ones to reuse.
+
+Where the numbers above stop is exactly where the environment work stops mattering. SAC spends its
+time in a few cheap gradient steps per 32 environment steps, so no physics change reaches it; REDQ
+spends ~2% of its wall clock in MuJoCo and the rest in per-critic kernel launches, so the lever
+there was batching the ensemble - **2.15x end to end, 3.4x on the update phase**, in the
+learner-side section below. "Why is training still slow" and "the environment is already fast" are
+both true, and the second one is why the first one cannot be fixed from the physics side.
 
 ### 🧮 The learner side: what was measured, what shipped, what was rejected
 
@@ -635,6 +643,7 @@ laptop (RTX 4070 Laptop 8 GB, 32 threads, `.venv`), one process at a time:
 | `train_ars.py` | linear policy, 10 directions | 1,005,153 steps in 544 s = 1848/s | 9 min |
 | `train_dreamer.py` | 4 envs, update each collect step | 5,000 steps in 37 s with the update gate closed; 14,000 in 898 s in one A/B window and in 205 s later, same build | ~4-18 h |
 | `train_redq.py` | 16 envs, `utd_ratio=20`, ensemble 10 | 10,000 steps in 478 s | ~13 h |
+| `train_redq.py`, batched ensemble | same config, `--ensemble-impl batched` (default now) | see the A/B below | ~4 h in that window |
 
 The Dreamer row is the whole story: with its update gate closed it collects 5,000 steps in
 37 s, so ~96% of its wall clock is the learner step and not the physics. The environment is
@@ -659,6 +668,56 @@ technique would go next. Fixing it also exposed a wrong pairing: `prior_means[t]
 step t+1 while `post_means[t]` is step t's posterior (and `post_means[0]` is the pre-action
 posterior at step 0), so the regulariser was pulling each step's prior toward the previous
 step's encoder; the value moves 0.4930 -> 0.4947 at initialisation.
+
+**Shipped: the REDQ critic ensemble as one batched pass.** This is the biggest learner-side win
+in the repository, and it is the answer to "the environment is fast, why is training slow". A REDQ
+gradient step touches all N=10 critics for the target, all N again for the critic loss, all N a
+third time for the actor, and then soft-updates the target copy with 3N tiny kernels - on every
+gradient step, not on a frequency. On 256-unit nets that is kernel-launch time, not arithmetic, so
+`--utd-ratio 20` runs at ~32 env-steps/s while one environment steps physics at 1,560/s: the
+MuJoCo inside a REDQ run is about **2% of the wall clock**, and no amount of physics work can make
+that run faster. `BatchedSoftQEnsemble` (`train_walker.py`) holds the same weights as stacked
+(N, in, out) tensors and evaluates them in one `baddbmm`. Isolated critic step at batch 256,
+N=10: **8.61 ms loop against 0.95 ms batched on the GPU** (26.6 ms against 7.85 ms on CPU), and the
+3N-kernel target update goes 3.38 ms -> 0.15 ms. The arithmetic is equal to 3.73e-7 relative on the
+forward and 5.52e-7 across all 30 weight gradients, and the initialisation consumes the same RNG
+stream so a seeded run starts bit-identically (`tests/test_redq_ensemble.py`). Those milliseconds
+come from `python bench_redq_ensemble.py --isolated-only` on a window that also carried the live 1M
+run, so the 9.06x and the 22.53x are the parts worth reusing, not the absolute times.
+
+Inside the real trainer (`python bench_redq_ensemble.py`: UTD 20, N=10, 10k env steps, updates
+from 2k, two reps, and a collection floor per implementation measured with the update gate
+closed):
+
+| REDQ at n=16 parallel | total s (rep 1 / rep 2) | gradient phase s | env-steps/s |
+|:---|---:|---:|---:|
+| loop ensemble | 309.3 / 434.1 | 220.9 | 32.3 |
+| batched ensemble | 143.7 / 163.9 | **64.9** | **69.6** |
+| collection floors, loop / batched | 88.4 / 78.8 | - | 113.2 / 126.8 |
+
+**3.4x on the update phase and 2.15x end to end** at the shipped configuration. The subtraction is
+licensed by the two floors agreeing to 12% - same physics, same vector backend, no gradient work.
+Divide the 1M-step budget by those two rates and it is 8.6 h becoming 4.0 h, and those hours belong
+to this window the way every other absolute figure here does. The live 1M run that shared the box
+with this A/B is still on the loop path - it started before the batching existed, and `--resume`
+will not move it across - so it says nothing about the ratio; what does is two arms, same seed, same
+args, one running at a time. `--ensemble-impl loop` keeps the original path for exactly this A/B.
+
+The same A/B at n=4 on the sync backend, where neither worker startup nor IPC sits inside the timed
+phase, is the unobstructed version of the same comparison: 4k env steps, updates from 400, 898.6 s
+on the loop path against 224.8 s batched - **4.0x end to end, 4.4x on the update phase**. Its two
+collection floors (12.2 s loop, 23.2 s batched) disagree by 90%, which is why that arm is quoted
+from the whole-run times and the subtraction is treated as indicative rather than licensed; the
+n=16 floors above, which agree to 12%, carry the load.
+
+Two limits, said plainly. Checkpoints are written in the old `nn.ModuleList` key layout from both
+paths, so `evaluate_merging.py`, the eval scorer and the merge arithmetic are untouched - but
+Adam's state is per parameter and the two layouts hold 6 versus 3N tensors, so `--resume` now
+*refuses* a checkpoint written by the other implementation instead of quietly rebuilding the
+optimizer (`--init-from-run-id` remains the weights-only route across them). And the same
+treatment is still owed to Dreamer, whose imagination rollout is a Python loop of exactly this
+kind - the KL batching above got 2.06x on one piece of it and 1.10x on the whole run precisely
+because that loop is still there.
 
 **Measured and rejected, because "sounds faster" is not a measurement:**
 

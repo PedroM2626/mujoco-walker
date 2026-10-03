@@ -417,10 +417,11 @@ class BatchedSoftQEnsemble(nn.Module):
 
     REDQ's gradient step touches every critic twice (target values, critic loss), all N again for
     the actor, and then does a 3N-kernel soft update of the target copy. On 256-unit nets that is
-    kernel-launch time, not arithmetic, which is why `--utd-ratio 20` with
-    `--ensemble-size 10` runs at ~37 env-steps/s while the physics behind one of those steps
-    costs 1/1560 s. Batching keeps the weights, the initialisation RNG stream and the numbers;
-    it only collapses the launches.
+    kernel-launch time, not arithmetic, which is why `--utd-ratio 20` with `--ensemble-size 10`
+    collects at tens of env-steps/s while the physics behind one of those steps costs 1/1560 s
+    (`benchmarks/throughput_baseline_vs_now.json`, and the A/B in
+    `benchmarks/redq_ensemble_ab.json`). Batching keeps the weights, the initialisation RNG stream
+    and the numbers; it only collapses the launches.
 
     Checkpoints stay in the `nn.ModuleList` layout (`0.net.0.weight`, ...) through
     as_module_list_state_dict / load_module_list_state_dict, so an ensemble written by either

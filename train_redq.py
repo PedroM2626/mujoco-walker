@@ -42,10 +42,11 @@ from train_walker import (
 def make_ensemble(obs_dim, action_dim, size, impl, device):
     """REDQ's N critics: the original nn.ModuleList, or one batched bmm stack.
 
-    Same weights, same numbers - measured on batch 256 with N=10: max relative difference 3.9e-7
-    on the forward and 5.7e-7 across all 30 weight gradients, which is float32 reduction order,
-    not a different function. The reason to switch is that the loop's cost is kernel launches, not
-    arithmetic: 13.35 ms per critic step against 1.60 ms for the batched one on this GPU.
+    Same weights, same numbers - the forward and all 3*N weight gradients agree to float32
+    reduction order, which is what tests/test_redq_ensemble.py pins. The reason to switch is that
+    the loop's cost is kernel launches, not arithmetic: `python bench_redq_ensemble.py
+    --isolated-only` times one critic step and one target soft update for both layouts and writes
+    them to benchmarks/redq_ensemble_ab.json under "isolated".
     """
     if impl == "batched":
         return BatchedSoftQEnsemble(obs_dim, action_dim, size).to(device)

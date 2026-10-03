@@ -1,9 +1,10 @@
 """Batched REDQ ensemble: same function as the ModuleList it replaces, and checkpoint-compatible.
 
 The claim this guards is narrow. `BatchedSoftQEnsemble` exists only to stop paying kernel-launch
-time for N separate critics (measured on this laptop: 13.35 ms per critic step for the loop
-against 1.60 ms batched on the GPU, ~3x on CPU), so what must not change is the arithmetic and
-what must survive is every checkpoint written by either implementation.
+time for N separate critics (the timings are measured, not asserted: `python
+bench_redq_ensemble.py --isolated-only` writes them to benchmarks/redq_ensemble_ab.json), so what
+must not change is the arithmetic and what must survive is every checkpoint written by either
+implementation.
 """
 
 import os

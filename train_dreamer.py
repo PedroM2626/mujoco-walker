@@ -551,6 +551,28 @@ class CapturedDreamerUpdate:
         return self.outputs
 
 
+def advance_recurrent_state(model, h, z, action, next_obs, terminations, truncations):
+    """Advance the collection lanes' recurrent state by one environment step.
+
+    A function rather than inline because it is three GPU round-trips plus a Python reset loop per
+    collection step, and it sits outside the captured update: `bench_dreamer_update.py --mode
+    loop-split` has to price the shipped path to say how much of an iteration the collection side is.
+    """
+    device = h.device
+    with torch.no_grad():
+        actions_t = torch.as_tensor(action, dtype=torch.float32, device=device)
+        embeds = model.encoder(torch.as_tensor(next_obs, dtype=torch.float32, device=device))
+        h, _, _, _ = model.rssm.transition(h, z, actions_t)
+        z, _, _ = model.rssm.posterior(h, embeds)
+
+        # If an env reset happens, we reset its tracking state
+        for idx, (term, trunc) in enumerate(zip(terminations, truncations)):
+            if term or trunc:
+                h[idx] = 0.0
+                z[idx] = 0.0
+    return h, z
+
+
 def parse_dreamer_args():
     parser = argparse.ArgumentParser(description="DreamerV3 Walker Ragdoll Training")
     parser.add_argument("--run-id", type=str, default="walker_dreamer_1m")
@@ -755,19 +777,10 @@ def train_dreamer():
                     actions = actor.get_action(h_eval, z_eval, sample=True).cpu().numpy()
 
             next_obs, rewards, terminations, truncations, infos = envs.step(actions)
-            
+
             # Step the RSSM recurrent states forward
-            with torch.no_grad():
-                actions_t = torch.as_tensor(actions, dtype=torch.float32, device=device)
-                embeds = model.encoder(torch.as_tensor(next_obs, dtype=torch.float32, device=device))
-                h_eval, _, _, _ = model.rssm.transition(h_eval, z_eval, actions_t)
-                z_eval, _, _ = model.rssm.posterior(h_eval, embeds)
-                
-                # If an env reset happens, we reset its tracking state
-                for idx, (term, trunc) in enumerate(zip(terminations, truncations)):
-                    if term or trunc:
-                        h_eval[idx] = 0.0
-                        z_eval[idx] = 0.0
+            h_eval, z_eval = advance_recurrent_state(model, h_eval, z_eval, actions, next_obs,
+                                                      terminations, truncations)
 
             # Store in sequence replay buffer (one column per env; each env keeps its own
             # contiguous stream so sampled sequences never splice two episodes together)

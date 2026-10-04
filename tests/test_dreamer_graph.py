@@ -21,6 +21,7 @@ import sys
 import tempfile
 import unittest
 
+import numpy as np
 import torch
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -110,6 +111,72 @@ class TestDreamerUpdateFunction(unittest.TestCase):
         for mod, name in zip(arm[:3], ("model", "actor", "critic")):
             for pname, p in mod.named_parameters():
                 self.assertIsNotNone(p.grad, f"{name}.{pname} has no gradient")
+
+
+class TestRecurrentCollectionState(unittest.TestCase):
+    """`advance_recurrent_state` is the trainer's collection block, moved out verbatim.
+
+    Same claim as the class above, so same file: an extraction into a function is only free if it
+    still computes the same tensors. Here the detail that can silently change is which lanes the
+    reset clears - and `bench_dreamer_update.py --mode loop-split` times this function to attribute
+    a collection iteration, so the bench has to be pointing at shipped code.
+    """
+
+    def setUp(self):
+        self.dev = torch.device("cpu")
+        self.model = build(self.dev)[0]
+        torch.manual_seed(3)
+        self.h0 = torch.randn(4, self.model.rssm.hidden_dim)
+        self.z0 = torch.randn(4, self.model.rssm.stochastic_dim)
+        # numpy, as the trainer hands them over: actions from get_action().cpu().numpy(),
+        # next_obs straight out of envs.step.
+        self.action = np.random.RandomState(4).rand(4, ACT).astype(np.float32)
+        self.obs = np.random.RandomState(5).rand(4, OBS).astype(np.float32)
+
+    def inline_block(self, h, z, terms, truncs):
+        """The block as it stood inside the training loop before the extraction."""
+        with torch.no_grad():
+            actions_t = torch.as_tensor(self.action, dtype=torch.float32, device=self.dev)
+            embeds = self.model.encoder(torch.as_tensor(self.obs, dtype=torch.float32,
+                                                        device=self.dev))
+            h, _, _, _ = self.model.rssm.transition(h, z, actions_t)
+            z, _, _ = self.model.rssm.posterior(h, embeds)
+            for idx, (term, trunc) in enumerate(zip(terms, truncs)):
+                if term or trunc:
+                    h[idx] = 0.0
+                    z[idx] = 0.0
+        return h, z
+
+    def run_both(self, terms, truncs):
+        with frozen_noise():
+            want = self.inline_block(self.h0.clone(), self.z0.clone(), terms, truncs)
+            got = td.advance_recurrent_state(self.model, self.h0.clone(), self.z0.clone(),
+                                             self.action, self.obs, terms, truncs)
+        return want, got
+
+    def test_the_extraction_computes_the_same_state(self):
+        terms = [False, True, False, True]
+        (wh, wz), (gh, gz) = self.run_both(terms, [False] * 4)
+        self.assertTrue(torch.equal(wh, gh), "h drifted from the inline block")
+        self.assertTrue(torch.equal(wz, gz), "z drifted from the inline block")
+
+    def test_only_the_terminated_lanes_are_cleared(self):
+        (wh, wz), (gh, gz) = self.run_both([False, False, False, False], [False] * 4)
+        self.assertNotEqual(float(gh[1].abs().sum()), 0.0, "the starting state is already zero, "
+                                                          "so this test would prove nothing")
+        with frozen_noise():
+            ch, cz = td.advance_recurrent_state(self.model, self.h0.clone(), self.z0.clone(),
+                                                 self.action, self.obs,
+                                                 [False, True, False, False],
+                                                 [False, False, True, False])
+        self.assertEqual(float(ch[1].abs().sum()), 0.0)
+        self.assertEqual(float(ch[2].abs().sum()), 0.0)
+        self.assertEqual(float(cz[1].abs().sum()), 0.0)
+        self.assertEqual(float(cz[2].abs().sum()), 0.0)
+        for lane in (0, 3):
+            self.assertTrue(torch.equal(ch[lane], gh[lane]), f"lane {lane} was touched by a reset "
+                                                            "that happened in another lane")
+            self.assertTrue(torch.equal(cz[lane], gz[lane]), f"lane {lane}'s z drifted")
 
 
 @unittest.skipUnless(torch.cuda.is_available(), "CUDA graph capture needs a CUDA device")

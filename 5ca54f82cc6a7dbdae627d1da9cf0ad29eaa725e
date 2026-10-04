@@ -1,7 +1,0 @@
-Intermediate commit: it adds 2 tests (TestRecurrentCollectionState) without bumping the
-published suite count, which its parent 5ca54f8~0 left at 130 while discovery reports 132 -- so the
-count gate in tests/test_readme_evidence.py is red when checked out standalone. The bump (140, with
-a measured duration) and the gates for the new numbers land in the child commit 50be71b; the branch
-tip is green and CI passed there. Recorded here rather than rewritten, because 5ca54f8 is already
-published on main. Process fix kept forward: a commit that changes tests/ bumps the published count
-in the same commit.

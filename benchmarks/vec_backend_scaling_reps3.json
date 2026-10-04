@@ -1,0 +1,74 @@
+[
+  {
+    "label": "ParallelVectorEnv (n=32, per_worker=1, sparse=True)",
+    "steps_per_s": 18901.849441992927,
+    "vec_steps_per_s": 590.682795062279,
+    "us_per_step": 1692.9560304775164,
+    "n_envs": 32,
+    "note": "steps/s counts env steps across all n envs; 32 workers, startup 7.9s",
+    "reps": 3,
+    "min_steps_per_s": 18674.823165944923,
+    "max_steps_per_s": 19055.64651787313,
+    "spread_pct": 2.0
+  },
+  {
+    "label": "ParallelVectorEnv (n=32, per_worker=2, sparse=True)",
+    "steps_per_s": 17484.395592040575,
+    "vec_steps_per_s": 546.387362251268,
+    "us_per_step": 1830.2033851583276,
+    "n_envs": 32,
+    "note": "steps/s counts env steps across all n envs; 16 workers, startup 3.9s",
+    "reps": 3,
+    "min_steps_per_s": 17468.149146541986,
+    "max_steps_per_s": 17547.283290284227,
+    "spread_pct": 0.5
+  },
+  {
+    "label": "ParallelVectorEnv (n=32, per_worker=3, sparse=True)",
+    "steps_per_s": 14462.986867789981,
+    "vec_steps_per_s": 451.9683396184369,
+    "us_per_step": 2212.5443584040095,
+    "n_envs": 32,
+    "note": "steps/s counts env steps across all n envs; 11 workers, startup 2.7s",
+    "reps": 3,
+    "min_steps_per_s": 13799.855101497482,
+    "max_steps_per_s": 15351.793902307922,
+    "spread_pct": 10.7
+  },
+  {
+    "label": "ParallelVectorEnv (n=32, per_worker=4, sparse=True)",
+    "steps_per_s": 14653.106744132068,
+    "vec_steps_per_s": 457.90958575412714,
+    "us_per_step": 2183.83722706549,
+    "n_envs": 32,
+    "note": "steps/s counts env steps across all n envs; 8 workers, startup 2.0s",
+    "reps": 3,
+    "min_steps_per_s": 14557.908392500065,
+    "max_steps_per_s": 16954.42024341473,
+    "spread_pct": 16.4
+  },
+  {
+    "label": "ParallelVectorEnv (n=32, per_worker=6, sparse=True)",
+    "steps_per_s": 12224.145773014376,
+    "vec_steps_per_s": 382.00455540669924,
+    "us_per_step": 2617.7698298266496,
+    "n_envs": 32,
+    "note": "steps/s counts env steps across all n envs; 6 workers, startup 1.6s",
+    "reps": 3,
+    "min_steps_per_s": 12218.948992006348,
+    "max_steps_per_s": 12244.454312188354,
+    "spread_pct": 0.2
+  },
+  {
+    "label": "ParallelVectorEnv (n=32, per_worker=8, sparse=True)",
+    "steps_per_s": 10517.587062828768,
+    "vec_steps_per_s": 328.674595713399,
+    "us_per_step": 3042.522948357074,
+    "n_envs": 32,
+    "note": "steps/s counts env steps across all n envs; 4 workers, startup 1.1s",
+    "reps": 3,
+    "min_steps_per_s": 10514.392674349407,
+    "max_steps_per_s": 10616.238334511567,
+    "spread_pct": 1.0
+  }
+]

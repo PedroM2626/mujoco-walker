@@ -2,12 +2,21 @@
 
 import os
 import sys
+import tempfile
 import unittest
 import subprocess
 import shutil
 import torch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+
+# A test that spawns a real trainer must not write into the repository's MLflow archive. Every
+# tracking-URI consumer here honours MLFLOW_TRACKING_URI (utils/mlflow_uri.py), and subprocesses
+# inherit the environment, so this one line covers both the in-process and the spawned trainers.
+# Without it the archive had 102 active runs that were integration/smoke noise rather than
+# research history, and one killed test had left a run in RUNNING state forever.
+os.environ.setdefault("MLFLOW_TRACKING_URI", "sqlite:///" + os.path.join(
+    tempfile.gettempdir(), "test_mlruns_walker.db").replace(os.sep, "/"))
 
 
 class TestTrainingIntegration(unittest.TestCase):

@@ -16,6 +16,7 @@ import hashlib
 import json
 import os
 import re
+import sqlite3
 import statistics
 import unittest
 
@@ -975,6 +976,398 @@ class TestReadmeThroughputReplication(unittest.TestCase):
         m = self.find(r"(\d+\.\d+)x in the replication above", "sparse gain")
         self.assertAlmostEqual(float(m.group(1)),
                                round(par["steps_per_s"] / dense["steps_per_s"], 2), places=2)
+
+
+class TestReadmeMlflowHistoryCells(unittest.TestCase):
+    """The paragraph that quantifies the MLflow archive, against the sqlite file it describes.
+
+    "One database, N runs, M metric rows" is published as the reason a reader should trust the
+    archive, and it is the only figure in the README that grows by itself: every training run adds
+    rows. So it is read back from `mlruns.db` in read-only mode here - total active runs, the split
+    per experiment, the metric-row count and the schema revision - rather than remembered.
+    """
+
+    DB = os.path.join(ROOT, "mlruns.db")
+
+    def setUp(self):
+        if not os.path.exists(self.DB):
+            self.skipTest("mlruns.db is not in this checkout")
+        uri = "file:" + self.DB.replace(os.sep, "/") + "?mode=ro"
+        self.con = sqlite3.connect(uri, uri=True, timeout=10)
+        with open(README, encoding="utf-8") as handle:
+            readme = handle.read()
+        self.whole = readme
+        start = readme.index("The history lives in **one** database")
+        self.block = re.sub(r"\s+", " ", readme[start:start + 900])
+
+    def tearDown(self):
+        self.con.close()
+
+    def find(self, pattern, what):
+        m = re.search(pattern, self.block)
+        self.assertIsNotNone(m, f"the {what} sentence was reworded; re-point this test at it")
+        return m
+
+    def test_the_run_and_experiment_counts(self):
+        active = self.con.execute("SELECT COUNT(*) FROM runs WHERE lifecycle_stage='active'").fetchone()[0]
+        exps = self.con.execute("SELECT COUNT(*) FROM experiments").fetchone()[0]
+        m = self.find(r"\*\*(\d+) active runs\*\* in (\d+) experiments", "the run and experiment counts")
+        self.assertEqual(int(m.group(1)), active, "the README's active-run count is not the database's")
+        self.assertEqual(int(m.group(2)), exps, "the README's experiment count is not the database's")
+
+    def test_every_experiment_split_figure_is_its_own_run_count(self):
+        want = dict(self.con.execute(
+            "SELECT e.name, COUNT(r.run_uuid) FROM experiments e "
+            "LEFT JOIN runs r ON r.experiment_id = e.experiment_id AND r.lifecycle_stage='active' "
+            "GROUP BY e.name").fetchall())
+        m = self.find(r"experiments \((.+?)\) and", "the per-experiment split")
+        typed = {name: int(n) for n, name in re.findall(r"(\d+) `([A-Za-z0-9_.-]+)`", m.group(1))}
+        self.assertEqual(set(typed), set(want),
+                         "the README lists a different set of experiments than the database holds")
+        for name, value in typed.items():
+            self.assertEqual(value, want[name], f"{name}: README says {value}, database has {want[name]}")
+
+    def test_the_metric_row_count_and_the_schema_revision(self):
+        rows = self.con.execute("SELECT COUNT(*) FROM metrics").fetchone()[0]
+        m = self.find(r"and \*\*([\d,]+) metric rows\*\* as of (\d{4}-\d{2}-\d{2})",
+                      "the metric-row count and its date")
+        # Deliberately a lower bound, not an equality: the trainers write metric rows continuously,
+        # so a cell that must match the database exactly can only ever be true while nothing is
+        # running - which is a gate that gets weakened the first time it fails. The dangerous
+        # direction is claiming more history than exists, and that one is still caught.
+        typed = int(m.group(1).replace(",", ""))
+        self.assertLessEqual(typed, rows,
+                             f"the README claims {typed:,} metric rows and the database holds {rows:,}")
+        self.assertGreater(rows - typed, -1)
+        self.assertLess(rows - typed, 50_000,
+                        "the gap between the published row count and the database is larger than one "
+                        "training run - re-measure rather than carry the old figure")
+        m = re.search(r"`mlruns\.db` is at schema revision\s*`([0-9a-f]+)`", self.whole)
+        self.assertIsNotNone(m, "the schema-revision sentence moved")
+        rev = self.con.execute("SELECT version_num FROM alembic_version").fetchone()[0]
+        self.assertEqual(m.group(1), rev, "the published schema revision is not the file's")
+
+    def test_the_stale_runs_it_says_were_closed_are_closed_and_tagged(self):
+        closed = self.con.execute(
+            "SELECT COUNT(*) FROM tags WHERE key='closed_as_stale'").fetchone()[0]
+        m = self.find(r"(\w[\w-]*) runs killed mid-training were closed", "the closed-stale-run count")
+        n = {"One": 1, "Two": 2, "Three": 3, "Four": 4, "Five": 5, "Six": 6, "Seven": 7,
+             "Eight": 8, "Nine": 9, "Ten": 10}.get(m.group(1), None)
+        if n is None:
+            n = int(m.group(1)) if m.group(1).isdigit() else None
+        self.assertIsNotNone(n, f"spell the count as a word the test understands, got {m.group(1)!r}")
+        self.assertEqual(closed, n,
+                         f"the README says {n} runs carry the closed_as_stale tag, the database has {closed}")
+
+    def test_the_noise_figure_is_how_many_active_runs_a_test_left(self):
+        """The archive's own admission: most of its run count is not research history."""
+        noise = self.con.execute(
+            "SELECT COUNT(*) FROM runs WHERE lifecycle_stage='active' AND ("
+            "name LIKE '%integration\\_test%' ESCAPE '\\' OR name LIKE '%smoke%' "
+            "OR name LIKE 'bench%' OR name LIKE '%\\_probe%' ESCAPE '\\')").fetchone()[0]
+        m = self.find(r"and (\d+) of them carry an `integration_test`/`smoke`/`bench` name",
+                      "the test-noise count")
+        self.assertEqual(int(m.group(1)), noise,
+                         "the README's share-of-noise figure is not the database's")
+
+
+class TestReadmeGailAnomalyCells(unittest.TestCase):
+    """The GAIL anomaly paragraph: its band arithmetic against the artifact, its code claims against source.
+
+    The paragraph is a negative result, and negative results rot the same way positive ones do - if
+    `evaluate_all.py` stopped loading the on-disk weights, or the trainer started printing a learned
+    reward, the eliminations would stop being true while the prose kept asserting them.
+    """
+
+    N1_ART = os.path.join(ROOT, "benchmarks", "phase4_n1_vs_50ep.json")
+    RETIRED_EARLIER = 1016.41  # the figure the README quoted before the retired table's 997.57
+    START = "That distinction is what makes one retired figure stand out."
+    END = "| Model Architecture | Final Score |"
+
+    def setUp(self):
+        with open(README, encoding="utf-8") as handle:
+            readme = handle.read()
+        start = readme.index(self.START)
+        self.block = re.sub(r"\s+", " ", readme[start:readme.index(self.END, start)])
+        with open(self.N1_ART, encoding="utf-8") as handle:
+            self.gail = json.load(handle)["models"]["GAIL"]
+
+    def find(self, pattern, what):
+        m = re.search(pattern, self.block)
+        self.assertIsNotNone(m, f"the {what} sentence was reworded; re-point this test at it")
+        return m
+
+    def test_the_band_and_the_gap_are_the_artifacts_numbers(self):
+        m = self.find(r"seeded resets span ([\d.]+) to ([\d.]+), a band ([\d.]+) points wide",
+                      "the band")
+        self.assertEqual([float(m.group(1)), float(m.group(2))],
+                         [self.gail["min"], self.gail["max"]], "the min/max are not the artifact's")
+        self.assertAlmostEqual(float(m.group(3)),
+                               round(self.gail["max"] - self.gail["min"], 2), places=2,
+                               msg="the band width no longer subtracts out")
+        m = self.find(r"quoted 1016\.41 for it: \*\*([\d.]+) above the best of the 50",
+                      "the gap above the best episode")
+        self.assertAlmostEqual(float(m.group(1)),
+                               round(self.RETIRED_EARLIER - self.gail["max"], 2), places=2,
+                               msg="1016.41 minus the best seeded episode is no longer this")
+
+    def test_the_eliminations_are_what_the_source_still_says(self):
+        with open(os.path.join(ROOT, "openai_walker", "evaluate_all.py"), encoding="utf-8") as h:
+            self.assertIn("gail_model.pt", h.read(),
+                          "evaluate_all.py no longer scores the on-disk GAIL weights, so the "
+                          "paragraph's 'same policy' claim is void")
+        with open(os.path.join(ROOT, "openai_walker", "train_irl_gail.py"), encoding="utf-8") as h:
+            src = h.read()
+        for needle in ("env.step(action)", "episode_reward += reward", "True Env Reward:",
+                       "true_env_reward"):
+            self.assertIn(needle, src, f"the trainer no longer contains {needle!r}; the reward"
+                                       "-bookkeeping elimination has to be restated")
+
+
+class TestReadmeStackedReplicationCells(ReadmeGate, unittest.TestCase):
+    """The replicated n32 ladder and the two derived sentences that hang off it.
+
+    The ratios this section published for a year came from `reps: 1` in a window whose own artifact
+    says a training run shared the machine. Every figure here - medians, per-rep agreement, the
+    1.17x / 1.40x, the startup subtraction and the 68% window gap - is recomputed from the two
+    artifacts, because the point of the correction is arithmetic, not vibes.
+    """
+
+    REPS = os.path.join(ROOT, "benchmarks", "stacked_sac_n32_reps2.json")
+    LADDER = os.path.join(ROOT, "benchmarks", "throughput_stacked_ladder.json")
+    SPLIT = os.path.join(ROOT, "benchmarks", "throughput_replication.json")
+    START = "\u26a0\ufe0f **That table was a single draw on a contended machine"
+    END = "As the contended artifact's own note reads it"
+
+    def setUp(self):
+        with open(README, encoding="utf-8") as handle:
+            readme = handle.read()
+        start = readme.index(self.START)
+        self.block = readme[start:readme.index(self.END, start)]
+        self.reps, self.ladder = self.read_artifacts(self.REPS, self.LADDER)
+        with open(self.SPLIT, encoding="utf-8") as handle:
+            self.par = next(r for r in json.load(handle)
+                            if r["label"].startswith("ParallelVectorEnv (n=32, per_worker=auto, sparse=True)"))
+        self.what = "stacked ladder replication"
+        self.bad = []
+        self.arms = self.reps["n32"]["arms"]
+        self.med = {k: statistics.median(v) for k, v in self.arms.items()}
+
+    def test_the_replicated_rows_are_the_two_reps_and_their_median(self):
+        rows = {"original env + sync": "D32_orig_env_sync",
+                "rewritten env + sync": "A32_new_env_sync",
+                "rewritten env + parallel": "B32_new_env_parallel"}
+        for label, key in rows.items():
+            self.check(f"{label} reps", nums(self.cell(label, 1)), self.arms[key], places=1)
+            shown = float(self.cell(label, 2))
+            self.check(f"{label} median", shown, self.med[key], places=1)
+            # The rate is what a reader re-divides from the median printed beside it, so it is gated
+            # on that printed value; the artifact's unrounded median would give 1 env-step/s less.
+            self.check(f"{label} env-steps/s", self.cell(label, 3), round(600000.0 / shown),
+                       places=0)
+        self.assertEqual(self.reps["n32"]["config"]["reps"], 2, "the prose says two reps per arm")
+        old = self.ladder["n32_collection_only"]["seconds"]
+        self.check("the contended draw", [old["D32_orig_env_sync"], old["A32_new_env_sync"],
+                                          old["B32_new_env_parallel"]],
+                   [540.9, 444.8, 290.9], places=1)
+
+    def test_the_ratios_and_the_contention_lesson_subtract_out(self):
+        d, a, b = (self.med[k] for k in ("D32_orig_env_sync", "A32_new_env_sync",
+                                         "B32_new_env_parallel"))
+        m = self.sentence(r"rewritten env \+ sync \| \d+(?:\.\d+)? / \d+(?:\.\d+)? \| \d+(?:\.\d+)? "
+                          r"\| [\d,]+ \| \*\*([\d.]+)x\*\*", "the 1.17x cell")
+        self.check("sync over committed", float(m.group(1)), round(d / a, 2), places=2)
+        m = self.sentence(r"rewritten env \+ parallel \| \d+(?:\.\d+)? / \d+(?:\.\d+)? \| "
+                          r"\d+(?:\.\d+)? \| [\d,]+ \| \*\*([\d.]+)x\*\*", "the 1.40x cell")
+        self.check("parallel over committed", float(m.group(1)), round(d / b, 2), places=2)
+        m = self.sentence(r"The two reps agree to ([\d.]+)%, ([\d.]+)% and ([\d.]+)%", "rep spreads")
+        for i, key in enumerate(("D32_orig_env_sync", "A32_new_env_sync", "B32_new_env_parallel")):
+            lo, hi = min(self.arms[key]), max(self.arms[key])
+            self.check(f"rep spread {key}", float(m.group(i + 1)), round(100.0 * (hi - lo) / lo, 1),
+                       places=1)
+        m = self.sentence(r"the \*committed\* arm was\s*(?:\*\*)?([\d.]+)x faster",
+                          "the contention factor")
+        old = self.ladder["n32_collection_only"]["seconds"]["D32_orig_env_sync"]
+        self.check("committed arm slowdown", float(m.group(1)), round(old / d, 1), places=1)
+
+    def test_the_startup_subtraction_uses_its_own_two_artifacts(self):
+        """~95 s of the 148.2 s: the median minus 600k steps at the replication's steady rate."""
+        m = self.sentence(r"the boot cost is ~(\d+) s of the ([\d.]+) s", "the startup sentence")
+        steady = self.par["steps_per_s"]
+        want = round(self.med["B32_new_env_parallel"] - 600000.0 / steady)
+        self.check("startup seconds", [float(m.group(1)), float(m.group(2))],
+                   [want, self.med["B32_new_env_parallel"]], places=1)
+
+    def test_the_summary_lines_requote_the_replicated_ratios(self):
+        d, b = self.med["D32_orig_env_sync"], self.med["B32_new_env_parallel"]
+        with open(README, encoding="utf-8") as handle:
+            readme = handle.read()
+        m = re.search(r"come out at\s*\*\*([\d.]+)x and ([\d.]+)x\*\* on an idle machine", readme)
+        self.assertIsNotNone(m, "the steady-state warning no longer quotes the replication")
+        self.check("warning ratios", [float(m.group(1)), float(m.group(2))],
+                   [round(d / self.med['A32_new_env_sync'], 2), round(d / b, 2)], places=2)
+        m = re.search(r"and ([\d.]+)x when collection dominates, measured twice on an idle machine "
+                      r"\(([\d.]+)x in the single contended", readme)
+        self.assertIsNotNone(m, "the section summary no longer carries both readings")
+        self.check("summary ratio", float(m.group(1)), round(d / b, 2), places=2)
+        old = self.ladder["n32_collection_only"]["speedup_vs_D32"]["B32_new_env_parallel"]
+        self.check("contended ratio in the summary", float(m.group(2)), old, places=1)
+
+
+class TestReadmeSweepCells(ReadmeGate, unittest.TestCase):
+    """The envs-per-worker curve as a three-rep measurement, against its own artifact."""
+
+    SWEEP = os.path.join(ROOT, "benchmarks", "vec_backend_scaling_reps3.json")
+    SPLIT = os.path.join(ROOT, "benchmarks", "throughput_replication.json")
+    START = "**The envs-per-worker curve, with the same treatment**"
+    END = "Three things mattered, and one deliberate non-change"
+
+    def setUp(self):
+        with open(README, encoding="utf-8") as handle:
+            readme = handle.read()
+        start = readme.index(self.START)
+        self.block = readme[start:readme.index(self.END, start)]
+        self.prose = re.sub(r"\s+", " ", self.block)
+        with open(self.SWEEP, encoding="utf-8") as handle:
+            self.rows = {int(re.search(r"per_worker=(\d+)", r["label"]).group(1)): r
+                         for r in json.load(handle)}
+        with open(self.SPLIT, encoding="utf-8") as handle:
+            self.par = next(r for r in json.load(handle)
+                            if r["label"].startswith("ParallelVectorEnv (n=32, per_worker=auto, sparse=True)"))
+        self.what = "envs-per-worker sweep"
+        self.bad = []
+
+    def test_every_cell_of_the_curve_is_the_median_its_run_recorded(self):
+        for size, row in sorted(self.rows.items()):
+            label = str(size)
+            self.check(f"per_worker={size} rate", self.cell(label, 1), round(row["steps_per_s"]),
+                       places=0)
+            self.check(f"per_worker={size} spread", self.cell(label, 2).rstrip("%"),
+                       row["spread_pct"], places=1)
+        self.assertEqual({r["reps"] for r in self.rows.values()}, {3}, "the prose says three reps")
+        self.assertEqual(sorted(self.rows), [1, 2, 3, 4, 6, 8],
+                         "the curve cells a different set of groupings than the README lists")
+
+    def test_the_flat_and_monotone_claims_hold_on_the_medians(self):
+        rates = {k: round(v["steps_per_s"]) for k, v in self.rows.items()}
+        self.assertEqual(max(rates.values()), rates[1],
+                         "one env per worker is quoted as the fastest cell")
+        after = [rates[k] for k in (4, 6, 8)]
+        self.assertEqual(after, sorted(after, reverse=True),
+                         "the prose calls the curve monotone from 4 up and it is not")
+        # "inside each other's spread": the 3-vs-4 gap has to be smaller than the wider of the two
+        # cells' own rep spread, which is what the sentence claims.
+        lo, hi = min(rates[3], rates[4]), max(rates[3], rates[4])
+        spread = max(self.rows[3]["spread_pct"], self.rows[4]["spread_pct"])
+        self.assertLess(hi - lo, lo * spread / 100.0,
+                        "3 and 4 no longer overlap within their own rep spread")
+        self.assertIn("flat from 3 up, and\nmonotone after that", self.block,
+                      "the reading sentence was reworded; re-point this test at it")
+
+    def test_the_sixty_eight_percent_window_gap_is_two_artifacts_apart(self):
+        m = re.search(r"measured ([\d,]+)\s*\n?env-steps/s here and ([\d,]+) in the morning "
+                      r"replication[^-]*-\s*\*\*([\d]+)% apart\*\*", self.block)
+        if m is None:
+            m = re.search(r"measured ([\d,]+) env-steps/s here and ([\d,]+) in the morning "
+                          r"replication of the same command - \*\*([\d]+)% apart\*\*",
+                          re.sub(r"\s+", " ", self.block))
+        self.assertIsNotNone(m, "the window-gap sentence was reworded; re-point this test at it")
+        here, there = nums(m.group(1))[0], nums(m.group(2))[0]
+        self.check("the two rates", [here, there],
+                   [round(self.rows[1]["steps_per_s"]), round(self.par["steps_per_s"])], places=0)
+        self.check("percent apart", float(m.group(3)), round(100.0 * (here / there - 1.0)), places=0,
+                   slack=1.0)
+
+
+class TestReadmeDreamerV3RunCells(ReadmeGate, unittest.TestCase):
+    """The completed 1M-step Dreamer run: its eval statistics, and the wall clock its MLflow row holds.
+
+    This is the first Phase-1 run to finish its full budget on env v9, and the paragraph's job is to
+    keep it from reading like a score - so the same fields that make it a negative result (0 of 50
+    inside the radius, closest approach, x-velocity) are gated as tightly as the mean.
+    """
+
+    P1 = os.path.join(ROOT, "benchmarks", "phase1_dreamer_v3_1m.json")
+    P9 = os.path.join(ROOT, "benchmarks", "phase1_dreamer_v9_269k.json")
+    ARS = os.path.join(ROOT, "benchmarks", "phase1_ars_v2_1m_v9.json")
+    RATE = os.path.join(ROOT, "benchmarks", "dreamer_real_rate.json")
+    DB = os.path.join(ROOT, "mlruns.db")
+    START = "The second Phase-1 run to reach its full budget on v9"
+    END = "What the task geometrically requires"
+
+    def setUp(self):
+        with open(README, encoding="utf-8") as handle:
+            self.readme = handle.read()
+        start = self.readme.index(self.START)
+        self.block = re.sub(r"\s+", " ", self.readme[start:self.readme.index(self.END, start)])
+        load = lambda p: json.load(open(p, encoding="utf-8"))
+        self.run = load(self.P1)["models"]["dreamer_v3_1m"]
+        self.partial = load(self.P9)["models"]["dreamer_v9_269k"]
+        self.ars = load(self.ARS)["models"]["ars_v9"]
+        self.rate = load(self.RATE)
+        self.what = "Dreamer v3 run"
+        self.bad = []
+
+    def find(self, pattern, what):
+        m = re.search(pattern, self.block)
+        self.assertIsNotNone(m, f"the {what} sentence was reworded; re-point this test at it")
+        return m
+
+    def test_the_eval_statistics_are_the_artifact_s(self):
+        m = self.find(r"mean ([\d.-]+), median ([\d.-]+), std ([\d.-]+), min (-[\d.]+),\s*max "
+                      r"([\d.]+), ([\d.]+) falls per episode", "the eval band")
+        want = [self.run["mean"], self.run["median"], self.run["std"], self.run["min"],
+                self.run["max"], self.run["falls_per_episode"]]
+        for i, (typed, measured) in enumerate(zip(m.groups(), want)):
+            self.assertAlmostEqual(float(typed), measured, places=2, msg=f"field {i}")
+        m = self.find(r"\*\*0 of (\d+) inside the radius\*\*, mean closest approach\s*([\d.]+) m, "
+                      r"mean x-velocity ([\d.-]+) m/s, standing at the end of the episode (\d+)%",
+                      "the not-walking evidence")
+        self.assertEqual([int(m.group(1)), float(m.group(2)), float(m.group(3)), int(m.group(4))],
+                         [self.run["episodes"], self.run["mean_min_target_distance"],
+                          self.run["mean_x_velocity"], int(self.run["standing_at_end_pct"])])
+        self.assertEqual(self.run["reached_target_pct"], 0.0, "the prose claims 0 of 50 reached it")
+        self.assertEqual(self.run["global_step"], 1000000, "the run the paragraph describes")
+
+    def test_the_two_comparisons_are_read_off_the_other_artifacts(self):
+        m = self.find(r"the full budget moved\s*the mean from ([\d.]+) down to ([\d.]+) and the std "
+                      r"from ([\d.]+) up to ([\d.]+), on (\d+) episodes rather\s+than the (\d+) the "
+                      r"partial one was scored on", "the partial-versus-full comparison")
+        self.check("partial versus full mean and std",
+                   [float(m.group(i)) for i in (1, 2, 3, 4)],
+                   [self.partial["mean"], self.run["mean"], self.partial["std"], self.run["std"]],
+                   places=2)
+        self.check("episode counts", [int(m.group(5)), int(m.group(6))],
+                   [self.run["episodes"], self.partial["episodes"]], places=0)
+        self.assertEqual(self.partial["global_step"], 269404, "the partial checkpoint's step count")
+        m = self.find(r"\(2\.893 m against ([\d.]+) m\) with a lower return", "the ARS comparison")
+        self.assertAlmostEqual(float(m.group(1)), self.ars["mean_min_target_distance"], places=3)
+        self.assertLess(self.run["mean"], self.ars["mean"],
+                        "the paragraph says Dreamer's return is lower than ARS at the same budget")
+
+    def test_the_wall_clock_is_the_run_s_own_mlflow_row(self):
+        if not os.path.exists(self.DB):
+            self.skipTest("mlruns.db is not in this checkout")
+        con = sqlite3.connect("file:" + self.DB.replace(os.sep, "/") + "?mode=ro", uri=True, timeout=10)
+        try:
+            hours, status = con.execute(
+                "SELECT (end_time-start_time)/3600000.0, status FROM runs "
+                "WHERE name='dreamer_dreamer_v3_1m__7' AND status='FINISHED'").fetchone()
+        finally:
+            con.close()
+        self.assertEqual("FINISHED", status)
+        m = re.search(r"the run above took \*\*([\d.]+) h\*\* of machine time for its 1M steps",
+                      self.readme)
+        self.assertIsNotNone(m, "the run's wall clock sentence moved out of the Phase-1 section")
+        self.assertAlmostEqual(float(m.group(1)), round(hours, 2), places=2,
+                               msg="the README's hours are not the run's own start/end times")
+        # And the prediction it is compared against: the two-budget measurement, in hours per 1M.
+        m = re.search(r"measured ([\d.]+) h before it ran, and the run itself came out (\d+)% slower",
+                      self.readme)
+        self.assertIsNotNone(m, "the measured-versus-actual sentence moved")
+        self.assertAlmostEqual(float(m.group(1)), self.rate["hours_per_1m_env_steps"], places=2)
+        self.assertEqual(int(m.group(2)), round(100.0 * (hours / self.rate["hours_per_1m_env_steps"]
+                                                         - 1.0)), "the 8% is derived, so recompute it")
 
 
 if __name__ == "__main__":

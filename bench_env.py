@@ -185,12 +185,15 @@ def main():
 
     common = dict(seconds=args.seconds, task_phase=args.task_phase, reset_mode=args.reset_mode)
     results = []
+    run = lambda fn, **kw: _repeated(fn, args.reps, kw)
     if args.sweep:
+        # Each cell here builds and tears down its own worker pool, so --reps costs about
+        # (reps - 1) x 6 pool startups. It is still the only way to say whether an
+        # envs-per-worker curve is a measurement or one lucky draw.
         for size in (1, 2, 3, 4, 6, 8):
-            results.append(bench_parallel_vec(sparse_info=True, envs_per_worker=size,
-                                              n=args.n, **common))
+            results.append(run(bench_parallel_vec, sparse_info=True, envs_per_worker=size,
+                               n=args.n, **common))
     else:
-        run = lambda fn, **kw: _repeated(fn, args.reps, kw)
         if args.mode in ("all", "physics"):
             results.append(run(bench_physics, **common))
         if args.mode in ("all", "env"):

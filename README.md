@@ -142,12 +142,31 @@ approach 3.015 m, mean x-velocity -0.0216 m/s. Same verdict as v8's ARS at the s
 is the comparison that makes the v9 change safe to have made: the reward shape moved the returns,
 not the behaviour.
 
+The second Phase-1 run to reach its full budget on v9 is **Dreamer at 1,000,000 steps**
+(`benchmarks/phase1_dreamer_v3_1m.json`, 50 seeded target-phase episodes, `run-id
+dreamer_v3_1m`, seed 7, capture on): mean 5215.46, median 5582.17, std 5091.03, min -6998.07,
+max 14535.79, 0.14 falls per episode - and **0 of 50 inside the radius**, mean closest approach
+2.893 m, mean x-velocity 0.0055 m/s, standing at the end of the episode 0%. So the run completes,
+and the verdict is the same one the ARS run and the inert-reference table already give: the return
+is the posture bonus, and the animal does not walk. It is a small favour to the reader to say that
+plainly instead of letting 5215.46 read like a score.
+
+Two useful comparisons fall out of it. Against the *partial* v9 checkpoint - the run that stopped at
+269,404 steps and is recorded in `benchmarks/phase1_dreamer_v9_269k.json` - the full budget moved
+the mean from 6486.27 down to 5215.46 and the std from 3357.26 up to 5091.03, on 50 episodes rather
+than the 10 the partial one was scored on: **more training did not buy a better policy here**, which
+is the honest reason to stop spending 1.27 h runs on this task until the reward makes walking
+attractive. And against ARS at the same budget, Dreamer sits closer to the target on average
+(2.893 m against 3.015 m) with a lower return - two different ways of not reaching it.
+
 What the task geometrically requires is not in dispute: `timestep=0.002` with `frame_skip=5` makes one env step 0.01 s, episodes are capped at 1,000 steps (10 s of simulated time), targets
 spawn 2-5 m away and the success radius is 0.45 m. Reaching the near target needs 0.2 m/s
 sustained, the far one 0.5 m/s; at the env's own nominal 0.8 m/s the walk itself is 250-625 env
 steps of a 1000-step episode. Every checkpoint above averages ~0.0 m/s, so none of them is
-anywhere near that floor. See "What a training run costs" in the throughput section for what a
-retraining would take in wall clock.
+anywhere near that floor. What a retraining costs in wall clock is no longer a projection for
+Dreamer: the run above took **1.27 h** of machine time for its 1M steps (`benchmarks/dreamer_real_rate.json`
+measured 1.18 h before it ran, and the run itself came out 8% slower), and the throughput section's
+"What a training run costs" carries the SAC-stack figures.
 
 
 The scale of that table matters: REDQ and Dreamer wrap the environment in `NormalizeReward`,
@@ -516,6 +535,17 @@ window nothing records what it held. It is listed among the unsupported figures 
 is the one of them whose gap has no candidate cause on record - BC's retired 3837.80, by
 contrast, is +0.47 sigma inside its own distribution and needed no explanation at all.
 
+Two more candidates have since been closed by reading rather than by measuring. It is not a
+comparison across two policies: `evaluate_all.py` loads `gail_model.pt` straight out of
+`openai_walker/`, and that is the file the 50 seeded episodes above scored. And it is not a reward
+bookkeeping difference either - `train_irl_gail.py` accumulates its episode return from the
+environment's own reward (`next_state, reward, terminated, truncated, _ = env.step(action)`, then
+`episode_reward += reward`) and prints and logs it under the name it was scored by:
+`True Env Reward:` and the `true_env_reward` metric. The discriminator's learned reward never
+reaches that number, so the retired figure and the seeded protocol measure the same quantity. What
+is left is the twenty-minute window in which nothing records what the file held, or a hand-typed
+figure.
+
 | Model Architecture | Final Score |
 |:---|---:|
 | **Batch-Constrained Q-learning (BCQ)** | **3897.63** |
@@ -584,7 +614,8 @@ env-steps/s, which is what a fixed `--total-timesteps` budget actually waits on:
 
 ⚠️ **These are steady-state rates: they time the stepping loop, not a training run.** The same
 three configurations measured end to end (whole SAC runs, worker startup included) come out at
-1.22x and 1.86x, not 1.5x and 6.5x — see "The whole stack, end to end" below.
+**1.17x and 1.40x** on an idle machine, not 1.5x and 6.5x — see "The whole stack, end to end" below,
+where the single contended draw that first said 1.22x and 1.86x is reproduced and corrected.
 
 ⚠️ **How to read these numbers.** This is a laptop CPU whose clocks vary with power and
 thermal state, and repeat runs of the identical command have ranged ~2x apart (the sync
@@ -616,6 +647,26 @@ the printed number for n=32 was 32x smaller than the table it was meant to be co
 and the README's own instruction here is "re-measure with `bench_env.py` before quoting a
 multiplier". `steps_per_s` now multiplies by n, with `vec_steps_per_s` and the per-vector-step
 `us_per_step` kept beside it.
+
+**The envs-per-worker curve, with the same treatment** (`python bench_env.py --sweep --n 32
+--seconds 4 --reps 3 --json benchmarks/vec_backend_scaling_reps3.json`, one pool rebuilt per cell,
+three reps each): one environment per worker is the fastest grouping and every grouping above it
+costs throughput.
+
+| `envs_per_worker` | median env-steps/s | rep spread |
+|---:|---:|---:|
+| 1 | **18,902** | 2.0% |
+| 2 | 17,484 | 0.5% |
+| 3 | 14,463 | 10.7% |
+| 4 | 14,653 | 16.4% |
+| 6 | 12,224 | 0.2% |
+| 8 | 10,518 | 1.0% |
+
+The 3 and 4 cells are inside each other's spread, so the honest reading is "flat from 3 up, and
+monotone after that". What is worth keeping next to it: this same configuration measured 18,902
+env-steps/s here and 11,242 in the morning replication of the same command - **68% apart**, with a
+0.2-2% within-curve spread here against the 50% the replication showed. Tight reps make a window
+reproducible; they do not make it transferable.
 
 Three things mattered, and one deliberate non-change:
 
@@ -678,10 +729,31 @@ Where the environment work does pay is the collection-dominated regime. Same har
 | rewritten env + sync | 444.8 s | 1,349 | **1.22x** |
 | rewritten env + parallel | 290.9 s | 2,062 | **1.86x** |
 
-`bench_env.py` reports 7,328 env-steps/s steady state for that last line; over 600k steps the
-same configuration delivers 2,062, because ~200 s of the 290.9 s is 32 child processes importing
-torch and mujoco. With the measured startup and the measured 6,694 env-steps/s wrapped-stack
-rate, a 1M-step collection lands at ~2.1x over the committed sync backend.
+⚠️ **That table was a single draw on a contended machine, and the replication says less.** Its own
+artifact records "a Dreamer 1M-step run was training concurrently on the same laptop for the whole
+session". `python bench_stacked.py --ladder n32 --reps 2` re-ran it after that trainer exited
+(`benchmarks/stacked_sac_n32_reps2.json`), and both the times and the ratios moved:
+
+| 600k steps, 32 envs, idle machine | rep 1 / rep 2 s | median | env-steps/s | vs committed |
+|:---|---:|---:|---:|---:|
+| original env + sync | 211.1 / 205.2 | 208.1 | 2,883 | — |
+| rewritten env + sync | 179.9 / 177.0 | 178.4 | 3,363 | **1.17x** |
+| rewritten env + parallel | 148.1 / 148.4 | 148.2 | 4,049 | **1.40x** |
+
+The two reps agree to 2.9%, 1.6% and 0.2%, so this is not noise hunting: the *committed* arm was
+2.6x faster when the box was free, and the parallel arm's advantage shrank from 1.86x to
+**1.40x**. Contention does not hurt every arm equally - a 32-environment `SyncVectorEnv` starves in
+one thread while 32 worker processes each keep their own - which is how a shared machine managed to
+*overstate* the parallel backend. The startup figure moves with it: the sentence below used to
+attribute ~200 s of the 290.9 s to booting the workers; against the replication's own steady rate
+the boot cost is ~95 s of the 148.2 s.
+
+As the contended artifact's own note reads it: `bench_env.py` reports 7,328 env-steps/s steady state
+for that last line, while over 600k steps the same configuration delivers 2,062, because ~200 s of
+the 290.9 s is 32 child processes importing torch and mujoco; from those two rates it extrapolated a
+1M-step collection at ~2.1x over the committed sync backend. **That extrapolation is not supported
+by the replication** - 1.40x is what was measured end to end, and the ~200 s startup belongs to a
+window in which the worker processes were also competing with a training run.
 
 **What the repo's own 40M-step run cost.** `checkpoints/walker_target_v1/` holds 41 actor
 checkpoints of one real run at `num_envs=32`; their mtimes date the run itself: 37.6M env steps
@@ -689,7 +761,8 @@ in 547 min of continuous training = **14.5 min per 1M steps (1,146 env-steps/s; 
 10.5-16.7 min)**, spread over 23.5 h of calendar time because of two pauses. That is the same
 shape of run as the 1,109 env-steps/s line above, which is the cross-check that makes the
 summary of this section credible: **a committed training run gets ~1.6x faster at 8-env budgets
-and ~1.9x when collection dominates — not 6.5x.** The time that is left is inside the update
+and 1.40x when collection dominates, measured twice on an idle machine (1.9x in the single contended
+draw) — not 6.5x.** The time that is left is inside the update
 loops, which is the next section.
 
 Evidence: `benchmarks/throughput_stacked_ladder.json` (raw per-rep seconds, the steady-state
@@ -1218,10 +1291,12 @@ Three facts to keep in mind:
 
 The suite is plain `unittest` (no pytest required) and covers the environment contract, the
 golden reward rollouts, the parallel/serial vector-env parity, checkpointing and the race
-harness — **140 tests, 185 s in this window** (`Ran 140 tests in 184.716s ... OK
+harness — **157 tests, 230 s in this window** (`Ran 157 tests in 230.268s ... OK
 (skipped=7)` under `.venv`). Windows of this suite have measured 176.3 s at 102 tests, 269.995 s
-at 121, 261.1 s at 127, 329.964 s at 128, 319.168 s at 130, and at 140: 184.716 s, 203.108 s and
-306.976 s on three runs minutes apart. The duration belongs to the machine's state, the
+at 121, 261.1 s at 127, 329.964 s at 128, 319.168 s at 130, 184.716 s, 203.108 s and 306.976 s at
+140, 144.678 s at 147 and 230.268 s at 157 - one afternoon apart on the same laptop, 1.6x apart for
+ten more tests. The
+duration belongs to the machine's state, the
 count does not, and a gate checks the count so it cannot go stale quietly):
 
 ```bash
@@ -1257,9 +1332,15 @@ deliberately fault-tolerant, that error used to be swallowed - runs looked like 
 while writing nothing. `requirements.txt` pins `mlflow>=3.0` for that reason, and
 `start_mlflow_run` prints the version and the remedy when it hits the wall.
 
-The history lives in **one** database at the repository root (21 runs, 5 experiments, 252,856
-metric rows); `utils/mlflow_uri.py` resolves its path from the repo root, so the working directory
-no longer decides where a run goes. Three runs killed mid-training were closed with a
+The history lives in **one** database at the repository root: **147 active runs** in 6 experiments
+(126 `walker-ragdoll`, 10 `Walker_Offline_To_Online`, 8 `Walker2d_Offline_to_Online`,
+2 `Walker_Behavioral_Cloning`, 1 `Walker_OpenAI_BC`, 0 `Default`) and **276,447 metric rows** as of
+2026-10-04 — and 103 of them carry an `integration_test`/`smoke`/`bench` name, because the training
+tests wrote here until they were pointed at a throwaway backend (`tests/test_training.py` now sets
+`MLFLOW_TRACKING_URI`, and the benches always did). Read the run count as an archive of everything
+this repository has ever executed, not as 147 research runs. `utils/mlflow_uri.py` resolves the path
+from the repo root, so the working directory no longer decides where a run goes. Nine runs killed
+mid-training were closed with a
 `closed_as_stale` tag rather than deleted, because the metric history is the only surviving evidence
 that they ran - see Phase 4, item 6. How each of those states was found, with the commands, is in
 [docs/lab-notes.md](docs/lab-notes.md).
@@ -1267,7 +1348,7 @@ that they ran - see Phase 4, item 6. How each of those states was found, with th
 ## 🔬 Reproducing and measuring
 
 ```bash
-python -m unittest discover -s tests -t .   # 140 tests in .venv, 185 s; see "Running the tests"
+python -m unittest discover -s tests -t .   # 157 tests in .venv, 230 s; see "Running the tests"
 python bench_env.py --seconds 4             # env throughput, physics vs Python split
 python bench_mjx.py --sizes 32,128          # MJX/JAX batched stepping
 python verify.py                            # Phase-2 artifact check (exits 2 when missing)

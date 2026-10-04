@@ -1,0 +1,6 @@
+Red standalone, by construction of the batch: this commit adds 2 tests while the README's
+published suite count still says 130 and discovery here reports 132, so TestReadmeTestCount fails when
+this tree is checked out on its own. The count bump to 140 (with its measured duration) and the gates
+for the new Dreamer numbers land in the child commit 50be71b, where CI passed on both jobs. Not
+rewritten, because this commit is already published on main. Forward rule: a commit that changes
+tests/ also bumps the published count, in the same commit.

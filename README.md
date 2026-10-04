@@ -839,7 +839,10 @@ column is the one that matters for a real run, because 100 updates is not what a
 at 1M the same rates buy **3.57x and 5.16x** (248,750 updates plus the floor arm's own collection
 cost - `benchmarks/dreamer_update_graph_ab.json` stores that as derived arithmetic, not as a run that
 was performed, and the two reps disagree with each other across that range for exactly the reason the
-machine-state caveat above gives). The other thing worth reading off the table is the spread: the
+machine-state caveat above gives). That column no longer stands as an estimate of a real run: two of
+its terms are fixed costs divided by a step count, and "Cross-checked against the trainer itself"
+below carries the measurement that replaces it. The other thing worth reading off the table is the
+spread: the
 eager arm's per-update cost moved 40.7% between reps on a box that also had the live REDQ run on it,
 the captured arm's moved 4.6%. Capture does not make the kernels faster; it deletes the host from the
 loop.
@@ -1215,9 +1218,9 @@ Three facts to keep in mind:
 
 The suite is plain `unittest` (no pytest required) and covers the environment contract, the
 golden reward rollouts, the parallel/serial vector-env parity, checkpointing and the race
-harness — **140 tests, 185 s in this window** (`Ran 140 tests in 184.871s ... OK
+harness — **140 tests, 185 s in this window** (`Ran 140 tests in 184.716s ... OK
 (skipped=7)` under `.venv`). Windows of this suite have measured 176.3 s at 102 tests, 269.995 s
-at 121, 261.1 s at 127, 329.964 s at 128, 319.168 s at 130, and at 140: 184.871 s, 203.108 s and
+at 121, 261.1 s at 127, 329.964 s at 128, 319.168 s at 130, and at 140: 184.716 s, 203.108 s and
 306.976 s on three runs minutes apart. The duration belongs to the machine's state, the
 count does not, and a gate checks the count so it cannot go stale quietly):
 

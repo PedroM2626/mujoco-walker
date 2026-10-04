@@ -16,6 +16,7 @@ import hashlib
 import json
 import os
 import re
+import statistics
 import unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -623,6 +624,176 @@ class TestReadmeDreamerScalingCells(ReadmeGate, unittest.TestCase):
         self.check("loop shares", [float(m.group(1)), float(m.group(2))],
                    [round(marg["imag_horizon_captured"] * imag, 1),
                     round(marg["seq_len_captured"] * seq, 1)], places=1)
+
+
+class TestReadmeDreamerLoopSplitCells(ReadmeGate, unittest.TestCase):
+    """The iteration-attribution table and its prose against benchmarks/dreamer_loop_split.json.
+
+    This is the section that replaces an inherited claim ("~96% of the wall clock is the learner")
+    with a measurement, so every cell is recomputed from the artifact - including the percentages,
+    which are the shares of the attributed iteration rather than stored numbers.
+    """
+
+    SPLIT = os.path.join(ROOT, "benchmarks", "dreamer_loop_split.json")
+    START = "**Where a whole iteration goes"
+    END = "**Cross-checked against the trainer itself"
+    ROWS = {
+        "policy pass (`actor.get_action(...).cpu()`)": "policy pass",
+        "`envs.step` (4 envs, sync)": "envs.step",
+        "recurrent-state pass (encoder + RSSM + posterior + reset loop)": "state pass",
+        "replay buffer write": "rb.add",
+        "replay sample + starting latents": "rb.sample",
+        "captured update": "captured update",
+    }
+
+    def setUp(self):
+        with open(README, encoding="utf-8") as handle:
+            readme = handle.read()
+        start = readme.index(self.START)
+        self.block = readme[start:readme.index(self.END, start)]
+        self.art, = self.read_artifacts(self.SPLIT)
+        self.what = "Dreamer loop-split"
+        self.bad = []
+
+    def test_every_table_cell_is_a_measured_segment_and_its_share(self):
+        seg, attributed = self.art["segments_ms"], self.art["attributed_iteration_ms"]
+        for label, key in self.ROWS.items():
+            self.check(f"{key} ms", self.cell(label, 1), seg[key], places=2)
+            self.check(f"{key} share", self.cell(label, 2).rstrip("%"),
+                       round(100.0 * seg[key] / attributed, 1), places=1)
+        self.check("attributed iteration", self.cell("attributed iteration", 1), attributed,
+                   places=2)
+        # The attributed total has to be the sum of the rows printed above it, not a fourth number.
+        self.check("segments sum to the attributed total", sum(seg.values()), attributed, places=1,
+                   slack=0.05)
+
+    def test_the_prose_figures_divide_out_of_the_same_artifact(self):
+        m = self.sentence(r"with no boundary syncs is \*\*([\d.]+) ms\*\*, which is "
+                          r"([\d.]+) env-steps/s", "the un-synced loop")
+        self.check("whole loop ms", float(m.group(1)), self.art["whole_loop_ms"], places=2)
+        self.check("env-steps/s at that loop", float(m.group(2)),
+                   self.art["env_steps_per_s_at_this_loop"], places=1)
+        m = self.sentence(r"the collection side is now only \*\*([\d.]+)%\*\*", "collection share")
+        self.check("collection share", float(m.group(1)), self.art["collection_share_pct"], places=1)
+        m = self.sentence(r"the recurrent-state pass is ([\d.]+) ms of that ([\d.]+) ms",
+                          "the state pass inside the collection total")
+        self.check("state pass and collection total", [float(m.group(1)), float(m.group(2))],
+                   [self.art["segments_ms"]["state pass"], self.art["collection_ms"]], places=2)
+
+    def test_the_window_and_rep_count_the_run_recorded_are_the_ones_quoted(self):
+        m = self.sentence(r"repeats (\d+) iterations in one process and one window "
+                          r"\(`benchmarks/dreamer_loop_split\.json`, (\d+) other CUDA contexts\)",
+                          "the run's own provenance")
+        self.check("reps and GPU contexts", [int(m.group(1)), int(m.group(2))],
+                   [self.art["reps"], self.art["gpu_other_contexts"]], places=0)
+        self.assertEqual(self.art["diverged_at_rep"], None,
+                         "the loop diverged during the timed reps; the segments are not a "
+                         "measurement of a live update any more")
+
+
+class TestReadmeDreamerRealRateCells(ReadmeGate, unittest.TestCase):
+    """The measured 1M-hour figure and the two-budget run behind it.
+
+    Three instruments have to stay in the sentence: the isolated update sweep, the in-process loop
+    split and this real-trainer subtraction. The claim being gated is not just that the numbers are
+    the artifacts', but that they still agree - "three instruments agreeing within 3%" is a property
+    of the measurements, and if one of them moves the prose has to say so instead of asserting it.
+    """
+
+    RATE = os.path.join(ROOT, "benchmarks", "dreamer_real_rate.json")
+    SPLIT = os.path.join(ROOT, "benchmarks", "dreamer_loop_split.json")
+    SCALING = os.path.join(ROOT, "benchmarks", "dreamer_update_scaling.json")
+    START = "**Cross-checked against the trainer itself"
+    END = "The batch axis is the second version"
+
+    def setUp(self):
+        with open(README, encoding="utf-8") as handle:
+            readme = handle.read()
+        start = readme.index(self.START)
+        self.block = re.sub(r"\s+", " ", readme[start:readme.index(self.END, start)])
+        self.readme_full = readme
+        self.rate, self.split, self.scaling = self.read_artifacts(self.RATE, self.SPLIT, self.SCALING)
+        self.what = "Dreamer real-rate"
+        self.bad = []
+
+    def test_the_two_budget_slopes_are_the_ones_the_run_recorded(self):
+        m = self.sentence(r"\*\*([\d.]+) ms\*\* per iteration with the update against "
+                          r"\*\*([\d.]+) ms\*\* without it, so \*\*([\d.]+) ms\*\* is the\s*captured "
+                          r"update", "the two budgets")
+        self.check("with-update ms/iter", float(m.group(1)),
+                   self.rate["captured"]["ms_per_iteration"], places=2)
+        self.check("collect-only ms/iter", float(m.group(2)),
+                   self.rate["collect"]["ms_per_iteration"], places=2)
+        self.check("update ms/iter", float(m.group(3)),
+                   self.rate["update_ms_per_iteration"], places=2)
+        m = self.sentence(r"At \*\*([\d.]+) env-steps/s\*\* that is\s*\*\*([\d.]+) h per 1M",
+                          "the measured rate and the hours")
+        self.check("env-steps/s", float(m.group(1)), self.rate["captured"]["env_steps_per_s"],
+                   places=1)
+        self.check("hours per 1M", float(m.group(2)), self.rate["hours_per_1m_env_steps"], places=2)
+
+    def test_the_three_instruments_still_agree_on_the_update(self):
+        """Prose names three independent measurements of the same 12-ms object."""
+        isolated = self.scaling["configs"]["L50_B16_H15"]["captured"]["median_ms"]
+        in_loop = self.split["segments_ms"]["captured update"]
+        subtraction = self.rate["update_ms_per_iteration"]
+        m = self.sentence(r"next to the ([\d.]+) ms the in-process split attributed and the "
+                          r"([\d.]+) ms the isolated\s*sweep recorded", "the other two instruments")
+        self.check("in-process split", float(m.group(1)), in_loop, places=2)
+        self.check("isolated sweep", float(m.group(2)), isolated, places=2)
+        widest = max(isolated, in_loop, subtraction) / min(isolated, in_loop, subtraction)
+        m = self.sentence(r"three instruments agreeing within (\d+)%", "the agreement bound")
+        self.check("agreement bound", float(m.group(1)), round((widest - 1) * 100), places=0,
+                   slack=0.5)
+        self.assertLess(widest, 1.1, "the three measurements of the update no longer agree to within "
+                                     "10%; the prose has to stop claiming they do")
+
+    def test_the_provenance_the_paragraph_claims_is_the_run_that_ran(self):
+        budgets = self.rate["config"]["budgets"]
+        self.assertEqual([20000, 40000], budgets, "the prose says 20,000 and 40,000 env steps")
+        m = self.sentence(r"(`benchmarks/dreamer_real_rate\.json`, (\d+) other CUDA\s+contexts)",
+                          "the window the run recorded")
+        self.check("GPU contexts", int(m.group(2)), self.rate["gpu_other_contexts"], places=0)
+        m = self.sentence(r"the two with-update slopes came out ([\d.]+) and ([\d.]+) ms, "
+                          r"the two collect-only ones ([\d.]+) and ([\d.]+) ms", "the rep spread")
+        self.check("with-update reps", [float(m.group(1)), float(m.group(2))],
+                   self.rate["captured"]["per_rep_ms_per_iteration"], places=2)
+        self.check("collect reps", [float(m.group(3)), float(m.group(4))],
+                   self.rate["collect"]["per_rep_ms_per_iteration"], places=2)
+
+    def test_the_trainer_table_row_carries_the_measured_hours(self):
+        """The summary table now quotes both the old projection and this measurement."""
+        m = re.search(r"^\| `train_dreamer\.py`, captured update \|.*\|$", self.readme_full, re.M)
+        self.assertIsNotNone(m, "the captured-update row of the trainer table is gone")
+        cell = m.group(0).strip("|").split("|")[-1]
+        self.assertIn("3.6", cell, "the row no longer says what the short A/B projected")
+        self.check("the row's measured hours", nums(cell)[-1],
+                   self.rate["hours_per_1m_env_steps"], places=2)
+
+    def test_the_startups_the_gate_aware_model_predicts(self):
+        """The stored startup fields are re-derived from the raw totals, and the prose quotes them.
+
+        The naive intercept was negative, because the first `learning_starts / num_envs` iterations of
+        every run carry no update; the artifact's fields are the gate-aware version, so this recomputes
+        them from the raw seconds rather than trusting the bench's own arithmetic.
+        """
+        rate, budgets = self.rate, self.rate["config"]["budgets"]
+        it1 = budgets[0] / rate["config"]["num_envs"]
+        gate_iters = rate["config"]["learning_starts"] / rate["config"]["num_envs"]
+        want = {}
+        for label, per_iter in (("collect", rate["collect"]["ms_per_iteration"]),
+                                ("captured", rate["captured"]["ms_per_iteration"])):
+            t1 = statistics.median(rate["raw_totals_s"][f"{label}_{budgets[0]}"])
+            extra = gate_iters * rate["update_ms_per_iteration"] / 1e3 if label == "captured" else 0.0
+            want[label] = round(t1 - per_iter * it1 / 1e3 + extra, 1)
+        self.check("collect arm startup recomputed", rate["collect"]["startup_s"], want["collect"],
+                   places=1)
+        self.check("captured arm startup recomputed", rate["captured"]["startup_s"],
+                   want["captured"], places=1)
+        m = self.sentence(r"the process startup comes back as \*\*([\d.]+) s\*\* without the "
+                          r"update and \*\*([\d.]+) s\*\*\s*with it", "the two startups")
+        self.check("startups quoted", [float(m.group(1)), float(m.group(2))],
+                   [want["collect"], want["captured"]], places=1)
 
 
 class TestReadmeGpuWindowCells(unittest.TestCase):

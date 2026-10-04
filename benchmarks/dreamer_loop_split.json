@@ -1,0 +1,30 @@
+{
+  "device": "cuda",
+  "num_envs": 4,
+  "seq_len": 50,
+  "batch_size": 16,
+  "imag_horizon": 15,
+  "heads_impl": "fused",
+  "vec_backend": "sync",
+  "task_phase": "target",
+  "reset_mode": "upright",
+  "reps": 25,
+  "diverged_at_rep": null,
+  "gpu_other_contexts": 2,
+  "segments_ms": {
+    "policy pass": 0.53,
+    "envs.step": 1.62,
+    "state pass": 0.82,
+    "rb.add": 0.02,
+    "rb.sample": 0.34,
+    "captured update": 12.27
+  },
+  "attributed_iteration_ms": 15.61,
+  "whole_loop_ms": 15.7,
+  "collection_ms": 3.34,
+  "collection_share_pct": 21.4,
+  "update_share_pct": 78.6,
+  "env_steps_per_s_at_this_loop": 254.9,
+  "hours_per_1m_steps_at_this_loop": 1.09,
+  "note": "medians over whole collect+update iterations of the shipped loop, rebuilt from train_dreamer's own pieces with synchronize() at every segment boundary; one iteration is num_envs env steps plus one update. attributed_iteration_ms is the sum of the segments, whole_loop_ms is the same iteration without the boundary syncs, which is what the trainer waits on."
+}

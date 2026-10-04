@@ -72,7 +72,7 @@ with open(os.environ["DREAMER_PROFILE_OUT"], "w", encoding="utf-8") as handle:
 def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument("--mode", choices=["profile", "ab", "reproducibility", "scaling",
-                                      "checkpoint-cost", "heads-ab"],
+                                      "checkpoint-cost", "heads-ab", "loop-split", "real-rate"],
                    default="profile")
     p.add_argument("--heads-config", default="50x15",
                    help="seq_len x imag_horizon for --mode heads-ab (one config per process)")
@@ -81,7 +81,8 @@ def parse_args():
     p.add_argument("--num-envs", type=int, default=4)
     p.add_argument("--seed", type=int, default=7)
     p.add_argument("--reps", type=int, default=60,
-                   help="timed updates per config in --mode scaling (5 untimed warmup run first)")
+                   help="timed updates per config in --mode scaling, timed iterations in "
+                        "--mode loop-split (5 untimed warmup run first)")
     return p.parse_args()
 
 
@@ -147,6 +148,10 @@ def main():
         return checkpoint_cost(args)
     if args.mode == "heads-ab":
         return heads_ab(args)
+    if args.mode == "loop-split":
+        return loop_split(args)
+    if args.mode == "real-rate":
+        return real_rate(args)
     return run_profile(args)
 
 
@@ -610,6 +615,262 @@ def run_profile(args):
         for entry in os.scandir(runs):
             if entry.is_dir() and entry.name.startswith("bre_dreamer_profile"):
                 shutil.rmtree(entry.path, ignore_errors=True)
+    return 0
+
+
+def real_rate(args):
+    """The shipped trainer's steady-state rate, measured at two budgets so fixed costs cancel.
+
+    Every Dreamer rate published so far came from one short run divided by its own step count, which
+    charges two fixed costs to every step: interpreter + CUDA init (~12 s per process) and the
+    one-time CUDA graph capture. At the 5,400-step budget used by `--mode ab` there are only 100
+    updates, so the capture is most of the measured "update phase", and the floor arm's startup
+    inflates the collection term - the two errors push the projected 1M apart by design.
+
+    Running the identical command at two budgets and subtracting removes both: (t2 - t1) is pure
+    steady-state work over (n2 - n1) steps, and the intercept is the fixed cost. Two arms, because
+    the difference between the with-update and collect-only slopes is what one update costs inside a
+    real run rather than in isolation.
+    """
+    import statistics
+
+    budgets = (args.steps, 2 * args.steps)
+    if args.steps == 9000:
+        args.steps, budgets = 20000, (20000, 40000)  # 100x the ab budget's update count, so the
+        # capture cost is 0.3% of the update phase instead of most of it
+    # The smoke that designed this ran the cells in arm order, and the first process of the batch
+    # paid a cold-start 9 s larger than the rest, which made the second budget *faster* than the
+    # first and the slope negative. So the four cells run in a rotated order, twice, and the slope
+    # comes from medians with the two independent estimates reported.
+    order = [("captured", "big"), ("collect", "small"), ("collect", "big"), ("captured", "small")]
+    cells = {}
+    try:
+        for rep in (1, 2):
+            for label, which in order:
+                budget = budgets[1] if which == "big" else budgets[0]
+                sub = argparse.Namespace(**vars(args))
+                sub.steps = budget
+                dt, _ = run_trainer(f"bdr{label}{budget}_{rep}", sub,
+                                    GRAPH if label == "captured" else FLOOR + GRAPH)
+                if dt is None:
+                    print("arm failed; nothing to subtract")
+                    return 1
+                cells.setdefault((label, budget), []).append(dt)
+    finally:
+        clean_runs(("bdr",))
+
+    out = {"raw_totals_s": {f"{label}_{budget}": [round(v, 1) for v in vals]
+                            for (label, budget), vals in sorted(cells.items())}}
+    for label in ("captured", "collect"):
+        t1, t2 = statistics.median(cells[(label, budgets[0])]), statistics.median(cells[(label, budgets[1])])
+        it1, it2 = budgets[0] / args.num_envs, budgets[1] / args.num_envs
+        ms_per_iter = (t2 - t1) / (it2 - it1) * 1e3
+        per_rep = []
+        for i in range(len(cells[(label, budgets[0])])):
+            a, b = cells[(label, budgets[0])][i], cells[(label, budgets[1])][i]
+            per_rep.append(round((b - a) / (it2 - it1) * 1e3, 2))
+        out[label] = {"ms_per_iteration": round(ms_per_iter, 2),
+                      "per_rep_ms_per_iteration": per_rep,
+                      "env_steps_per_s": round(1000.0 * args.num_envs / ms_per_iter, 1),
+                      "median_totals_s": {str(budgets[0]): round(t1, 1), str(budgets[1]): round(t2, 1)}}
+    full, coll = out["captured"]["ms_per_iteration"], out["collect"]["ms_per_iteration"]
+    out["update_ms_per_iteration"] = round(full - coll, 2)
+    out["update_share_pct"] = round(100.0 * (full - coll) / full, 1)
+    # A straight line through the two budgets is not `startup + rate x iterations`: the first
+    # learning_starts / num_envs iterations of every run sit below the update gate, so the
+    # with-update arm is bent and its naive intercept came out negative (-10.7 s). Solving the two
+    # budgets against the gate-aware model instead puts the startup back where a subprocess belongs,
+    # and the pair is the only honest read of what capture cost: the with-update intercept also holds
+    # the one-time capture, so their difference bounds it.
+    gate_iters = 5000.0 / args.num_envs
+    for label, per_iter in (("collect", coll), ("captured", full)):
+        t1 = out[label]["median_totals_s"][str(budgets[0])]
+        it1 = budgets[0] / args.num_envs
+        extra = out["update_ms_per_iteration"] * gate_iters / 1e3 if label == "captured" else 0.0
+        out[label]["startup_s"] = round(t1 - per_iter * it1 / 1e3 + extra, 1)
+    out["startup_s_note"] = ("the collect arm is process startup; the captured arm is startup plus the "
+                             "one-time graph capture, so their difference is capture and noise")
+    out["hours_per_1m_env_steps"] = round(1e6 / args.num_envs * full / 1000.0 / 3600.0, 2)
+    out["config"] = {"num_envs": args.num_envs, "seq_len": 50, "batch_size": 16,
+                     "imag_horizon": 15, "learning_starts": 5000, "update_graph": "on (default)",
+                     "budgets": list(budgets), "reps_per_cell": 2}
+    out["gpu_other_contexts"] = _other_gpu_contexts()
+    out["note"] = "steady-state rates from the two-budget subtraction on the real trainer, cells " \
+                  "rotated and run twice, medians used; the update is one captured dreamer_update " \
+                  "per num_envs env steps. Assumes time linear in steps, which is why the smaller " \
+                  "budget already fills the 20,000-transition replay buffer."
+
+    path = os.path.join(ROOT, "benchmarks", "dreamer_real_rate.json")
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump(out, handle, indent=2)
+    for label in ("captured", "collect"):
+        print(f"{label:9} {out[label]['ms_per_iteration']:7.2f} ms/iter  "
+              f"{out[label]['env_steps_per_s']:7.1f} env-steps/s  "
+              f"startup {out[label]['startup_s']:.1f} s  "
+              f"reps {out[label]['per_rep_ms_per_iteration']}")
+    print(f"update {out['update_ms_per_iteration']:.2f} ms per iteration = "
+          f"{out['update_share_pct']:.1f}% of the loop -> "
+          f"{out['hours_per_1m_env_steps']:.2f} h per 1M env steps")
+    print("wrote", os.path.relpath(path, ROOT))
+    return 0
+
+
+LOOP_SEGMENTS = ("policy pass", "envs.step", "state pass", "rb.add", "rb.sample", "captured update")
+
+
+def loop_split(args):
+    """Price one Dreamer iteration the way the trainer assembles it, in one process and one window.
+
+    The shipped update measures 12.62 ms alone (benchmarks/dreamer_update_scaling.json) and the real
+    trainer's collection-only floor measured 29.6 ms per iteration in a *different* window, so the
+    two cannot be subtracted. Here the same minutes and the same clocks carry every segment, and the
+    question changes from "is the learner the bottleneck" (true when the update ran eager at 293 ms)
+    to "what is left now that the update costs 12 ms".
+
+    The pieces come from train_dreamer itself - build_vec_env with the trainer's own flag set, the
+    same wrappers, WorldModel/DreamerActor/DreamerCritic, SequenceReplayBuffer, the extracted
+    advance_recurrent_state and CapturedDreamerUpdate - so this times the shipped path, not a
+    paraphrase of it.
+    """
+    import numpy as np
+    import statistics as st
+    import torch
+    import train_dreamer as td
+
+    dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    saved_argv = list(sys.argv)
+    sys.argv = (["train_dreamer.py"] + BASE + ["--num-envs", str(args.num_envs), "--seed",
+                str(args.seed), "--total-timesteps", str(args.steps), "--update-graph"])
+    targs = td.parse_dreamer_args()
+    sys.argv = saved_argv
+
+    envs = td.build_vec_env(targs, "bdr_split", capture_video=False)
+    envs = td.wrap_normalize_observation(envs)
+    envs = td.wrap_transform_observation(envs, lambda o: np.clip(o, -10, 10))
+    obs_dim = int(np.prod(envs.single_observation_space.shape))
+    act_dim = int(np.prod(envs.single_action_space.shape))
+
+    torch.manual_seed(0)
+    model = td.WorldModel(obs_dim, act_dim).to(dev)
+    actor = td.DreamerActor(256, 32, act_dim).to(dev)
+    critic = td.DreamerCritic(256, 32).to(dev)
+    opts = [td.make_adam(m.parameters(), targs.learning_rate, True) for m in (model, actor, critic)]
+    rb = td.SequenceReplayBuffer(targs.buffer_size, targs.num_envs,
+                                 envs.single_observation_space.shape,
+                                 envs.single_action_space.shape, dev)
+    obs = envs.reset()[0]
+    h, z = model.rssm.initial_state(targs.num_envs, dev)
+
+    # Fill the buffer past the trainer's own gate so the sampled batch is a real one, and capture
+    # against that shape, which is what CapturedDreamerUpdate needs a first batch for anyway.
+    while rb.filled <= targs.seq_len + 10:
+        warm = np.array([envs.single_action_space.sample() for _ in range(targs.num_envs)])
+        next_obs, rew, term, trunc, _ = envs.step(warm)
+        h, z = td.advance_recurrent_state(model, h, z, warm, next_obs, term, trunc)
+        rb.add(obs, warm, rew, np.logical_or(term, trunc))
+        obs = next_obs
+    batch = rb.sample(targs.batch_size, targs.seq_len)
+    idx = torch.randperm(targs.seq_len * targs.batch_size)[:targs.batch_size]
+    captured = td.CapturedDreamerUpdate(
+        lambda b, i: td.dreamer_update(model, actor, critic, opts[0], opts[1], opts[2], b, targs, i,
+                                       zero_grad_set_to_none=False), batch, idx)
+
+    state = {"h": h, "z": z, "obs": obs}
+
+    def iteration(mark):
+        """One collect+update step in the trainer's order, advancing the lane state."""
+        with torch.no_grad():  # as the trainer has it, once past the random-action opening
+            actions = actor.get_action(state["h"], state["z"], sample=True).cpu().numpy()
+        mark()
+        next_obs, rew, term, trunc, _ = envs.step(actions)
+        mark()
+        state["h"], state["z"] = td.advance_recurrent_state(model, state["h"], state["z"], actions,
+                                                            next_obs, term, trunc)
+        mark()
+        rb.add(state["obs"], actions, rew, np.logical_or(term, trunc))
+        mark()
+        fresh = rb.sample(targs.batch_size, targs.seq_len)
+        start = torch.randperm(targs.seq_len * targs.batch_size)[:targs.batch_size]
+        mark()
+        losses = captured(fresh, start)
+        mark()
+        state["obs"] = next_obs
+        return losses
+
+    def one_rep():
+        """The iteration timed segment by segment, then the same iteration timed as a whole.
+
+        The boundary synchronize() calls are what make the attribution honest, and they also make
+        the attributed total larger than what the trainer pays, so the second pass - no inner syncs,
+        one sync at the end - reports the loop as the trainer actually runs it.
+        """
+        sync = torch.cuda.synchronize if dev.type == "cuda" else (lambda: None)
+        marks = []
+
+        def mark():
+            sync()
+            marks.append(time.perf_counter())
+
+        sync()
+        marks.append(time.perf_counter())
+        losses = iteration(mark)
+        seg = {name: (marks[i + 1] - marks[i]) * 1e3 for i, name in enumerate(LOOP_SEGMENTS)}
+
+        t0 = time.perf_counter()
+        iteration(lambda: None)
+        sync()
+        whole = (time.perf_counter() - t0) * 1e3
+        finite = all(float(v) == float(v) for v in losses.values())
+        return seg, whole, finite
+
+    for _ in range(5):  # warmup: first replays, cudnn autotune, the buffer window moving
+        one_rep()
+    segs, totals, diverged_at = [], [], None
+    for rep in range(args.reps):
+        seg, whole, finite = one_rep()
+        segs.append(seg)
+        totals.append(whole)
+        if not finite and diverged_at is None:
+            diverged_at = rep
+            break
+
+    med = {name: st.median([s[name] for s in segs]) for name in LOOP_SEGMENTS}
+    attributed = sum(med.values())
+    whole = st.median(totals)
+    collection = attributed - med["captured update"]
+    out = {
+        "device": str(dev), "num_envs": targs.num_envs, "seq_len": targs.seq_len,
+        "batch_size": targs.batch_size, "imag_horizon": targs.imag_horizon,
+        "heads_impl": targs.heads_impl, "vec_backend": targs.vec_backend,
+        "task_phase": targs.task_phase, "reset_mode": targs.reset_mode,
+        "reps": len(segs), "diverged_at_rep": diverged_at,
+        "gpu_other_contexts": _other_gpu_contexts(),
+        "segments_ms": {k: round(v, 2) for k, v in med.items()},
+        "attributed_iteration_ms": round(attributed, 2),
+        "whole_loop_ms": round(whole, 2),
+        "collection_ms": round(collection, 2),
+        "collection_share_pct": round(100.0 * collection / attributed, 1),
+        "update_share_pct": round(100.0 * med["captured update"] / attributed, 1),
+        "env_steps_per_s_at_this_loop": round(1000.0 * targs.num_envs / whole, 1),
+        "hours_per_1m_steps_at_this_loop": round(1e6 / targs.num_envs * whole / 1000.0 / 3600.0, 2),
+        "note": "medians over whole collect+update iterations of the shipped loop, rebuilt from "
+                "train_dreamer's own pieces with synchronize() at every segment boundary; one "
+                "iteration is num_envs env steps plus one update. attributed_iteration_ms is the "
+                "sum of the segments, whole_loop_ms is the same iteration without the boundary "
+                "syncs, which is what the trainer waits on.",
+    }
+    print(f"{'segment':24}{'median ms':>11}{'of iteration':>14}")
+    for name in LOOP_SEGMENTS:
+        print(f"{name:24}{med[name]:>11.2f}{100 * med[name] / attributed:>13.1f}%")
+    print(f"{'attributed total':24}{attributed:>11.2f}{100.0:>13.1f}%")
+    print(f"{'whole loop, no syncs':24}{whole:>11.2f}  = "
+          f"{out['env_steps_per_s_at_this_loop']:.1f} env-steps/s, "
+          f"{out['hours_per_1m_steps_at_this_loop']:.2f} h per 1M steps at n={targs.num_envs}")
+    path = os.path.join(ROOT, "benchmarks", "dreamer_loop_split.json")
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump(out, handle, indent=2)
+    print("wrote", os.path.relpath(path, ROOT))
+    envs.close()
     return 0
 
 

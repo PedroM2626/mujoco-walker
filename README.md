@@ -738,13 +738,17 @@ laptop (RTX 4070 Laptop 8 GB, 32 threads, `.venv`), one process at a time:
 |:---|:---|:---|:---|
 | `train_ars.py` | linear policy, 10 directions | 1,005,153 steps in 544 s = 1848/s | 9 min |
 | `train_dreamer.py` | 4 envs, update each collect step | 5,000 steps in 37 s with the update gate closed; 14,000 in 898 s in one A/B window and in 205 s later, same build | ~4-18 h |
-| `train_dreamer.py`, captured update | same config, and the CUDA default now (`--no-update-graph` opts out) | 100 updates in 4.1 s against 17.6 s eager, in the same window | ~3.6 h in that window |
+| `train_dreamer.py`, captured update | same config, and the CUDA default now (`--no-update-graph` opts out) | 100 updates in 4.1 s against 17.6 s eager, in the same window | its own projection says 3.6 h; measured later at two budgets: **1.18 h** |
 | `train_redq.py` | 16 envs, `utd_ratio=20`, ensemble 10 | 10,000 steps in 478 s | ~13 h |
 | `train_redq.py`, batched ensemble | same config, `--ensemble-impl batched` (default now) | see the A/B below | ~4 h in that window |
 
-The Dreamer row is the whole story: with its update gate closed it collects 5,000 steps in
-37 s, so ~96% of its wall clock is the learner step and not the physics. The environment is
-already fast enough here; the algorithm's update is what costs.
+The Dreamer row was the whole story of the eager build: with its update gate closed this trainer
+collects 5,000 steps in 37 s, which is where "~96% of its wall clock is the learner step, not the
+physics" came from. That ratio was measured against an eager update, in a window that had other work
+in it. Measured again after capture, in a clean window and with two independent instruments, one
+iteration of the shipped loop is 16.96 ms, of which the captured update is 12.75 ms (**75.2%**) and
+the whole collection side is 4.21 ms. The environment is still not what costs here - and the headroom
+on it is now about a quarter of the loop, not 96% of it.
 
 The 4x spread on that row is not measurement noise and it is not the code: this is a laptop
 whose GPU is also serving Brave, Medal.tv and Overwolf (`nvidia-smi` shows five desktop
@@ -855,6 +859,61 @@ fusion left is across heads that share an input - `reward_net` and `continue_net
 trunk shapes and one optimizer - about a fifth of the imagination loop's launches, ~6% of the update
 on paper. That one was built, measured and shipped: see "Shipped: the two imagination heads as one
 pass" below, where the prediction meets a box whose timing noise is the same size as the effect.
+
+**Where a whole iteration goes, now that the update is cheap.** The paragraph above prices the inside
+of an update; this prices the loop around it, because the claim this section inherited - "~96% of
+Dreamer's wall clock is the learner step" - was measured when the update ran eager at 293 ms.
+`python bench_dreamer_update.py --mode loop-split` rebuilds one iteration from the trainer's own
+pieces (`build_vec_env` with the trainer's flag set, the same wrappers, `WorldModel`/`DreamerActor`,
+`SequenceReplayBuffer`, the extracted `advance_recurrent_state`, `CapturedDreamerUpdate`), times every
+segment with a `synchronize()` at each boundary, and repeats 25 iterations in one process and one
+window (`benchmarks/dreamer_loop_split.json`, 2 other CUDA contexts):
+
+| segment | median ms | of the iteration |
+|:---|---:|---:|
+| policy pass (`actor.get_action(...).cpu()`) | 0.53 | 3.4% |
+| `envs.step` (4 envs, sync) | 1.62 | 10.4% |
+| recurrent-state pass (encoder + RSSM + posterior + reset loop) | 0.82 | 5.3% |
+| replay buffer write | 0.02 | 0.1% |
+| replay sample + starting latents | 0.34 | 2.2% |
+| captured update | 12.27 | **78.6%** |
+| attributed iteration | 15.61 | 100% |
+
+The same iteration with no boundary syncs is **15.70 ms**, which is 254.9 env-steps/s at the shipped
+`--num-envs 4`. Two things follow. The learner still dominates - so "the environment is already fast
+enough" remains true - but the collection side is now only **21.4%** of the loop, so no work on the
+env path, the wrappers or the state pass can buy more than a fifth, and the sentence above about the
+imagination loop is where the remaining ceiling actually is. And the recurrent-state pass is 0.82 ms
+of that 3.34 ms, which is why the collection loop was left alone rather than restructured: it is not
+where the time is.
+
+**Cross-checked against the trainer itself, and the 1M projection replaced.** The split above rebuilds
+the loop; `python bench_dreamer_update.py --mode real-rate` runs the shipped command instead, at two
+budgets (20,000 and 40,000 env steps), every cell twice, with the four cells rotated - because the
+first process of a batch pays a cold start, and an early unrotated version of this measurement
+reported a *negative* slope. Subtracting the two budgets cancels the per-process fixed cost, and the
+arm that never updates (`--learning-starts` above the budget) measures the collection side alone:
+**16.96 ms** per iteration with the update against **4.21 ms** without it, so **12.75 ms** is the
+captured update - next to the 12.27 ms the in-process split attributed and the 12.62 ms the isolated
+sweep recorded, three instruments agreeing within 4%. At **235.9 env-steps/s** that is
+**1.18 h per 1M env steps**, where this section's own projection said 3.5-3.6 h.
+
+The projection was arithmetic on the 5,400-step A/B, and both of its terms were contaminated by the
+fixed costs it divided: 100 updates is so few that the one-time graph capture sits inside the
+per-update figure (40.9 ms measured there, 12.75 ms here), and its collection term divided a floor
+arm's whole 15.67 s by 5,400 steps, process startup included - in a window its own note describes as
+shared with a live REDQ 1M run. Nothing about that A/B is wrong as a measurement of a 5,400-step run:
+1.74x end to end is genuinely what such a run costs, because fixed costs do not scale with the
+budget. What it cannot do is extrapolate, which is what the hours column claimed.
+
+The noise is disclosed rather than smoothed: the two with-update slopes came out 17.22 and 16.70 ms,
+the two collect-only ones 4.47 and 3.95 ms (`benchmarks/dreamer_real_rate.json`, 2 other CUDA
+contexts). A straight line through two budgets is also not `startup + rate x iterations`, because the
+first 1,250 iterations of every run sit below `--learning-starts` and carry no update - which is what
+made the naive intercept negative (-10.7 s) in the run that first tried this. Solving the same two
+budgets against the gate-aware model, the process startup comes back as **5.1 s** without the update
+and **6.1 s** with it, so the one-time CUDA graph capture is worth about a second on a budget this
+size: cheap, paid once, and invisible in the per-iteration rate.
 
 The batch axis is the second version of a sentence that was wrong before: an earlier window said the
 eager update was "flat in batch, sixteen times the samples for free", and the claim was wrong in the
@@ -1156,10 +1215,10 @@ Three facts to keep in mind:
 
 The suite is plain `unittest` (no pytest required) and covers the environment contract, the
 golden reward rollouts, the parallel/serial vector-env parity, checkpointing and the race
-harness — **130 tests, 319 s in this window** (`Ran 130 tests in 319.168s ... OK
+harness — **140 tests, 185 s in this window** (`Ran 140 tests in 184.871s ... OK
 (skipped=7)` under `.venv`). Windows of this suite have measured 176.3 s at 102 tests, 269.995 s
-at 121, 261.1 s at 127, 329.964 s at 128, and at 130 three runs on one afternoon: 311.995 s,
-319.168 s and 420.962 s. The duration belongs to the machine's state, the
+at 121, 261.1 s at 127, 329.964 s at 128, 319.168 s at 130, and at 140: 184.871 s, 203.108 s and
+306.976 s on three runs minutes apart. The duration belongs to the machine's state, the
 count does not, and a gate checks the count so it cannot go stale quietly):
 
 ```bash
@@ -1205,12 +1264,14 @@ that they ran - see Phase 4, item 6. How each of those states was found, with th
 ## 🔬 Reproducing and measuring
 
 ```bash
-python -m unittest discover -s tests -t .   # 130 tests in .venv, 319 s; see "Running the tests"
+python -m unittest discover -s tests -t .   # 140 tests in .venv, 185 s; see "Running the tests"
 python bench_env.py --seconds 4             # env throughput, physics vs Python split
 python bench_mjx.py --sizes 32,128          # MJX/JAX batched stepping
 python verify.py                            # Phase-2 artifact check (exits 2 when missing)
 python bench_device.py                        # SAC update cost, CPU vs CUDA
 python bench_dreamer_update.py --mode scaling # per-loop-step cost, eager vs captured, 3 batch points
+python bench_dreamer_update.py --mode loop-split  # one iteration, segment by segment, one window
+python bench_dreamer_update.py --mode real-rate   # the shipped command at two budgets, 2 reps/cell
 python bench_dreamer_update.py --mode checkpoint-cost  # bytes and ms per Dreamer save, per interval
 python -m utils.gpu_window                    # the GPU window a long run would start into
 python bench_jax_update.py                    # JAX imagination rollout, fwd + fwd/rev (needs a

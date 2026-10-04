@@ -1,0 +1,65 @@
+{
+  "raw_totals_s": {
+    "captured_20000": [
+      75.3,
+      74.7
+    ],
+    "captured_40000": [
+      161.4,
+      158.2
+    ],
+    "collect_20000": [
+      25.9,
+      26.5
+    ],
+    "collect_40000": [
+      48.2,
+      46.2
+    ]
+  },
+  "captured": {
+    "ms_per_iteration": 16.96,
+    "per_rep_ms_per_iteration": [
+      17.22,
+      16.7
+    ],
+    "env_steps_per_s": 235.9,
+    "median_totals_s": {
+      "20000": 75.0,
+      "40000": 159.8
+    },
+    "startup_s": 6.1
+  },
+  "collect": {
+    "ms_per_iteration": 4.21,
+    "per_rep_ms_per_iteration": [
+      4.47,
+      3.95
+    ],
+    "env_steps_per_s": 950.3,
+    "median_totals_s": {
+      "20000": 26.2,
+      "40000": 47.2
+    },
+    "startup_s": 5.1
+  },
+  "update_ms_per_iteration": 12.75,
+  "update_share_pct": 75.2,
+  "startup_s_note": "the collect arm is process startup; the captured arm is startup plus the one-time graph capture, so their difference is capture and noise",
+  "hours_per_1m_env_steps": 1.18,
+  "config": {
+    "num_envs": 4,
+    "seq_len": 50,
+    "batch_size": 16,
+    "imag_horizon": 15,
+    "learning_starts": 5000,
+    "update_graph": "on (default)",
+    "budgets": [
+      20000,
+      40000
+    ],
+    "reps_per_cell": 2
+  },
+  "gpu_other_contexts": 2,
+  "note": "steady-state rates from the two-budget subtraction on the real trainer, cells rotated and run twice, medians used; the update is one captured dreamer_update per num_envs env steps. Assumes time linear in steps, which is why the smaller budget already fills the 20,000-transition replay buffer."
+}

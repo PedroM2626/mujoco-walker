@@ -72,7 +72,8 @@ with open(os.environ["DREAMER_PROFILE_OUT"], "w", encoding="utf-8") as handle:
 def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument("--mode", choices=["profile", "ab", "reproducibility", "scaling",
-                                      "checkpoint-cost", "heads-ab", "loop-split", "real-rate"],
+                                      "checkpoint-cost", "heads-ab", "loop-split", "real-rate",
+                                      "amortize"],
                    default="profile")
     p.add_argument("--heads-config", default="50x15",
                    help="seq_len x imag_horizon for --mode heads-ab (one config per process)")
@@ -152,6 +153,8 @@ def main():
         return loop_split(args)
     if args.mode == "real-rate":
         return real_rate(args)
+    if args.mode == "amortize":
+        return amortize(args)
     return run_profile(args)
 
 
@@ -711,6 +714,75 @@ def real_rate(args):
     print(f"update {out['update_ms_per_iteration']:.2f} ms per iteration = "
           f"{out['update_share_pct']:.1f}% of the loop -> "
           f"{out['hours_per_1m_env_steps']:.2f} h per 1M env steps")
+    print("wrote", os.path.relpath(path, ROOT))
+    return 0
+
+
+AMORTIZE_NS = (4, 8, 16)
+
+
+def amortize(args):
+    """What raising `--num-envs` buys in wall clock, and what it costs in gradient steps.
+
+    The captured update is 12.6-12.8 ms of a ~17 ms iteration at the shipped `--num-envs 4`, and the
+    trainer does exactly one update per collection step. So the only remaining lever inside the loop
+    is arithmetic that does not touch the update: collect more environment steps per gradient step.
+    That is a real change of algorithm (update-to-data ratio 1/num_envs), not a free speedup, so it
+    is priced on both axes.
+
+    Each `n` is measured at two budgets, as in `--mode real-rate`, so the process startup and the
+    one-time capture cancel; `--learning-starts` is lowered to 1000 so the larger batches still
+    reach the update gate inside a short budget.
+    """
+    import statistics
+
+    out = {"gpu_other_contexts": _other_gpu_contexts(), "runs_s": {}, "per_num_envs": {}}
+    budgets = (8000, 16000)
+    try:
+        for n in AMORTIZE_NS:
+            per = {}
+            for budget in budgets:
+                sub = argparse.Namespace(**vars(args))
+                sub.steps = budget
+                sub.num_envs = n
+                # BASE already carries --num-envs 4, and argparse keeps the last occurrence, so the
+                # per-arm override has to be appended rather than edited into the shared flag set.
+                extra = GRAPH + ["--num-envs", str(n), "--learning-starts", "1000"]
+                dt, _ = run_trainer(f"bdm_n{n}_{budget}", sub, extra)
+                out["runs_s"][f"n{n}_{budget}"] = dt
+                per[budget] = dt
+            if None in per.values():
+                continue
+            it1, it2 = budgets[0] / n, budgets[1] / n
+            ms_per_iter = (per[budgets[1]] - per[budgets[0]]) / (it2 - it1) * 1e3
+            updates = (budgets[1] - 1000) / n          # one update per iteration past the gate
+            out["per_num_envs"][n] = {
+                "ms_per_iteration": round(ms_per_iter, 2),
+                "env_steps_per_s": round(1000.0 * n / ms_per_iter, 1),
+                "gradient_steps_per_1k_env_steps": round(1000.0 / n, 1),
+                "hours_per_1m_env_steps": round(1e6 / n * ms_per_iter / 1000.0 / 3600.0, 2),
+                "updates_in_window": int(updates),
+            }
+            print(f"n={n:<3} {out['per_num_envs'][n]['ms_per_iteration']:7.2f} ms/iter  "
+                  f"{out['per_num_envs'][n]['env_steps_per_s']:7.1f} env-steps/s  "
+                  f"{out['per_num_envs'][n]['gradient_steps_per_1k_env_steps']:6.1f} grad steps per "
+                  f"1k env steps  {out['per_num_envs'][n]['hours_per_1m_env_steps']:.2f} h per 1M",
+                  flush=True)
+    finally:
+        clean_runs(("bdm_",))
+
+    base = out["per_num_envs"].get(AMORTIZE_NS[0])
+    for n, row in out["per_num_envs"].items():
+        row["speedup_vs_shipped_n4"] = round(row["env_steps_per_s"] / base["env_steps_per_s"], 2)
+    out["config"] = {"seq_len": 50, "batch_size": 16, "imag_horizon": 15, "learning_starts": 1000,
+                     "budgets": list(budgets), "update_graph": "on", "vec_backend": "sync"}
+    out["note"] = ("steady-state rates per num_envs from the two-budget subtraction; one captured "
+                   "dreamer_update per collection step at every n, so the update-to-data ratio falls "
+                   "as 1/num_envs - the wall clock and the gradient count move together and both are "
+                   "reported.")
+    path = os.path.join(ROOT, "benchmarks", "dreamer_amortize_n.json")
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump(out, handle, indent=2)
     print("wrote", os.path.relpath(path, ROOT))
     return 0
 

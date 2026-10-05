@@ -2,6 +2,8 @@
   "protocol": "eval_phase1.py --num-episodes 10 --seed 11 (WalkerRagdoll-v0, reset_mode=mixed, one env.step per action, checkpoint obs_rms applied, deterministic; same protocol as the Phase-3 table)",
   "env_version": "standup_balance_walk_curriculum_v9",
   "env_commit": null,
+  "device": "cuda",
+  "torch_threads": 24,
   "models": {
     "dreamer_v9_269k": {
       "checkpoint": "checkpoints/dreamer_v2_1m_v9/dreamer_actor_269404.pt",
@@ -10,95 +12,103 @@
       "obs_width": 49,
       "global_step": 269404,
       "episodes": 10,
-      "reward_source": "environment defaults",
-      "reward_kwargs": {},
+      "reward_source": "train_walker.make_env shaping (applied to every Phase-1 trainer since 8d37846; this checkpoint predates recording it)",
+      "reward_kwargs": {
+        "standing_reward": 0.0,
+        "target_direction_reward_weight": 200.0,
+        "target_progress_reward_weight": 300.0,
+        "stand_height_reward_weight": 100.0,
+        "stability_reward_weight": 20.0,
+        "stillness_penalty_weight": 5.0,
+        "lateral_drift_penalty_weight": 3.0
+      },
       "checkpoint_env_version": null,
-      "mean": 6486.27,
-      "median": 6176.57,
-      "std": 3357.26,
-      "min": 1415.9,
-      "max": 14859.64,
-      "falls_per_episode": 0.1,
+      "mean": 6368.15,
+      "median": 6812.67,
+      "std": 4272.68,
+      "min": -2670.77,
+      "max": 14163.68,
+      "falls_per_episode": 0.3,
       "standing_at_end_pct": 0.0,
       "mean_episode_steps": 1000.0,
       "reached_target_pct": 0.0,
-      "mean_min_target_distance": 2.599,
-      "mean_x_velocity": 0.0074
+      "mean_min_target_distance": 2.685,
+      "mean_x_velocity": 0.0025
     }
   },
   "per_episode": {
     "dreamer_v9_269k": [
-      14859.637678011492,
-      7292.588801044661,
-      7574.191926205313,
-      3778.3368689716685,
-      4892.419768569057,
-      4895.500944335333,
-      1415.896937822835,
-      7800.999993423117,
-      6781.729949882261,
-      5571.417593156543
+      14163.677675862556,
+      1288.1205447472644,
+      7580.594562603106,
+      9047.47615466886,
+      6115.087912938027,
+      5970.752258940141,
+      8561.178103664579,
+      6493.7884657983395,
+      -2670.7720987304806,
+      7131.549805026368
     ],
     "dreamer_v9_269k__telemetry": [
       {
         "steps": 1000,
-        "min_target_distance": 3.397,
+        "min_target_distance": 3.635,
         "reached_target": false,
-        "mean_x_velocity": 0.0076
+        "mean_x_velocity": -0.0867
       },
       {
         "steps": 1000,
-        "min_target_distance": 3.039,
+        "min_target_distance": 2.685,
         "reached_target": false,
-        "mean_x_velocity": -0.2642
+        "mean_x_velocity": 0.0925
       },
       {
         "steps": 1000,
-        "min_target_distance": 4.184,
+        "min_target_distance": 4.386,
         "reached_target": false,
-        "mean_x_velocity": -0.0763
+        "mean_x_velocity": -0.2895
       },
       {
         "steps": 1000,
-        "min_target_distance": 2.858,
+        "min_target_distance": 2.004,
         "reached_target": false,
-        "mean_x_velocity": -0.044
+        "mean_x_velocity": 0.0015
       },
       {
         "steps": 1000,
-        "min_target_distance": 1.359,
+        "min_target_distance": 2.846,
         "reached_target": false,
-        "mean_x_velocity": 0.0878
+        "mean_x_velocity": 0.1414
       },
       {
         "steps": 1000,
-        "min_target_distance": 0.645,
+        "min_target_distance": 0.899,
         "reached_target": false,
-        "mean_x_velocity": 0.3508
+        "mean_x_velocity": 0.2147
       },
       {
         "steps": 1000,
-        "min_target_distance": 1.897,
+        "min_target_distance": 1.124,
         "reached_target": false,
-        "mean_x_velocity": -0.1757
+        "mean_x_velocity": 0.1442
       },
       {
         "steps": 1000,
-        "min_target_distance": 3.979,
+        "min_target_distance": 3.086,
         "reached_target": false,
-        "mean_x_velocity": -0.0292
+        "mean_x_velocity": 0.0947
       },
       {
         "steps": 1000,
-        "min_target_distance": 1.844,
+        "min_target_distance": 2.418,
         "reached_target": false,
-        "mean_x_velocity": -0.0595
+        "mean_x_velocity": -0.1399
       },
       {
         "steps": 1000,
-        "min_target_distance": 2.787,
+        "min_target_distance": 3.771,
         "reached_target": false,
-        "mean_x_velocity": 0.2764
+        "mean_x_velocity": -0.1477
       }
     ]
   }

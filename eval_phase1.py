@@ -302,6 +302,13 @@ def main():
         rkw, rsrc = dict(rinfo["reward_kwargs"]), rinfo["reward_source"]
         if args.reward_weights != "auto":
             rkw = {} if args.reward_weights == "env-default" else dict(TRAINING_REWARD_KWARGS)
+            # Keep the checkpoint's own target_forward_velocity in both forced arms. It is the task
+            # the agent faced (the speed its walk reward is centred on, and the clip on
+            # velocity-toward-target), not a reward weight, so overriding the weights must not
+            # silently change it: dropping it moved the 40M SAC row from 23589.07 to 23007.95,
+            # entirely in the three of ten episodes where the robot moved toward the target.
+            if rinfo["target_forward_velocity"] is not None:
+                rkw["target_forward_velocity"] = float(rinfo["target_forward_velocity"])
             rsrc = f"forced --reward-weights={args.reward_weights}"
         if rinfo["env_version"] and rinfo["env_version"] != ENV_VERSION:
             print(f"[NOTE] {name}: checkpoint salvo com env_version={rinfo['env_version']!r}, "
@@ -359,6 +366,15 @@ def main():
                      "same protocol as the Phase-3 table)"),
         "env_version": sys.modules["envs.walker_ragdoll_env"].ENV_VERSION,
         "env_commit": args.env_commit,
+        # A return from this script is not reproducible from the command line alone: the policies
+        # whose actions come from a network round differently on cpu and cuda, and in a chaotic
+        # system that divergence changes the trajectory, not just its score. The 269k-step Dreamer
+        # row published on 2026-10-02 was scored on cpu and compared in the same sentence against a
+        # 1M-step row scored on cuda (benchmarks/phase1_eval_device_sensitivity.json measures the
+        # gap: 6620.16 against 6368.15 for the identical checkpoint and seeds). Recording the device
+        # is what makes that mistake visible next time instead of plausible.
+        "device": str(device),
+        "torch_threads": int(torch.get_num_threads()),
         "models": results,
         "per_episode": per_episode,
     }

@@ -22,9 +22,10 @@ wheels/
 .coverage
 htmlcov/
 *.log
-# Evidence logs are the exception: summarize_benchmarks.py and summarize_phase1.py parse exactly
-# these to rebuild the published artifacts in benchmarks/, so a clone without them cannot reproduce
-# any number that the README quotes from them. New experiment logs stay ignored.
+# Evidence logs are the exception: summarize_benchmarks.py, summarize_phase1.py and
+# summarize_training_rate.py parse exactly these to rebuild the published artifacts in benchmarks/,
+# so a clone without them cannot reproduce any number that the README quotes from them. New
+# experiment logs stay ignored.
 !eval_phase3_20ep.log
 !eval_phase3_100ep.log
 !eval_phase3_100ep_v9.log
@@ -35,6 +36,7 @@ htmlcov/
 !ars_evidence.log
 !dreamer_smoke.log
 !redq_evidence.log
+!dreamer_n16_250k_evidence.log
 runs/
 checkpoints/
 *.pt

@@ -5,14 +5,14 @@
   "device": "cuda",
   "torch_threads": 24,
   "models": {
-    "dreamer_v3_1m": {
+    "dreamer_v3_1m_training_reward": {
       "checkpoint": "checkpoints/dreamer_v3_1m/dreamer_actor_1000000.pt",
       "algo": "dreamer",
       "task_phase": "target",
       "obs_width": 49,
       "global_step": 1000000,
       "episodes": 50,
-      "reward_source": "train_walker.make_env shaping (applied to every Phase-1 trainer since 8d37846; this checkpoint predates recording it)",
+      "reward_source": "forced --reward-weights=training",
       "reward_kwargs": {
         "standing_reward": 0.0,
         "target_direction_reward_weight": 200.0,
@@ -37,7 +37,7 @@
     }
   },
   "per_episode": {
-    "dreamer_v3_1m": [
+    "dreamer_v3_1m_training_reward": [
       9485.442295541263,
       13735.909847498653,
       6715.882036552619,
@@ -89,7 +89,7 @@
       6212.72337742017,
       -2221.565315812324
     ],
-    "dreamer_v3_1m__telemetry": [
+    "dreamer_v3_1m_training_reward__telemetry": [
       {
         "steps": 1000,
         "min_target_distance": 3.673,

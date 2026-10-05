@@ -21,6 +21,7 @@ from train_walker import (
     log_mlflow_artifact,
     end_mlflow_run,
 )
+from envs.reward_shaping import TRAINING_REWARD_KWARGS
 
 class ObservationNormalizer:
     def __init__(self, shape):
@@ -106,6 +107,9 @@ def save_ars_checkpoint(ckpt_path, global_step, weights, bias, normalizer, task_
         },
         "task_phase": task_phase,
         "target_forward_velocity": target_forward_velocity,
+        # Recorded so an evaluator scores this policy under the reward it was trained with. Without
+        # it the scorer has to guess, and it guessed wrong once already (see reward_kwargs_for).
+        "reward_kwargs": dict(TRAINING_REWARD_KWARGS),
         "rng_state": get_rng_state(),
     }
     torch.save(state, ckpt_path)

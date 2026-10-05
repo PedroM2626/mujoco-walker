@@ -1,0 +1,115 @@
+{
+  "protocol": "eval_phase1.py --num-episodes 10 --seed 11 (WalkerRagdoll-v0, reset_mode=mixed, one env.step per action, checkpoint obs_rms applied, deterministic; same protocol as the Phase-3 table)",
+  "env_version": "standup_balance_walk_curriculum_v9",
+  "env_commit": null,
+  "device": "cpu",
+  "torch_threads": 24,
+  "models": {
+    "sac_target_40M": {
+      "checkpoint": "checkpoints/walker_target_v1/sac_ckpt_40000000.pt",
+      "algo": "sac",
+      "task_phase": "target",
+      "obs_width": 49,
+      "global_step": 40000000,
+      "episodes": 10,
+      "reward_source": "forced --reward-weights=training",
+      "reward_kwargs": {
+        "standing_reward": 0.0,
+        "target_direction_reward_weight": 200.0,
+        "target_progress_reward_weight": 300.0,
+        "stand_height_reward_weight": 100.0,
+        "stability_reward_weight": 20.0,
+        "stillness_penalty_weight": 5.0,
+        "lateral_drift_penalty_weight": 3.0
+      },
+      "checkpoint_env_version": "standup_balance_walk_curriculum_v4",
+      "mean": 23007.95,
+      "median": 2810.87,
+      "std": 29581.45,
+      "min": 202.58,
+      "max": 85243.67,
+      "falls_per_episode": 0.5,
+      "standing_at_end_pct": 0.0,
+      "mean_episode_steps": 1000.0,
+      "reached_target_pct": 0.0,
+      "mean_min_target_distance": 3.029,
+      "mean_x_velocity": 0.0321
+    }
+  },
+  "per_episode": {
+    "sac_target_40M": [
+      54011.94230489965,
+      85243.67428840531,
+      202.57979250424552,
+      4388.944783449139,
+      1192.3156791843821,
+      56079.065948384,
+      554.5429469924418,
+      1232.7919535316184,
+      861.0535216617087,
+      26312.54396962544
+    ],
+    "sac_target_40M__telemetry": [
+      {
+        "steps": 1000,
+        "min_target_distance": 4.1,
+        "reached_target": false,
+        "mean_x_velocity": -0.0419
+      },
+      {
+        "steps": 1000,
+        "min_target_distance": 1.917,
+        "reached_target": false,
+        "mean_x_velocity": 0.1733
+      },
+      {
+        "steps": 1000,
+        "min_target_distance": 4.512,
+        "reached_target": false,
+        "mean_x_velocity": -0.0071
+      },
+      {
+        "steps": 1000,
+        "min_target_distance": 2.701,
+        "reached_target": false,
+        "mean_x_velocity": 0.0186
+      },
+      {
+        "steps": 1000,
+        "min_target_distance": 2.753,
+        "reached_target": false,
+        "mean_x_velocity": 0.0079
+      },
+      {
+        "steps": 1000,
+        "min_target_distance": 1.999,
+        "reached_target": false,
+        "mean_x_velocity": 0.0345
+      },
+      {
+        "steps": 1000,
+        "min_target_distance": 2.473,
+        "reached_target": false,
+        "mean_x_velocity": -0.0008
+      },
+      {
+        "steps": 1000,
+        "min_target_distance": 3.571,
+        "reached_target": false,
+        "mean_x_velocity": 0.0343
+      },
+      {
+        "steps": 1000,
+        "min_target_distance": 2.459,
+        "reached_target": false,
+        "mean_x_velocity": -0.0087
+      },
+      {
+        "steps": 1000,
+        "min_target_distance": 3.806,
+        "reached_target": false,
+        "mean_x_velocity": 0.1104
+      }
+    ]
+  }
+}

@@ -33,20 +33,24 @@ TRAINING_REWARD_KWARGS = {
 def reward_kwargs_for(checkpoint):
     """The reward kwargs a checkpoint should be scored with, and where that decision came from.
 
-    New checkpoints carry their own `reward_kwargs`; the historical SAC/TD3/PPO runs were all made
-    by `train_walker.py`, so they are scored with TRAINING_REWARD_KWARGS; anything else (Dreamer,
-    REDQ, ARS) trained against the environment defaults and must be scored against those.
+    New checkpoints carry their own `reward_kwargs`. For the ones that do not, the fallback used to
+    be "SAC/TD3/PPO were trained by `train_walker.py` so they get the shaping, and Dreamer/REDQ/ARS
+    trained against the environment defaults" - and that split was wrong. `train_walker.make_env`
+    has applied these kwargs to *every* sub-environment since 8d37846 (2026-05-20), and
+    `train_dreamer.py`, `train_redq.py` and `train_ars.py` all build their environments through it,
+    so a Phase-1 checkpoint that does not record its reward was still trained under this one. The
+    cost of the wrong fallback was that every published Dreamer/ARS/REDQ return was computed against
+    a reward nobody optimised - the exact failure this module's docstring warns about, on the three
+    algorithms it did not cover.
     """
     recorded = checkpoint.get("reward_kwargs") if isinstance(checkpoint, dict) else None
     tfv = checkpoint.get("target_forward_velocity") if isinstance(checkpoint, dict) else None
-    algo = str(checkpoint.get("algo") or "").lower() if isinstance(checkpoint, dict) else ""
-    kwargs = {}
     if recorded:
         kwargs, source = dict(recorded), "checkpoint"
-    elif algo.startswith(("sac", "td3", "ppo")):
-        kwargs, source = dict(TRAINING_REWARD_KWARGS), "train_walker shaping (checkpoint predates recording)"
     else:
-        source = "environment defaults"
+        kwargs, source = dict(TRAINING_REWARD_KWARGS), (
+            "train_walker.make_env shaping (applied to every Phase-1 trainer since 8d37846; this "
+            "checkpoint predates recording it)")
     if tfv is not None and "target_forward_velocity" not in kwargs:
         kwargs["target_forward_velocity"] = float(tfv)
     return kwargs, source

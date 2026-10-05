@@ -1,0 +1,815 @@
+{
+  "generated_at": "2026-10-04T21:10:08",
+  "source": "mlruns.db",
+  "query": "runs having >=2 'sps' samples and >= --min-steps between the first and last; rate = (last step - first step) / (last timestamp - first timestamp)",
+  "min_steps": 2000,
+  "sps_definition": "train_dreamer.py: \"sps\": int(global_step / (time.time() - start_time)) - a cumulative average since process start, first logged at learning_starts before any update runs, so it decays toward the run's real rate",
+  "cited": {
+    "before_graph_capture": {
+      "run_uuid": "90af1e04c1a24b32aaa35f3a7624ac93",
+      "name": "dreamer_dreamer_v2_1m_v9__7",
+      "started": "2026-10-02T11:30:59",
+      "start_time_ms": 1790951459286,
+      "status": "FINISHED",
+      "lifecycle_stage": "active",
+      "algo": "dreamer",
+      "num_envs": "4",
+      "task_phase": "target",
+      "seed": "7",
+      "reset_mode": "mixed",
+      "total_timesteps": "1000000",
+      "update_graph": null,
+      "sps_samples": 264,
+      "first_step": 5000,
+      "last_step": 268000,
+      "steps_between_samples": 263000,
+      "span_s": 19981.7,
+      "rate_steps_per_s": 13.2,
+      "hours_per_1m_steps": 21.1,
+      "first_logged_sps": 235.0,
+      "last_logged_sps": 13.0,
+      "median_logged_sps": 14.0
+    },
+    "after_graph_capture": {
+      "run_uuid": "65f08113dc12488d8d156b07c604837a",
+      "name": "dreamer_dreamer_v3_1m__7",
+      "started": "2026-10-04T15:01:59",
+      "start_time_ms": 1791136919596,
+      "status": "FINISHED",
+      "lifecycle_stage": "active",
+      "algo": "dreamer",
+      "num_envs": "4",
+      "task_phase": "target",
+      "seed": "7",
+      "reset_mode": "mixed",
+      "total_timesteps": "1000000",
+      "update_graph": "True",
+      "sps_samples": 996,
+      "first_step": 5000,
+      "last_step": 1000000,
+      "steps_between_samples": 995000,
+      "span_s": 4565.4,
+      "rate_steps_per_s": 217.9,
+      "hours_per_1m_steps": 1.27,
+      "first_logged_sps": 690.0,
+      "last_logged_sps": 218.0,
+      "median_logged_sps": 213.0
+    },
+    "ratio_after_over_before": 16.51
+  },
+  "runs": [
+    {
+      "run_uuid": "973db8cce7f4487ea83f6d84b3613dd9",
+      "name": "redq_calib_redq__7",
+      "started": "2026-10-01T19:21:17",
+      "start_time_ms": 1790893277434,
+      "status": "FINISHED",
+      "lifecycle_stage": "active",
+      "algo": "redq",
+      "num_envs": "16",
+      "task_phase": "target",
+      "seed": "7",
+      "reset_mode": "upright",
+      "total_timesteps": "20000",
+      "update_graph": null,
+      "sps_samples": 16,
+      "first_step": 5008,
+      "last_step": 20000,
+      "steps_between_samples": 14992,
+      "span_s": 349.3,
+      "rate_steps_per_s": 42.9,
+      "hours_per_1m_steps": 6.47,
+      "first_logged_sps": 60.0,
+      "last_logged_sps": 46.0,
+      "median_logged_sps": 46.5
+    },
+    {
+      "run_uuid": "d9958704c3af42938c04837da7f15608",
+      "name": "dreamer_calib_dreamer__7",
+      "started": "2026-10-01T19:28:59",
+      "start_time_ms": 1790893739057,
+      "status": "FINISHED",
+      "lifecycle_stage": "active",
+      "algo": "dreamer",
+      "num_envs": "4",
+      "task_phase": "target",
+      "seed": "7",
+      "reset_mode": "upright",
+      "total_timesteps": "12000",
+      "update_graph": null,
+      "sps_samples": 3,
+      "first_step": 5000,
+      "last_step": 7000,
+      "steps_between_samples": 2000,
+      "span_s": 90.2,
+      "rate_steps_per_s": 22.2,
+      "hours_per_1m_steps": 12.52,
+      "first_logged_sps": 132.0,
+      "last_logged_sps": 54.0,
+      "median_logged_sps": 70.0
+    },
+    {
+      "run_uuid": "9fc9f2b339e84816bebb73a8466f8f6e",
+      "name": "dreamer_calib_dreamer3__7",
+      "started": "2026-10-01T19:33:23",
+      "start_time_ms": 1790894003510,
+      "status": "FINISHED",
+      "lifecycle_stage": "active",
+      "algo": "dreamer",
+      "num_envs": "4",
+      "task_phase": "target",
+      "seed": "7",
+      "reset_mode": "upright",
+      "total_timesteps": "12000",
+      "update_graph": null,
+      "sps_samples": 4,
+      "first_step": 5000,
+      "last_step": 8000,
+      "steps_between_samples": 3000,
+      "span_s": 179.0,
+      "rate_steps_per_s": 16.8,
+      "hours_per_1m_steps": 16.57,
+      "first_logged_sps": 136.0,
+      "last_logged_sps": 37.0,
+      "median_logged_sps": 58.5
+    },
+    {
+      "run_uuid": "01291c79e2964408afb5e4d0ba832e16",
+      "name": "dreamer_dreamer_v2_1m__7",
+      "started": "2026-10-01T19:43:27",
+      "start_time_ms": 1790894607123,
+      "status": "FINISHED",
+      "lifecycle_stage": "active",
+      "algo": "dreamer",
+      "num_envs": "4",
+      "task_phase": "target",
+      "seed": "7",
+      "reset_mode": "mixed",
+      "total_timesteps": "1000000",
+      "update_graph": null,
+      "sps_samples": 61,
+      "first_step": 5000,
+      "last_step": 65000,
+      "steps_between_samples": 60000,
+      "span_s": 2881.5,
+      "rate_steps_per_s": 20.8,
+      "hours_per_1m_steps": 13.34,
+      "first_logged_sps": 683.0,
+      "last_logged_sps": 22.0,
+      "median_logged_sps": 29.0
+    },
+    {
+      "run_uuid": "6edf1fb2a1544ae8905f8f605db6e919",
+      "name": "dreamer_dreamer_v2_1m__7",
+      "started": "2026-10-01T20:32:39",
+      "start_time_ms": 1790897559127,
+      "status": "FINISHED",
+      "lifecycle_stage": "active",
+      "algo": "dreamer",
+      "num_envs": "4",
+      "task_phase": "target",
+      "seed": "7",
+      "reset_mode": "mixed",
+      "total_timesteps": "1000000",
+      "update_graph": null,
+      "sps_samples": 12,
+      "first_step": 5000,
+      "last_step": 16000,
+      "steps_between_samples": 11000,
+      "span_s": 463.5,
+      "rate_steps_per_s": 23.7,
+      "hours_per_1m_steps": 11.7,
+      "first_logged_sps": 782.0,
+      "last_logged_sps": 34.0,
+      "median_logged_sps": 51.5
+    },
+    {
+      "run_uuid": "dd219d14f7274d31a716d4615c1e14e9",
+      "name": "redq_redq_v2_1m__7",
+      "started": "2026-10-01T20:33:04",
+      "start_time_ms": 1790897584719,
+      "status": "FINISHED",
+      "lifecycle_stage": "active",
+      "algo": "redq",
+      "num_envs": "16",
+      "task_phase": "target",
+      "seed": "7",
+      "reset_mode": "mixed",
+      "total_timesteps": "1000000",
+      "update_graph": null,
+      "sps_samples": 16,
+      "first_step": 5008,
+      "last_step": 20000,
+      "steps_between_samples": 14992,
+      "span_s": 439.7,
+      "rate_steps_per_s": 34.1,
+      "hours_per_1m_steps": 8.15,
+      "first_logged_sps": 89.0,
+      "last_logged_sps": 40.0,
+      "median_logged_sps": 50.0
+    },
+    {
+      "run_uuid": "ae34e8eb5e7b4da89f0e0f818faab8ae",
+      "name": "dreamer_dreamer_v2_1m__7",
+      "started": "2026-10-01T20:41:16",
+      "start_time_ms": 1790898076557,
+      "status": "FINISHED",
+      "lifecycle_stage": "active",
+      "algo": "dreamer",
+      "num_envs": "4",
+      "task_phase": "target",
+      "seed": "7",
+      "reset_mode": "mixed",
+      "total_timesteps": "1000000",
+      "update_graph": null,
+      "sps_samples": 17,
+      "first_step": 5000,
+      "last_step": 21000,
+      "steps_between_samples": 16000,
+      "span_s": 1127.2,
+      "rate_steps_per_s": 14.2,
+      "hours_per_1m_steps": 19.57,
+      "first_logged_sps": 826.0,
+      "last_logged_sps": 18.0,
+      "median_logged_sps": 22.0
+    },
+    {
+      "run_uuid": "99dbfda5d532474698ed5cbe450e918b",
+      "name": "dreamer_dreamer_probe__7",
+      "started": "2026-10-01T20:47:41",
+      "start_time_ms": 1790898461227,
+      "status": "FINISHED",
+      "lifecycle_stage": "active",
+      "algo": "dreamer",
+      "num_envs": "4",
+      "task_phase": "target",
+      "seed": "7",
+      "reset_mode": "mixed",
+      "total_timesteps": "14000",
+      "update_graph": null,
+      "sps_samples": 10,
+      "first_step": 5000,
+      "last_step": 14000,
+      "steps_between_samples": 9000,
+      "span_s": 682.3,
+      "rate_steps_per_s": 13.2,
+      "hours_per_1m_steps": 21.06,
+      "first_logged_sps": 309.0,
+      "last_logged_sps": 20.0,
+      "median_logged_sps": 22.5
+    },
+    {
+      "run_uuid": "d5f8c4ce1fd24cdbb0930c25f4b0552c",
+      "name": "dreamer_ab_old__7",
+      "started": "2026-10-01T21:00:56",
+      "start_time_ms": 1790899256338,
+      "status": "FINISHED",
+      "lifecycle_stage": "active",
+      "algo": "dreamer",
+      "num_envs": "4",
+      "task_phase": "target",
+      "seed": "7",
+      "reset_mode": "mixed",
+      "total_timesteps": "14000",
+      "update_graph": null,
+      "sps_samples": 10,
+      "first_step": 5000,
+      "last_step": 14000,
+      "steps_between_samples": 9000,
+      "span_s": 968.8,
+      "rate_steps_per_s": 9.3,
+      "hours_per_1m_steps": 29.9,
+      "first_logged_sps": 420.0,
+      "last_logged_sps": 14.0,
+      "median_logged_sps": 20.0
+    },
+    {
+      "run_uuid": "af11ead693fc4e98ac99e714bbf6cd53",
+      "name": "dreamer_ab_new__7",
+      "started": "2026-10-01T21:17:26",
+      "start_time_ms": 1790900246230,
+      "status": "FINISHED",
+      "lifecycle_stage": "active",
+      "algo": "dreamer",
+      "num_envs": "4",
+      "task_phase": "target",
+      "seed": "7",
+      "reset_mode": "mixed",
+      "total_timesteps": "14000",
+      "update_graph": null,
+      "sps_samples": 10,
+      "first_step": 5000,
+      "last_step": 14000,
+      "steps_between_samples": 9000,
+      "span_s": 878.1,
+      "rate_steps_per_s": 10.2,
+      "hours_per_1m_steps": 27.1,
+      "first_logged_sps": 408.0,
+      "last_logged_sps": 15.0,
+      "median_logged_sps": 25.5
+    },
+    {
+      "run_uuid": "6065cf7e87654e57a7766205cc367373",
+      "name": "redq_rate_r_10k__7",
+      "started": "2026-10-01T21:36:05",
+      "start_time_ms": 1790901365386,
+      "status": "FINISHED",
+      "lifecycle_stage": "active",
+      "algo": "redq",
+      "num_envs": "16",
+      "task_phase": "target",
+      "seed": "7",
+      "reset_mode": "mixed",
+      "total_timesteps": "10000",
+      "update_graph": null,
+      "sps_samples": 6,
+      "first_step": 5008,
+      "last_step": 10000,
+      "steps_between_samples": 4992,
+      "span_s": 325.0,
+      "rate_steps_per_s": 15.4,
+      "hours_per_1m_steps": 18.09,
+      "first_logged_sps": 38.0,
+      "last_logged_sps": 22.0,
+      "median_logged_sps": 25.5
+    },
+    {
+      "run_uuid": "4122676185b3471397979aa677f658ef",
+      "name": "redq_rate_r_30k__7",
+      "started": "2026-10-01T21:43:45",
+      "start_time_ms": 1790901825161,
+      "status": "FINISHED",
+      "lifecycle_stage": "active",
+      "algo": "redq",
+      "num_envs": "16",
+      "task_phase": "target",
+      "seed": "7",
+      "reset_mode": "mixed",
+      "total_timesteps": "30000",
+      "update_graph": null,
+      "sps_samples": 26,
+      "first_step": 5008,
+      "last_step": 30000,
+      "steps_between_samples": 24992,
+      "span_s": 1414.1,
+      "rate_steps_per_s": 17.7,
+      "hours_per_1m_steps": 15.72,
+      "first_logged_sps": 43.0,
+      "last_logged_sps": 19.0,
+      "median_logged_sps": 21.0
+    },
+    {
+      "run_uuid": "6c9cc90fe18941dcb86d029454b42841",
+      "name": "dreamer_dreamer_v2_1m__7",
+      "started": "2026-10-01T22:12:29",
+      "start_time_ms": 1790903549386,
+      "status": "FINISHED",
+      "lifecycle_stage": "active",
+      "algo": "dreamer",
+      "num_envs": "4",
+      "task_phase": "target",
+      "seed": "7",
+      "reset_mode": "mixed",
+      "total_timesteps": "1000000",
+      "update_graph": null,
+      "sps_samples": 129,
+      "first_step": 5000,
+      "last_step": 133000,
+      "steps_between_samples": 128000,
+      "span_s": 7338.1,
+      "rate_steps_per_s": 17.4,
+      "hours_per_1m_steps": 15.92,
+      "first_logged_sps": 423.0,
+      "last_logged_sps": 18.0,
+      "median_logged_sps": 15.0
+    },
+    {
+      "run_uuid": "b623897b7e1444ef97a3b99d9b95a6f2",
+      "name": "dreamer_dreamer_v2_1m__7",
+      "started": "2026-10-02T09:54:46",
+      "start_time_ms": 1790945686303,
+      "status": "FINISHED",
+      "lifecycle_stage": "active",
+      "algo": "dreamer",
+      "num_envs": "4",
+      "task_phase": "target",
+      "seed": "7",
+      "reset_mode": "mixed",
+      "total_timesteps": "1000000",
+      "update_graph": null,
+      "sps_samples": 80,
+      "first_step": 5000,
+      "last_step": 84000,
+      "steps_between_samples": 79000,
+      "span_s": 4425.6,
+      "rate_steps_per_s": 17.9,
+      "hours_per_1m_steps": 15.56,
+      "first_logged_sps": 203.0,
+      "last_logged_sps": 18.0,
+      "median_logged_sps": 22.0
+    },
+    {
+      "run_uuid": "90af1e04c1a24b32aaa35f3a7624ac93",
+      "name": "dreamer_dreamer_v2_1m_v9__7",
+      "started": "2026-10-02T11:30:59",
+      "start_time_ms": 1790951459286,
+      "status": "FINISHED",
+      "lifecycle_stage": "active",
+      "algo": "dreamer",
+      "num_envs": "4",
+      "task_phase": "target",
+      "seed": "7",
+      "reset_mode": "mixed",
+      "total_timesteps": "1000000",
+      "update_graph": null,
+      "sps_samples": 264,
+      "first_step": 5000,
+      "last_step": 268000,
+      "steps_between_samples": 263000,
+      "span_s": 19981.7,
+      "rate_steps_per_s": 13.2,
+      "hours_per_1m_steps": 21.1,
+      "first_logged_sps": 235.0,
+      "last_logged_sps": 13.0,
+      "median_logged_sps": 14.0
+    },
+    {
+      "run_uuid": "913c9e96f2b7406e89d2a754dd6a3a60",
+      "name": "redq_redq_v2_1m_v9__7",
+      "started": "2026-10-02T17:11:08",
+      "start_time_ms": 1790971868993,
+      "status": "FINISHED",
+      "lifecycle_stage": "active",
+      "algo": "redq",
+      "num_envs": "16",
+      "task_phase": "target",
+      "seed": "7",
+      "reset_mode": "mixed",
+      "total_timesteps": "1000000",
+      "update_graph": null,
+      "sps_samples": 738,
+      "first_step": 5008,
+      "last_step": 742000,
+      "steps_between_samples": 736992,
+      "span_s": 28728.0,
+      "rate_steps_per_s": 25.7,
+      "hours_per_1m_steps": 10.83,
+      "first_logged_sps": 34.0,
+      "last_logged_sps": 25.0,
+      "median_logged_sps": 19.0
+    },
+    {
+      "run_uuid": "65f08113dc12488d8d156b07c604837a",
+      "name": "dreamer_dreamer_v3_1m__7",
+      "started": "2026-10-04T15:01:59",
+      "start_time_ms": 1791136919596,
+      "status": "FINISHED",
+      "lifecycle_stage": "active",
+      "algo": "dreamer",
+      "num_envs": "4",
+      "task_phase": "target",
+      "seed": "7",
+      "reset_mode": "mixed",
+      "total_timesteps": "1000000",
+      "update_graph": "True",
+      "sps_samples": 996,
+      "first_step": 5000,
+      "last_step": 1000000,
+      "steps_between_samples": 995000,
+      "span_s": 4565.4,
+      "rate_steps_per_s": 217.9,
+      "hours_per_1m_steps": 1.27,
+      "first_logged_sps": 690.0,
+      "last_logged_sps": 218.0,
+      "median_logged_sps": 213.0
+    }
+  ],
+  "checkpoint_wall_clock": {
+    "source": "mtime of checkpoints/<run-id>/dreamer_actor_<step>.pt",
+    "note": "the window excludes process startup and graph capture because it starts at the first checkpoint both arms wrote; num_envs is the flag each run was started with, cross-checked against the observation normalizer's own counter (see normalizer_residue) - a disagreement prints a warning and means the arm is mislabelled or was resumed",
+    "runs": [
+      {
+        "run_id": "dreamer_v3_1m",
+        "num_envs": 4,
+        "num_envs_from_normalizer": 4,
+        "normalizer_residue": 4.000100000062957,
+        "evidence_log": null,
+        "checkpoints": [
+          {
+            "step": 50000,
+            "mtime": "2026-10-04T15:05:32"
+          },
+          {
+            "step": 100000,
+            "mtime": "2026-10-04T15:10:49"
+          },
+          {
+            "step": 150000,
+            "mtime": "2026-10-04T15:14:47"
+          },
+          {
+            "step": 200000,
+            "mtime": "2026-10-04T15:18:43"
+          },
+          {
+            "step": 250000,
+            "mtime": "2026-10-04T15:22:40"
+          },
+          {
+            "step": 300000,
+            "mtime": "2026-10-04T15:26:22"
+          },
+          {
+            "step": 350000,
+            "mtime": "2026-10-04T15:30:01"
+          },
+          {
+            "step": 400000,
+            "mtime": "2026-10-04T15:33:57"
+          },
+          {
+            "step": 450000,
+            "mtime": "2026-10-04T15:37:51"
+          },
+          {
+            "step": 500000,
+            "mtime": "2026-10-04T15:41:27"
+          },
+          {
+            "step": 550000,
+            "mtime": "2026-10-04T15:45:05"
+          },
+          {
+            "step": 600000,
+            "mtime": "2026-10-04T15:48:45"
+          },
+          {
+            "step": 650000,
+            "mtime": "2026-10-04T15:52:31"
+          },
+          {
+            "step": 700000,
+            "mtime": "2026-10-04T15:56:09"
+          },
+          {
+            "step": 750000,
+            "mtime": "2026-10-04T15:59:54"
+          },
+          {
+            "step": 800000,
+            "mtime": "2026-10-04T16:03:30"
+          },
+          {
+            "step": 850000,
+            "mtime": "2026-10-04T16:07:12"
+          },
+          {
+            "step": 900000,
+            "mtime": "2026-10-04T16:10:47"
+          },
+          {
+            "step": 950000,
+            "mtime": "2026-10-04T16:14:28"
+          },
+          {
+            "step": 1000000,
+            "mtime": "2026-10-04T16:18:11"
+          }
+        ],
+        "intervals": [
+          {
+            "from_step": 50000,
+            "to_step": 100000,
+            "steps": 50000,
+            "seconds": 317.74,
+            "rate_steps_per_s": 157.4
+          },
+          {
+            "from_step": 100000,
+            "to_step": 150000,
+            "steps": 50000,
+            "seconds": 237.67,
+            "rate_steps_per_s": 210.4
+          },
+          {
+            "from_step": 150000,
+            "to_step": 200000,
+            "steps": 50000,
+            "seconds": 236.1,
+            "rate_steps_per_s": 211.8
+          },
+          {
+            "from_step": 200000,
+            "to_step": 250000,
+            "steps": 50000,
+            "seconds": 236.68,
+            "rate_steps_per_s": 211.3
+          },
+          {
+            "from_step": 250000,
+            "to_step": 300000,
+            "steps": 50000,
+            "seconds": 221.97,
+            "rate_steps_per_s": 225.3
+          },
+          {
+            "from_step": 300000,
+            "to_step": 350000,
+            "steps": 50000,
+            "seconds": 219.21,
+            "rate_steps_per_s": 228.1
+          },
+          {
+            "from_step": 350000,
+            "to_step": 400000,
+            "steps": 50000,
+            "seconds": 235.76,
+            "rate_steps_per_s": 212.1
+          },
+          {
+            "from_step": 400000,
+            "to_step": 450000,
+            "steps": 50000,
+            "seconds": 234.63,
+            "rate_steps_per_s": 213.1
+          },
+          {
+            "from_step": 450000,
+            "to_step": 500000,
+            "steps": 50000,
+            "seconds": 215.22,
+            "rate_steps_per_s": 232.3
+          },
+          {
+            "from_step": 500000,
+            "to_step": 550000,
+            "steps": 50000,
+            "seconds": 218.1,
+            "rate_steps_per_s": 229.3
+          },
+          {
+            "from_step": 550000,
+            "to_step": 600000,
+            "steps": 50000,
+            "seconds": 220.43,
+            "rate_steps_per_s": 226.8
+          },
+          {
+            "from_step": 600000,
+            "to_step": 650000,
+            "steps": 50000,
+            "seconds": 226.36,
+            "rate_steps_per_s": 220.9
+          },
+          {
+            "from_step": 650000,
+            "to_step": 700000,
+            "steps": 50000,
+            "seconds": 217.84,
+            "rate_steps_per_s": 229.5
+          },
+          {
+            "from_step": 700000,
+            "to_step": 750000,
+            "steps": 50000,
+            "seconds": 225.13,
+            "rate_steps_per_s": 222.1
+          },
+          {
+            "from_step": 750000,
+            "to_step": 800000,
+            "steps": 50000,
+            "seconds": 215.2,
+            "rate_steps_per_s": 232.3
+          },
+          {
+            "from_step": 800000,
+            "to_step": 850000,
+            "steps": 50000,
+            "seconds": 222.26,
+            "rate_steps_per_s": 225.0
+          },
+          {
+            "from_step": 850000,
+            "to_step": 900000,
+            "steps": 50000,
+            "seconds": 214.7,
+            "rate_steps_per_s": 232.9
+          },
+          {
+            "from_step": 900000,
+            "to_step": 950000,
+            "steps": 50000,
+            "seconds": 221.51,
+            "rate_steps_per_s": 225.7
+          },
+          {
+            "from_step": 950000,
+            "to_step": 1000000,
+            "steps": 50000,
+            "seconds": 222.66,
+            "rate_steps_per_s": 224.6
+          }
+        ],
+        "window": {
+          "from_step": 50000,
+          "to_step": 250000,
+          "steps": 200000,
+          "seconds": 1028.0,
+          "rate_steps_per_s": 194.6,
+          "interval_rates": [
+            157.4,
+            210.4,
+            211.8,
+            211.3
+          ]
+        }
+      },
+      {
+        "run_id": "dreamer_n16_250k",
+        "num_envs": 16,
+        "num_envs_from_normalizer": 16,
+        "normalizer_residue": 16.00010000000475,
+        "evidence_log": {
+          "path": "dreamer_n16_250k_evidence.log",
+          "gpu_window": "NVIDIA GeForce RTX 4070 Laptop GPU driver 556.29, 531/8188 MiB in use by 5 other CUDA contexts",
+          "update_mode": "captured CUDA graph (auto for device=cuda)"
+        },
+        "checkpoints": [
+          {
+            "step": 50000,
+            "mtime": "2026-10-04T20:04:22"
+          },
+          {
+            "step": 100000,
+            "mtime": "2026-10-04T20:05:27"
+          },
+          {
+            "step": 150000,
+            "mtime": "2026-10-04T20:06:31"
+          },
+          {
+            "step": 200000,
+            "mtime": "2026-10-04T20:07:38"
+          },
+          {
+            "step": 250000,
+            "mtime": "2026-10-04T20:08:34"
+          }
+        ],
+        "intervals": [
+          {
+            "from_step": 50000,
+            "to_step": 100000,
+            "steps": 50000,
+            "seconds": 65.29,
+            "rate_steps_per_s": 765.8
+          },
+          {
+            "from_step": 100000,
+            "to_step": 150000,
+            "steps": 50000,
+            "seconds": 64.1,
+            "rate_steps_per_s": 780.0
+          },
+          {
+            "from_step": 150000,
+            "to_step": 200000,
+            "steps": 50000,
+            "seconds": 66.55,
+            "rate_steps_per_s": 751.3
+          },
+          {
+            "from_step": 200000,
+            "to_step": 250000,
+            "steps": 50000,
+            "seconds": 56.18,
+            "rate_steps_per_s": 890.0
+          }
+        ],
+        "window": {
+          "from_step": 50000,
+          "to_step": 250000,
+          "steps": 200000,
+          "seconds": 252.0,
+          "rate_steps_per_s": 793.7,
+          "interval_rates": [
+            765.8,
+            780.0,
+            751.3,
+            890.0
+          ]
+        }
+      }
+    ],
+    "common_window": {
+      "from_step": 50000,
+      "to_step": 250000,
+      "fastest_over_slowest": 4.08,
+      "arms": {
+        "dreamer_v3_1m": 194.6,
+        "dreamer_n16_250k": 793.7
+      }
+    }
+  }
+}

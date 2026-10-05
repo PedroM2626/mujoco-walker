@@ -13,6 +13,7 @@ README number without re-measuring it.
 
 import glob
 import hashlib
+import datetime
 import json
 import os
 import re
@@ -1301,8 +1302,9 @@ class TestReadmeDreamerV3RunCells(ReadmeGate, unittest.TestCase):
         start = self.readme.index(self.START)
         self.block = re.sub(r"\s+", " ", self.readme[start:self.readme.index(self.END, start)])
         load = lambda p: json.load(open(p, encoding="utf-8"))
-        self.run = load(self.P1)["models"]["dreamer_v3_1m"]
-        self.partial = load(self.P9)["models"]["dreamer_v9_269k"]
+        self.p1_art, self.p9_art = load(self.P1), load(self.P9)
+        self.run = self.p1_art["models"]["dreamer_v3_1m"]
+        self.partial = self.p9_art["models"]["dreamer_v9_269k"]
         self.ars = load(self.ARS)["models"]["ars_v9"]
         self.rate = load(self.RATE)
         self.what = "Dreamer v3 run"
@@ -1330,20 +1332,47 @@ class TestReadmeDreamerV3RunCells(ReadmeGate, unittest.TestCase):
         self.assertEqual(self.run["global_step"], 1000000, "the run the paragraph describes")
 
     def test_the_two_comparisons_are_read_off_the_other_artifacts(self):
-        m = self.find(r"the full budget moved\s*the mean from ([\d.]+) down to ([\d.]+) and the std "
-                      r"from ([\d.]+) up to ([\d.]+), on (\d+) episodes rather\s+than the (\d+) the "
-                      r"partial one was scored on", "the partial-versus-full comparison")
+        m = self.find(r"the full budget moved\s*the mean from ([\d.]+) down to ([\d.]+) \(-([\d.]+)%\) "
+                      r"and the std from ([\d.]+) up to ([\d.]+), on (\d+)\s*episodes rather than the "
+                      r"(\d+) the partial one was scored on", "the partial-versus-full comparison")
         self.check("partial versus full mean and std",
-                   [float(m.group(i)) for i in (1, 2, 3, 4)],
+                   [float(m.group(i)) for i in (1, 2, 4, 5)],
                    [self.partial["mean"], self.run["mean"], self.partial["std"], self.run["std"]],
                    places=2)
-        self.check("episode counts", [int(m.group(5)), int(m.group(6))],
+        self.check("the derived percentage", float(m.group(3)),
+                   round(100.0 * (1.0 - self.run["mean"] / self.partial["mean"]), 1), places=1)
+        self.check("episode counts", [int(m.group(6)), int(m.group(7))],
                    [self.run["episodes"], self.partial["episodes"]], places=0)
         self.assertEqual(self.partial["global_step"], 269404, "the partial checkpoint's step count")
+        for art, name in ((self.p9_art, "partial"), (self.p1_art, "full")):
+            self.assertEqual(art["device"], "cuda",
+                             f"the {name} row must be scored on cuda: the retired comparison had one "
+                             f"arm on cpu and the other on cuda, which is not a budget comparison")
         m = self.find(r"\(2\.893 m against ([\d.]+) m\) with a lower return", "the ARS comparison")
         self.assertAlmostEqual(float(m.group(1)), self.ars["mean_min_target_distance"], places=3)
         self.assertLess(self.run["mean"], self.ars["mean"],
                         "the paragraph says Dreamer's return is lower than ARS at the same budget")
+
+    def test_the_retired_cpu_row_is_reproduced_by_a_committed_artifact(self):
+        """The retired 6486.27 was a cpu score; this is the run that identifies it as one.
+
+        Quoting the retired figure without this artifact would leave a reader with two different
+        numbers for one checkpoint and no way to tell which command produced which.
+        """
+        path = os.path.join(ROOT, "benchmarks", "phase1_dreamer_v9_269k_cpu_reproduction.json")
+        if not os.path.exists(path):
+            self.skipTest("the cpu reproduction arm has not been generated")
+        with open(path, encoding="utf-8") as handle:
+            cpu = json.load(handle)
+        self.assertEqual(cpu["device"], "cpu")
+        row = cpu["models"]["dreamer_v9_269k"]
+        m = self.find(r"6486\.27 was scored on\s*\*\*cpu\*\*", "the retired-figure sentence")
+        self.check("the retired cpu mean", 6486.27, row["mean"], places=2)
+        self.check("the retired cpu median and falls", [6176.57, 0.10],
+                   [row["median"], row["falls_per_episode"]], places=2)
+        self.assertEqual(row["reward_kwargs"], {},
+                         "`--reward-weights env-default` is what reproduces the retired row, because "
+                         "the retired fallback gave Dreamer the environment defaults")
 
     def test_the_wall_clock_is_the_run_s_own_mlflow_row(self):
         if not os.path.exists(self.DB):
@@ -1368,6 +1397,878 @@ class TestReadmeDreamerV3RunCells(ReadmeGate, unittest.TestCase):
         self.assertAlmostEqual(float(m.group(1)), self.rate["hours_per_1m_env_steps"], places=2)
         self.assertEqual(int(m.group(2)), round(100.0 * (hours / self.rate["hours_per_1m_env_steps"]
                                                          - 1.0)), "the 8% is derived, so recompute it")
+
+
+class TestReadmeRewardProvenanceCells(ReadmeGate, unittest.TestCase):
+    """The scoring defects, the corrected rows, and the artifacts that still reproduce the retired ones.
+
+    Every figure here is gated as a pair: what the README publishes now, and a committed artifact that
+    regenerates what it published before. The retired numbers stay measurable on purpose - both
+    mechanisms that produced them (a reward fallback that split by algorithm, and an evaluator that did
+    not record its device) are still reachable as flags, so a reader can reproduce the mistake and see
+    why it was one.
+    """
+
+    FIX_START = "**That fallback was wrong for three of the four algorithms"
+    FIX_END = "Re-scoring the same 200 episodes"
+    ARS_START = "The first Phase-1 run trained on v9 is ARS"
+    ARS_END = "The second Phase-1 run to reach its full budget"
+
+    def setUp(self):
+        with open(README, encoding="utf-8") as handle:
+            readme = handle.read()
+        self.readme = readme
+        self.block = self.section(self.FIX_START, self.FIX_END)
+        self.ars_block = self.section(self.ARS_START, self.ARS_END)
+        self.what = "reward-provenance"
+        self.bad = []
+
+    def section(self, start_marker, end_marker):
+        start = self.readme.index(start_marker)
+        return re.sub(r"\s+", " ", self.readme[start:self.readme.index(end_marker, start)])
+
+    def artifact(self, name):
+        path = os.path.join(ROOT, "benchmarks", name)
+        self.assertTrue(os.path.exists(path), f"the README cites benchmarks/{name}, which is missing")
+        with open(path, encoding="utf-8") as handle:
+            return json.load(handle)
+
+    def test_the_rescored_1m_row_moves_the_return_and_nothing_else(self):
+        current = self.artifact("phase1_dreamer_v3_1m.json")
+        retired = self.artifact("phase1_dreamer_v3_1m_env_default.json")
+        a, b = current["models"]["dreamer_v3_1m"], retired["models"]["dreamer_v3_1m"]
+        self.assertEqual(current["device"], retired["device"],
+                         "the pair only isolates the reward if the device is the same on both arms")
+        m = re.search(r"the mean moved (\d+(?:\.\d+)?) → \*\*(\d+(?:\.\d+)?)\*\* \(\+([\d.]+)%\)",
+                      self.block)
+        self.assertIsNotNone(m, "the re-scoring sentence was reworded")
+        self.check("1M mean, retired and current", [m.group(1), m.group(2)], [b["mean"], a["mean"]],
+                   places=2)
+        self.check("the derived percentage", float(m.group(3)),
+                   round(100.0 * (a["mean"] / b["mean"] - 1.0), 1), places=1)
+        self.assertEqual(current["per_episode"]["dreamer_v3_1m__telemetry"],
+                         retired["per_episode"]["dreamer_v3_1m__telemetry"],
+                         "the telemetry is claimed identical to the digit and it is not")
+        changed = sum(1 for x, y in zip(current["per_episode"]["dreamer_v3_1m"],
+                                        retired["per_episode"]["dreamer_v3_1m"])
+                      if abs(x - y) > 1e-9)
+        m = re.search(r"(\d+) of the (\d+) returns changed", self.block)
+        self.assertIsNotNone(m, "the changed-return count sentence was reworded")
+        self.assertEqual([int(m.group(1)), int(m.group(2))], [changed, a["episodes"]])
+        m = re.search(r"The extremes did not move at all \((-[\d.]+) and ([\d.]+) both before and "
+                      r"after\)", self.block)
+        self.assertIsNotNone(m, "the extremes sentence was reworded")
+        self.check("the extremes, in both arms", [m.group(1), m.group(2)], [a["min"], a["max"]],
+                   places=2)
+        self.assertEqual([b["min"], b["max"]], [a["min"], a["max"]],
+                         "the retired arm's extremes are claimed to be the same two numbers")
+        self.assertEqual(b["reward_kwargs"], {},
+                         "`--reward-weights env-default` is what reproduces the retired row")
+
+    def test_the_ars_row_and_the_version_it_replaces(self):
+        current = self.artifact("phase1_ars_v2_1m_v9.json")["models"]["ars_v9"]
+        retired = self.artifact("phase1_ars_v2_1m_v9_env_default.json")["models"]["ars_v9"]
+        m = re.search(r"mean ([\d.]+), median ([\d.]+), std ([\d.]+), ([\d.]+)\s*falls per episode, "
+                      r"\*\*0 of (\d+) inside the radius\*\*, mean closest\s*approach ([\d.]+) m, mean "
+                      r"x-velocity (-?[\d.]+) m/s", self.ars_block)
+        self.assertIsNotNone(m, "the ARS statistics sentence was reworded")
+        self.check("ARS row", [float(m.group(i)) for i in range(1, 8)],
+                   [current["mean"], current["median"], current["std"],
+                    current["falls_per_episode"], current["episodes"],
+                    current["mean_min_target_distance"], current["mean_x_velocity"]], places=2)
+        m = re.search(r"published once already as ([\d.]+) under the environment defaults",
+                      self.ars_block)
+        self.assertIsNotNone(m, "the retired-ARS-figure sentence was reworded")
+        self.check("the retired ARS mean", m.group(1), retired["mean"], places=2)
+        for field in ("falls_per_episode", "mean_min_target_distance", "mean_x_velocity"):
+            self.assertEqual(current[field], retired[field],
+                             f"ARS {field} is claimed identical in both versions")
+        retired_weights = {k: v for k, v in retired["reward_kwargs"].items()
+                           if k != "target_forward_velocity"}
+        self.assertEqual(retired_weights, {},
+                         "`--reward-weights env-default` is what reproduces the retired ARS row; the "
+                         "checkpoint's own target_forward_velocity is carried through by design")
+        self.assertNotEqual(current["mean"], retired["mean"],
+                            "the paragraph says the return moved; both arms now agree")
+
+    def test_the_two_controls_that_pin_the_resolution(self):
+        """Auto resolution must equal the explicit flag, including for a checkpoint that records tfv.
+
+        The first control is the 1M Dreamer, whose reward the fallback has to infer. The second is the
+        40M SAC checkpoint, which records `target_forward_velocity=10.0`: before that was carried
+        through, the forced arm silently changed the task and the two arms disagreed by 2.5%.
+        """
+        auto = self.artifact("phase1_dreamer_v3_1m.json")
+        forced = self.artifact("phase1_dreamer_v3_1m_training_reward.json")
+        self.assertEqual(auto["per_episode"]["dreamer_v3_1m"],
+                         forced["per_episode"]["dreamer_v3_1m_training_reward"],
+                         "default resolution and --reward-weights training disagree on the 1M run")
+        self.assertEqual(auto["per_episode"]["dreamer_v3_1m__telemetry"],
+                         forced["per_episode"]["dreamer_v3_1m_training_reward__telemetry"])
+        evidence = self.artifact("phase1_evidence_eval.json")["models"]["sac_target_40M"]
+        control = self.artifact("phase1_sac_40m_forced_training_control.json")["models"][
+            "sac_target_40M"]
+        self.assertEqual(evidence["mean"], control["mean"],
+                         "the forced arm drops or alters target_forward_velocity again")
+        self.assertEqual(control["reward_kwargs"].get("target_forward_velocity"), 10.0,
+                         "the SAC checkpoint's tfv is 10.0 and the control must carry it")
+        m = re.search(r"on cuda they both give\s*([\d.]+)\.", self.block)
+        self.assertIsNotNone(m, "the control sentence was reworded")
+        self.check("the SAC cuda row the control must equal", m.group(1), evidence["mean"], places=2)
+        auto = self.artifact("phase1_evidence_eval_cpu_auto.json")
+        buggy = self.artifact("phase1_evidence_eval_cpu_training.json")
+        a, b = auto["models"]["sac_target_40M"], buggy["models"]["sac_target_40M"]
+        m = re.search(r"dropping it moved the score from ([\d.]+) to\s*([\d.]+) on the same device",
+                      self.block)
+        self.assertIsNotNone(m, "the tfv sentence was reworded")
+        self.check("the tfv pair", [m.group(1), m.group(2)], [a["mean"], b["mean"]], places=2)
+        self.assertEqual(auto["device"], buggy["device"],
+                         "the tfv pair only isolates the kwarg if the device is held")
+        self.assertEqual(a["reward_kwargs"].get("target_forward_velocity"), 10.0)
+        self.assertNotIn("target_forward_velocity", b["reward_kwargs"],
+                         "the fixture is supposed to be the arm that dropped tfv")
+        self.assertEqual(auto["per_episode"]["sac_target_40M__telemetry"],
+                         buggy["per_episode"]["sac_target_40M__telemetry"],
+                         "the prose says the telemetry is identical across the tfv pair")
+        ra = auto["per_episode"]["sac_target_40M"]
+        rb = buggy["per_episode"]["sac_target_40M"]
+        differing = [i for i, (x, y) in enumerate(zip(ra, rb)) if abs(x - y) > 0.01]
+        m = re.search(r"exactly \*\*(\d+) of the (\d+)\*\*\s*episodes change return \(([^)]*)\)",
+                      self.block)
+        self.assertIsNotNone(m, "the episode-count sentence was reworded")
+        self.assertEqual([int(m.group(1)), int(m.group(2))], [len(differing), len(ra)])
+        self.assertEqual([int(t) for t in re.findall(r"\d+", m.group(3))], differing,
+                         "the prose names the episodes that moved")
+
+    def test_the_retired_cpu_rows_reproduce_exactly(self):
+        defaults = self.artifact("phase1_evidence_eval_cpu_defaults.json")
+        auto = self.artifact("phase1_evidence_eval_cpu_auto.json")
+        self.assertEqual(defaults["device"], "cpu")
+        self.assertEqual(auto["device"], "cpu")
+        m = re.search(r"returns \*\*([\d.]+) / ([\d.]+) / (-?[\d.]+)\*\* for the\s*REDQ, Dreamer and "
+                      r"ARS smoke checkpoints", self.block)
+        self.assertIsNotNone(m, "the retired evidence-table sentence was reworded")
+        self.check("the three retired cpu rows", [float(m.group(i)) for i in (1, 2, 3)],
+                   [defaults["models"][k]["mean"] for k in
+                    ("redq_6k", "dreamer_8k", "ars_60k")], places=2)
+        m = re.search(r"returns\s*\*\*([\d.]+)\*\* for the 40M SAC row", self.block)
+        self.assertIsNotNone(m, "the retired SAC cpu sentence was reworded")
+        self.check("the retired SAC cpu row", m.group(1), auto["models"]["sac_target_40M"]["mean"],
+                   places=2)
+
+
+class TestReadmePostureCells(ReadmeGate, unittest.TestCase):
+    """The standing-band table and the three readings under it, against `bench_posture.py`'s artifact.
+
+    This is the section that says the honest thing about Phase 1 - that the trained policies reach the
+    env's standing band no more often than commanding zero does - so the comparison has to be
+    recomputable, including the two prose figures that carry it (the band-episode counts and the
+    identical fall counts).
+    """
+
+    POSTURE = os.path.join(ROOT, "benchmarks", "phase1_posture_probe.json")
+    DEFAULTS = os.path.join(ROOT, "benchmarks", "phase1_posture_probe_env_default.json")
+    SENS = os.path.join(ROOT, "benchmarks", "phase1_eval_device_sensitivity.json")
+    START = "**And the rung below walking is the one nobody clears.**"
+    END = "**Would one run that does everything beat the phase split?"
+
+    ROWS = {"SAC at 40M steps": "sac_40m", "SAC at 9M steps": "sac_9m",
+            "ARS at 1M": "ars_v9_1m", "Dreamer at 269,404": "dreamer_v9_269k",
+            "**Dreamer at 1M**": "dreamer_v3_1m", "commanding zero": "commanding_zero",
+            "uniform random": "uniform_random"}
+
+    def setUp(self):
+        with open(README, encoding="utf-8") as handle:
+            readme = handle.read()
+        start = readme.index(self.START)
+        self.block = readme[start:readme.index(self.END, start)]
+        self.flat = re.sub(r"\s+", " ", self.block)
+        with open(self.POSTURE, encoding="utf-8") as handle:
+            self.posture = json.load(handle)["models"]
+        self.what = "standing-band table"
+        self.bad = []
+
+    def test_every_row_is_its_artifact_row(self):
+        for label, key in self.ROWS.items():
+            art = self.posture[key]
+            n, of = re.match(r"(\d+) of (\d+)", self.cell(label, 1)).groups()
+            self.check(f"{key} band episodes", [int(n), int(of)],
+                       [art["episodes_ever_in_band"], art["episodes"]], places=0)
+            self.check(f"{key} peak z", self.cell(label, 2), art["mean_max_z"], places=3)
+            self.check(f"{key} band share", self.cell(label, 3).rstrip("%"),
+                       art["mean_pct_steps_in_band"], places=2)
+            self.check(f"{key} falls", self.cell(label, 4), art["mean_falls_per_episode"], places=2)
+            self.check(f"{key} mean return", self.cell(label, 5), art["mean_return"], places=2)
+
+    def test_no_row_is_labelled_with_a_checkpoint_it_was_not_scored_on(self):
+        """The bug this guards: a roster entry keyed `sac_40m` pointing at `sac_ckpt_9000000.pt`.
+
+        The row printed, the table looked fine, and the README described a 9M policy as a 40M one for
+        a day. Every row now records the path it was scored from, so the label can be checked against
+        the file rather than against the roster's key.
+        """
+        for key, art in self.posture.items():
+            self.assertIn("checkpoint", art, f"{key} does not record what it was scored on")
+        self.assertTrue(self.posture["sac_40m"]["checkpoint"].endswith("sac_ckpt_40000000.pt"),
+                        f"the row labelled 40M was scored on "
+                        f"{self.posture['sac_40m']['checkpoint']}")
+        self.assertTrue(self.posture["sac_9m"]["checkpoint"].endswith("sac_ckpt_9000000.pt"),
+                        f"the row labelled 9M was scored on {self.posture['sac_9m']['checkpoint']}")
+        paths = [a["checkpoint"] for a in self.posture.values() if a["checkpoint"] not in
+                 ("none", "random")]
+        self.assertEqual(len(paths), len(set(paths)), "two rows were scored on the same checkpoint")
+
+    def test_the_whole_table_is_one_reward_function(self):
+        """The passive references used to be scored under the environment defaults while every
+        trained row used the shaping, which put two reward functions in one column - and the
+        defaults pay `standing_reward=50/step`, so the yardstick was paid for lying still.
+
+        The weights are now one set across the table. A row also carries the `target_forward_velocity`
+        its checkpoint records, which is a task parameter and not a weight, so the gate pins the
+        distinct speeds in play and which rows carry them rather than pretending the column away.
+        """
+        import inspect
+        from envs.reward_shaping import TRAINING_REWARD_KWARGS
+        from envs.walker_ragdoll_env import WalkerRagdollEnv
+        default_tfv = inspect.signature(WalkerRagdollEnv.__init__).parameters[
+            "target_forward_velocity"].default
+        speeds = {}
+        for key, art in self.posture.items():
+            applied = dict(art["reward_kwargs_applied"])
+            tfv = applied.pop("target_forward_velocity", None)
+            self.assertEqual(applied, dict(TRAINING_REWARD_KWARGS),
+                             f"{key} was scored under different reward weights from the rest")
+            speeds[key] = default_tfv if tfv is None else tfv
+        self.assertEqual(sorted(set(speeds.values())), sorted({default_tfv, 10.0, 1.2}),
+                         f"the table spans {sorted(set(speeds.values()))}, not the three speeds "
+                         f"the prose names")
+        self.assertEqual(sorted(k for k, v in speeds.items() if v != default_tfv),
+                         ["sac_40m", "sac_9m"],
+                         "the prose says only the two SAC rows are off the environment's speed")
+        self.assertEqual(speeds["dreamer_v3_1m"], speeds["commanding_zero"],
+                         "reading 3 compares these two rows and they must be on the same task")
+        m = re.search(r"so the table spans three task\s*speeds - the environment's ([\d.]+) for the "
+                      r"two Dreamer rows, ARS and both passive references, and the\s*([\d.]+) and "
+                      r"([\d.]+) that the 40M and 9M SAC runs were trained at", self.flat)
+        self.assertIsNotNone(m, "the three-task-speeds sentence was reworded")
+        self.check("the three speeds", [m.group(1), m.group(2), m.group(3)],
+                   [default_tfv, speeds["sac_40m"], speeds["sac_9m"]], places=2)
+
+    def test_the_correction_moved_the_returns_and_nothing_else(self):
+        """Two arms of the same probe, one reward function apart: geometry identical, returns not.
+
+        The environment-default arm is the retired protocol reproduced by the current code, so every
+        figure the first version of this table published is still measurable - and the geometry
+        comparison is what makes "the reward weights do not touch the trajectory" a checked claim
+        rather than an assumption.
+        """
+        if not os.path.exists(self.DEFAULTS):
+            self.skipTest("the environment-default arm of the probe has not been generated")
+        with open(self.DEFAULTS, encoding="utf-8") as handle:
+            defaults = json.load(handle)["models"]
+        geometry = ("episodes_ever_in_band", "mean_max_z", "best_max_z_in_one_episode",
+                    "lowest_peak_max_z", "mean_pct_steps_in_band",
+                    "mean_pct_steps_upright_in_band", "mean_final_z", "mean_falls_per_episode")
+        for key, art in self.posture.items():
+            for field in geometry:
+                self.assertEqual(art[field], defaults[key][field],
+                                 f"{key}.{field} differs between the two reward arms, so the "
+                                 f"trajectory moved and not only its score")
+            self.assertEqual(art["reward_kwargs_applied"] == defaults[key]["reward_kwargs_applied"],
+                             False, f"{key} was scored under the same reward in both arms")
+        # The three retired figures the prose quotes, each against the arm that produces it: the two
+        # rows the retired fallback gave the environment defaults, and the SAC row it already shaped.
+        m = re.search(r"identical to the cent \((\d+(?:\.\d+)?)\)", self.flat)
+        self.assertIsNotNone(m, "the unchanged-SAC-row sentence was reworded")
+        self.check("SAC at 9M, shaped in both tables", m.group(1),
+                   self.posture["sac_9m"]["mean_return"], places=2)
+        m = re.search(r"the zero reference dropped (\d+(?:\.\d+)?) →\s*(\d+(?:\.\d+)?)", self.flat)
+        self.assertIsNotNone(m, "the zero-reference sentence was reworded")
+        self.check("zero reference, retired and current", [m.group(1), m.group(2)],
+                   [defaults["commanding_zero"]["mean_return"],
+                    self.posture["commanding_zero"]["mean_return"]], places=2)
+        fix = self.readme_block_for_reward_fix()
+        m = re.search(r"the mean moved (\d+(?:\.\d+)?) → \*\*(\d+(?:\.\d+)?)\*\*", fix)
+        self.assertIsNotNone(m, "the 1M re-scoring sentence was reworded")
+        self.check("1M dreamer, retired arm", m.group(1),
+                   defaults["dreamer_v3_1m"]["mean_return"], places=2)
+        self.check("1M dreamer, current arm", m.group(2),
+                   self.posture["dreamer_v3_1m"]["mean_return"], places=2)
+        self.assertEqual(defaults["commanding_zero"]["reward_kwargs_applied"], {},
+                         "the retired arm's references must be the environment defaults")
+        m = re.search(r"reproduces all five\s*retired returns exactly \(([^)]*)\)", self.flat)
+        self.assertIsNotNone(m, "the five retired returns sentence was reworded")
+        quoted = nums(m.group(1))
+        retired = [defaults["dreamer_v3_1m"]["mean_return"], defaults["dreamer_v9_269k"]["mean_return"],
+                   defaults["ars_v9_1m"]["mean_return"], defaults["commanding_zero"]["mean_return"],
+                   defaults["uniform_random"]["mean_return"]]
+        self.check("the five retired probe returns", quoted, retired, places=2)
+        for key in ("dreamer_v3_1m", "dreamer_v9_269k", "ars_v9_1m"):
+            self.assertNotEqual(defaults[key]["mean_return"], self.posture[key]["mean_return"],
+                                f"{key}'s return is said to have moved and did not")
+
+    def readme_block_for_reward_fix(self):
+        with open(README, encoding="utf-8") as handle:
+            readme = handle.read()
+        start = readme.index("**That fallback was wrong for three of the four algorithms")
+        return readme[start:readme.index("**A second defect fell out of checking the first", start)]
+
+    def test_the_three_readings_are_what_the_artifact_says(self):
+        d, z = self.posture["dreamer_v3_1m"], self.posture["commanding_zero"]
+        m = re.search(r"as few episodes as commanding zero - (\d+) of 50 each -\s*and spends less "
+                      r"time up than a policy that emits nothing at all\*\*\s*\(([\d.]+)% of steps "
+                      r"against ([\d.]+)%\)", self.flat)
+        self.assertIsNotNone(m, "reading 1 was reworded; re-point this test at it")
+        self.assertEqual([int(m.group(1)), float(m.group(2)), float(m.group(3))],
+                         [d["episodes_ever_in_band"], d["mean_pct_steps_in_band"],
+                          z["mean_pct_steps_in_band"]], "reading 1 no longer matches the artifact")
+        self.assertEqual(d["episodes_ever_in_band"], z["episodes_ever_in_band"],
+                         "the paragraph claims the trained policy and doing nothing reach the band "
+                         "in the same number of episodes; that is no longer true")
+        self.assertEqual(d["mean_falls_per_episode"], z["mean_falls_per_episode"],
+                         "the identical fall counts that the latch explanation rests on are no longer "
+                         "identical")
+        m = re.search(r"the trained policy and doing nothing report the \*\*same ([\d.]+) falls per "
+                      r"episode\*\*", self.flat)
+        self.assertIsNotNone(m, "the fall-count sentence was reworded")
+        self.assertAlmostEqual(float(m.group(1)), d["mean_falls_per_episode"], places=2)
+
+        # Reading 3 is now the exception, not the rule: the return ranks the two SAC rows and the
+        # random reference correctly, and puts the 1M Dreamer above a policy that does nothing while
+        # it stands for a third as long.
+        m = re.search(r"outranks the zero-action reference on return while standing for a third as "
+                      r"long\*\* \((\d+(?:\.\d+)?) against (\d+(?:\.\d+)?), ([\d.]+)% of steps "
+                      r"against ([\d.]+)%\)", self.flat)
+        self.assertIsNotNone(m, "reading 3 was reworded; re-point this test at it")
+        self.check("reading 3 returns", [m.group(1), m.group(2)],
+                   [d["mean_return"], z["mean_return"]], places=2)
+        self.check("reading 3 band shares", [m.group(3), m.group(4)],
+                   [d["mean_pct_steps_in_band"], z["mean_pct_steps_in_band"]], places=2)
+        self.assertGreater(d["mean_return"], z["mean_return"],
+                           "reading 3 says the trained policy outranks doing nothing on return")
+        ratio = d["mean_pct_steps_in_band"] / z["mean_pct_steps_in_band"]
+        self.assertTrue(0.2 < ratio < 0.45,
+                        f"reading 3 says 'a third as long'; the artifact gives {ratio:.2f}")
+        standers = sorted(((v["mean_pct_steps_in_band"], k) for k, v in self.posture.items()),
+                          reverse=True)
+        self.assertEqual([k for _, k in standers[:2]], ["sac_40m", "sac_9m"],
+                         "the two SAC rows are the only meaningful standers in the table")
+        self.assertLess(standers[2][0], 1.0,
+                        "below the two SAC rows the table is meant to be a wall of ~1% or less")
+
+    def test_the_artifact_records_the_two_things_that_make_it_repeatable(self):
+        with open(self.POSTURE, encoding="utf-8") as handle:
+            meta = json.load(handle)
+        self.assertEqual(meta.get("torch_threads"), 1,
+                         "the probe's thread pin is what makes it repeatable run to run")
+        self.assertEqual({v["device"] for v in self.posture.values()}, {"cuda"},
+                         "the published harness resolves to cuda on this box; mixing devices in one "
+                         "artifact is how the 18.5% cpu-versus-cuda gap becomes invisible")
+
+    def test_the_device_sensitivity_pair_is_the_run_that_ran(self):
+        if not os.path.exists(self.SENS):
+            self.skipTest("the device-sensitivity artifact has not been generated yet")
+        with open(self.SENS, encoding="utf-8") as handle:
+            pair = json.load(handle)["devices"]
+
+        def spread(name):
+            c, p = pair["cuda"][name]["mean_return"], pair["cpu"][name]["mean_return"]
+            return 100.0 * abs(c - p) / ((c + p) / 2.0)
+
+        m = re.search(r"scores \*\*(\d+(?:\.\d+)?) on cuda and\s*(\d+(?:\.\d+)?) on cpu\*\*, "
+                      r"(\d+(?:\.\d+)?)% apart on the same ten episodes, and the 269k one "
+                      r"(\d+(?:\.\d+)?) against (\d+(?:\.\d+)?)", self.flat)
+        self.assertIsNotNone(m, "the device-sensitivity sentence was reworded")
+        c1, p1 = pair["cuda"]["dreamer_v3_1m"], pair["cpu"]["dreamer_v3_1m"]
+        self.check("1M dreamer cuda/cpu returns", [float(m.group(1)), float(m.group(2))],
+                   [c1["mean_return"], p1["mean_return"]], places=2)
+        self.check("1M dreamer spread", float(m.group(3)), round(spread("dreamer_v3_1m"), 1), places=1)
+        c2, p2 = pair["cuda"]["dreamer_v9_269k"], pair["cpu"]["dreamer_v9_269k"]
+        self.check("269k dreamer cuda/cpu returns", [float(m.group(4)), float(m.group(5))],
+                   [c2["mean_return"], p2["mean_return"]], places=1)
+        # The two entries that do not move are the ones that identify the mechanism: a float64 numpy
+        # linear map and a policy that does no arithmetic. If either starts moving, the explanation
+        # in the paragraph is wrong.
+        for name in ("ars_v9_1m", "commanding_zero"):
+            self.assertEqual(pair["cuda"][name]["mean_return"], pair["cpu"][name]["mean_return"],
+                             f"{name} is device-independent by construction and no longer is")
+        m = re.search(r"ARS at (\d+(?:\.\d+)?) on both devices and the zero-action reference at "
+                      r"(\d+(?:\.\d+)?) on both", self.flat)
+        self.assertIsNotNone(m, "the control sentence was reworded")
+        self.check("control returns", [float(m.group(1)), float(m.group(2))],
+                   [pair["cuda"]["ars_v9_1m"]["mean_return"],
+                    pair["cuda"]["commanding_zero"]["mean_return"]], places=2)
+
+        # The verdict survives the device; the posture figures do not always. Both halves are quoted.
+        self.assertEqual(c1["mean_pct_steps_in_band"], p1["mean_pct_steps_in_band"],
+                         "the 1M run's band share is claimed identical on both devices")
+        m = re.search(r"\(([\d.]+)% of steps in the band on either device for the 1M\s*run, (\d+) of "
+                      r"(\d+) episodes reaching it on both\)", self.flat)
+        self.assertIsNotNone(m, "the band-share sentence was reworded")
+        self.check("band share on either device", float(m.group(1)), c1["mean_pct_steps_in_band"],
+                   places=2)
+        self.assertEqual([int(m.group(2)), int(m.group(3))],
+                         [c1["episodes_ever_in_band"], c1["episodes"]])
+        self.assertEqual(p1["episodes_ever_in_band"], c1["episodes_ever_in_band"],
+                         "the prose says 1 of 10 on both devices")
+        m = re.search(r"the 269k checkpoint reads ([\d.]+)% of steps in the band on cuda against "
+                      r"([\d.]+)% on cpu, (\d+) episodes against\s*(\d+)", self.flat)
+        self.assertIsNotNone(m, "the 269k posture-divergence sentence was reworded")
+        self.check("269k band share per device", [m.group(1), m.group(2)],
+                   [c2["mean_pct_steps_in_band"], p2["mean_pct_steps_in_band"]], places=2)
+        self.check("269k band episodes per device", [int(m.group(3)), int(m.group(4))],
+                   [c2["episodes_ever_in_band"], p2["episodes_ever_in_band"]], places=0)
+
+    def test_the_sac_device_pair_that_refutes_the_sampled_latent_explanation(self):
+        """A deterministic actor, same checkpoint, same reward, two devices: 30% apart.
+
+        The paragraph used to explain device sensitivity by the RSSM's reparametrised posterior. SAC
+        has no posterior and `deterministic=True`, so if this pair ever agrees, the float32-chaos
+        explanation is the one that needs revisiting, not the paragraph.
+        """
+        cuda = os.path.join(ROOT, "benchmarks", "phase1_evidence_eval.json")
+        cpu = os.path.join(ROOT, "benchmarks", "phase1_evidence_eval_cpu_auto.json")
+        if not (os.path.exists(cuda) and os.path.exists(cpu)):
+            self.skipTest("one of the two evidence arms is missing")
+        with open(cuda, encoding="utf-8") as handle:
+            on_cuda = json.load(handle)
+        with open(cpu, encoding="utf-8") as handle:
+            on_cpu = json.load(handle)
+        self.assertEqual(on_cuda["device"], "cuda")
+        self.assertEqual(on_cpu["device"], "cpu")
+        a, b = on_cuda["models"]["sac_target_40M"], on_cpu["models"]["sac_target_40M"]
+        self.assertEqual(a["reward_kwargs"], b["reward_kwargs"],
+                         "the pair only isolates the device if the reward is the same on both arms")
+        m = re.search(r"scores\s*\*\*(\d+(?:\.\d+)?) on cpu against (\d+(?:\.\d+)?) on cuda\*\* - "
+                      r"(\d+)% apart", self.flat)
+        self.assertIsNotNone(m, "the SAC device sentence was reworded")
+        self.check("SAC 40M cpu and cuda", [m.group(1), m.group(2)], [b["mean"], a["mean"]], places=2)
+        self.assertEqual(int(m.group(3)),
+                         round(100.0 * abs(b["mean"] - a["mean"]) / ((b["mean"] + a["mean"]) / 2.0)),
+                         "the percentage is the midpoint spread, the same convention as the Dreamer "
+                         "pair in the paragraph above it, so recompute it that way")
+        ta = on_cuda["per_episode"]["sac_target_40M__telemetry"]
+        tb = on_cpu["per_episode"]["sac_target_40M__telemetry"]
+        differing = [i for i, (x, y) in enumerate(zip(ta, tb)) if x != y]
+        m = re.search(r"with (\d+) of the (\d+) episodes on\s*completely different trajectories "
+                      r"\(episode (\d+)'s closest approach ([\d.]+) m on cpu, ([\d.]+) m on cuda\)",
+                      self.flat)
+        self.assertIsNotNone(m, "the trajectory-divergence sentence was reworded")
+        self.assertEqual(int(m.group(1)), len(differing),
+                         "the prose counts the episodes whose telemetry differs between devices")
+        self.assertEqual(int(m.group(2)), len(ta), "the prose names a different episode count")
+        ep = int(m.group(3))
+        self.check("the cited episode's closest approach", [m.group(4), m.group(5)],
+                   [tb[ep]["min_target_distance"], ta[ep]["min_target_distance"]], places=3)
+        self.assertIn(ep, differing, "the episode cited as divergent is one of the identical ones")
+
+
+class TestReadmeAmortizeCells(ReadmeGate, unittest.TestCase):
+    """The `--num-envs` ladder: wall clock and gradient steps have to move together in the prose.
+
+    Raising `num_envs` is the only remaining way to cut Dreamer's wall clock without touching the
+    update, and it is not free - it lowers the update-to-data ratio. The gate exists so the speedup
+    can never be quoted without the gradient count that bought it.
+    """
+
+    AMORT = os.path.join(ROOT, "benchmarks", "dreamer_amortize_n.json")
+    START = "**The last lever in the loop, and what it costs.**"
+    END = "The batch axis is the second version"
+
+    def setUp(self):
+        with open(README, encoding="utf-8") as handle:
+            readme = handle.read()
+        start = readme.index(self.START)
+        self.block = readme[start:readme.index(self.END, start)]
+        self.flat = re.sub(r"\s+", " ", self.block)
+        self.art, = self.read_artifacts(self.AMORT)
+        self.rate, self.split = self.read_artifacts(
+            os.path.join(ROOT, "benchmarks", "dreamer_real_rate.json"),
+            os.path.join(ROOT, "benchmarks", "dreamer_loop_split.json"))
+        self.what = "num_envs amortisation"
+        self.bad = []
+
+    ROWS = {"4 (shipped)": 4, "8": 8, "16": 16}
+
+    def test_each_row_of_the_ladder_is_the_measured_pair(self):
+        for label, n in self.ROWS.items():
+            row = self.art["per_num_envs"][str(n)]
+            self.check(f"n={n} ms per iteration", self.cell(label, 1), row["ms_per_iteration"],
+                       places=2)
+            self.check(f"n={n} env-steps/s", self.cell(label, 2), row["env_steps_per_s"], places=1)
+            self.check(f"n={n} hours per 1M", self.cell(label, 3), row["hours_per_1m_env_steps"],
+                       places=2)
+            self.check(f"n={n} gradient steps per 1k", self.cell(label, 4),
+                       row["gradient_steps_per_1k_env_steps"], places=1)
+            self.check(f"n={n} speedup", self.cell(label, 5).rstrip("x"),
+                       row["speedup_vs_shipped_n4"], places=2)
+
+    def test_the_gradient_column_is_just_the_env_step_budget_divided(self):
+        """One update per collection step, so the column has to be 1000/n - not a second measurement."""
+        for label, n in self.ROWS.items():
+            self.check(f"n={n} gradient steps", self.cell(label, 4), 1000.0 / n, places=1)
+
+    def test_the_control_agrees_with_the_other_two_instruments(self):
+        """The n=4 row is the cross-check: if it drifts, the ladder's window moved, not the code."""
+        n4 = self.art["per_num_envs"]["4"]["ms_per_iteration"]
+        for other, name in ((self.rate["captured"]["ms_per_iteration"], "two-budget run"),
+                            (self.split["whole_loop_ms"], "in-process split")):
+            spread = abs(n4 - other) / other
+            self.assertLess(spread, 0.10, f"n=4 ({n4} ms) and the {name} ({other} ms) are more than "
+                                          "10% apart, so the prose's '9% apart' is no longer true")
+        m = re.search(r"three instruments in three windows, (\d+)% apart", self.flat)
+        self.assertIsNotNone(m, "the agreement sentence was reworded")
+        worst = max(abs(n4 - x) / x for x in (self.rate["captured"]["ms_per_iteration"],
+                                              self.split["whole_loop_ms"]))
+        # The prose quotes one figure for a three-way comparison, so it has to be the worst pair
+        # rounded the way a reader would round it - down, since claiming tighter agreement than
+        # measured is the direction that misleads.
+        self.assertEqual(int(m.group(1)), int(100 * worst), "the quoted agreement is not the worst pair")
+
+    def test_the_hours_the_prose_promises_are_the_artifacts(self):
+        m = re.search(r"costs \*\*(\d+(?:\.\d+)?) h\*\* where the shipped configuration costs "
+                      r"(\d+(?:\.\d+)?) h",
+                      self.flat)
+        self.assertIsNotNone(m, "the headline hours sentence was reworded")
+        self.check("the hours pair", [float(m.group(1)), float(m.group(2))],
+                   [self.art["per_num_envs"]["16"]["hours_per_1m_env_steps"],
+                    self.art["per_num_envs"]["4"]["hours_per_1m_env_steps"]], places=2)
+        m = re.search(r"so (\d+) gradient steps per 1,000 environment steps\s*become (\d+(?:\.\d+)?)",
+                      self.flat)
+        self.assertIsNotNone(m, "the update-to-data sentence was reworded")
+        self.check("the gradient-step pair", [float(m.group(1)), float(m.group(2))],
+                   [self.art["per_num_envs"]["4"]["gradient_steps_per_1k_env_steps"],
+                    self.art["per_num_envs"]["16"]["gradient_steps_per_1k_env_steps"]], places=1)
+
+
+class TestReadmeNumEnvsLearningCells(ReadmeGate, unittest.TestCase):
+    """The learning half of the `--num-envs` lever: two real runs, same budget, same protocol.
+
+    The timing half is `TestReadmeAmortizeCells`. This one exists because the timing half ends with a
+    forward reference it has to honour - a 4x cheaper run is only a speedup if the policy it produces
+    is not worse, and "worse" is a measurement, not an opinion. Both arms are gated on the fields that
+    make them comparable (same step budget, same seed, same device, same reward) before any score is.
+    """
+
+    N4 = os.path.join(ROOT, "benchmarks", "phase1_dreamer_v3_250k.json")
+    N16 = os.path.join(ROOT, "benchmarks", "phase1_dreamer_n16_250k.json")
+    RATE = os.path.join(ROOT, "benchmarks", "training_rate_history.json")
+    AMORTIZE = os.path.join(ROOT, "benchmarks", "dreamer_amortize_n.json")
+    START = "**Does the cheaper update schedule still learn?**"
+    END = "The batch axis is the second version of a sentence that was wrong before"
+
+    def setUp(self):
+        with open(README, encoding="utf-8") as handle:
+            readme = handle.read()
+        start = readme.index(self.START)
+        self.block = readme[start:readme.index(self.END, start)]
+        self.flat = re.sub(r"\s+", " ", self.block)
+        load = lambda p: json.load(open(p, encoding="utf-8"))
+        self.n4 = load(self.N4)["models"]["dreamer_v3_250k"]
+        self.n16 = load(self.N16)["models"]["dreamer_n16_250k"]
+        self.rate_full = load(self.RATE)
+        self.rate = self.rate_full["checkpoint_wall_clock"]
+        self.amortize = load(self.AMORTIZE)
+        self.what = "num-envs learning"
+        self.bad = []
+
+    def test_the_two_arms_are_actually_comparable(self):
+        for arm, name, envs in ((self.n4, "n=4", 4), (self.n16, "n=16", 16)):
+            self.assertEqual(arm["global_step"], 250000, f"{name} did not run to 250,000 env steps")
+            self.assertEqual(arm["episodes"], 50, f"{name} was not scored on 50 episodes")
+            self.assertEqual(arm["task_phase"], "target", f"{name} was scored on a different phase")
+        by_id = {r["run_id"]: r for r in self.rate["runs"]}
+        self.assertEqual(by_id["dreamer_v3_1m"]["num_envs"], 4)
+        self.assertEqual(by_id["dreamer_n16_250k"]["num_envs"], 16)
+        for run_id, arm in by_id.items():
+            self.assertEqual(arm["num_envs_from_normalizer"], arm["num_envs"],
+                             f"{run_id}'s --num-envs label disagrees with its checkpoint's own "
+                             f"observation-normalizer counter ({arm['normalizer_residue']}), so the "
+                             f"arm is mislabelled or was resumed and the comparison means nothing")
+        with open(self.N4, encoding="utf-8") as handle:
+            d4 = json.load(handle)
+        with open(self.N16, encoding="utf-8") as handle:
+            d16 = json.load(handle)
+        self.assertEqual(d4["device"], d16["device"],
+                         "the two arms were scored on different devices, which is a 20% effect on a "
+                         "Dreamer policy and would swamp the comparison")
+        self.assertEqual(self.n4["reward_kwargs"], self.n16["reward_kwargs"],
+                         "the two arms were scored under different rewards")
+        m = re.search(r"spent \*\*([\d,]+) and ([\d,]+) gradient steps\*\*", self.flat)
+        self.assertIsNotNone(m, "the gradient-step sentence was reworded")
+        self.check("gradient steps per arm",
+                   [int(m.group(1).replace(",", "")), int(m.group(2).replace(",", ""))],
+                   [250000 // 4, 250000 // 16], places=0)
+        m = re.search(r"`count - global_step` is ([\d.]+) and\s*([\d.]+)", self.flat)
+        self.assertIsNotNone(m, "the normalizer cross-check sentence was reworded")
+        self.check("the two residues", [m.group(1), m.group(2)],
+                   [by_id["dreamer_v3_1m"]["normalizer_residue"],
+                    by_id["dreamer_n16_250k"]["normalizer_residue"]], places=4)
+
+    def test_the_wall_clock_is_the_runs_own_checkpoints(self):
+        arms = {r["run_id"]: r for r in self.rate["runs"]}
+        self.assertEqual(set(arms), {"dreamer_v3_1m", "dreamer_n16_250k"})
+        self.assertEqual(arms["dreamer_v3_1m"]["num_envs"], 4)
+        self.assertEqual(arms["dreamer_n16_250k"]["num_envs"], 16)
+        window = self.rate["common_window"]
+        m = re.search(r"\(([\d,]+) → ([\d,]+), so neither window contains startup or graph capture\) "
+                      r"the wall clock is \*\*([\d.]+) s against ([\d.]+) s - ([\d.]+)x\*\*",
+                      self.flat)
+        self.assertIsNotNone(m, "the wall-clock sentence was reworded")
+        self.check("the common window", [int(m.group(1).replace(",", "")),
+                                         int(m.group(2).replace(",", ""))],
+                   [window["from_step"], window["to_step"]], places=0)
+        self.check("the two wall clocks", [m.group(3), m.group(4)],
+                   [arms["dreamer_v3_1m"]["window"]["seconds"],
+                    arms["dreamer_n16_250k"]["window"]["seconds"]], places=1)
+        self.check("the ratio", m.group(5), window["fastest_over_slowest"], places=2)
+        m = re.search(r"per-interval rates ([\d.]+)-([\d.]+) and ([\d.]+)-([\d.]+) env-steps/s",
+                      self.flat)
+        self.assertIsNotNone(m, "the per-interval spread sentence was reworded")
+        for i, run in enumerate(("dreamer_v3_1m", "dreamer_n16_250k")):
+            rates = arms[run]["window"]["interval_rates"]
+            self.check(f"{run} interval range", [float(m.group(2 * i + 1)), float(m.group(2 * i + 2))],
+                       [min(rates), max(rates)], places=1)
+            self.assertGreaterEqual(len(rates), 3,
+                                    f"{run}'s window rests on {len(rates)} intervals")
+
+    def test_every_cell_of_the_learning_table(self):
+        rows = {"gradient steps spent": (250000 // 4, 250000 // 16),
+                "mean return": (self.n4["mean"], self.n16["mean"]),
+                "**median return**": (self.n4["median"], self.n16["median"]),
+                "std": (self.n4["std"], self.n16["std"]),
+                "mean closest approach": (self.n4["mean_min_target_distance"],
+                                          self.n16["mean_min_target_distance"])}
+        for label, (want4, want16) in rows.items():
+            got = nums(self.cell(label, 1)), nums(self.cell(label, 2))
+            self.check(f"{label}, n=4", got[0], want4, places=2)
+            self.check(f"{label}, n=16", got[1], want16, places=2)
+        lo = snums(self.cell("min / max", 1))
+        hi = snums(self.cell("min / max", 2))
+        self.check("min/max, n=4", lo, [self.n4["min"], self.n4["max"]], places=2)
+        self.check("min/max, n=16", hi, [self.n16["min"], self.n16["max"]], places=2)
+        for col, arm in ((1, self.n4), (2, self.n16)):
+            text = self.cell("episodes inside the 0.45 m radius", col)
+            n, of = re.match(r"(\d+) of (\d+)", text).groups()
+            self.check(f"radius episodes, col {col}", [int(n), int(of)],
+                       [round(arm["reached_target_pct"] / 100.0 * arm["episodes"]), arm["episodes"]],
+                       places=0)
+            self.check(f"x-velocity, col {col}", snums(self.cell("mean x-velocity", col)),
+                       arm["mean_x_velocity"], places=4)
+
+    def test_the_prose_reads_the_distribution_and_not_just_the_mean(self):
+        m = re.search(r"The median falls by a factor of ten\s*\(([\d.]+) → ([\d.]+)\) while the mean "
+                      r"falls only (\d+)%", self.flat)
+        self.assertIsNotNone(m, "the median-versus-mean sentence was reworded")
+        self.check("the median pair", [m.group(1), m.group(2)],
+                   [self.n4["median"], self.n16["median"]], places=2)
+        self.assertEqual(int(m.group(3)), round(100.0 * (1.0 - self.n16["mean"] / self.n4["mean"])),
+                         "the mean's percentage drop is derived, so recompute it")
+        self.assertGreater(self.n4["median"] / self.n16["median"], 5.0,
+                           "the prose says 'a factor of ten'; the artifact does not support it")
+        m = re.search(r"its best episode \(([\d.]+)\)\s*beats the shipped arm's best \(([\d.]+)\)",
+                      self.flat)
+        self.assertIsNotNone(m, "the bimodality sentence was reworded")
+        self.check("the two maxima", [m.group(1), m.group(2)], [self.n16["max"], self.n4["max"]],
+                   places=2)
+        self.assertGreater(self.n16["max"], self.n4["max"])
+        m = re.search(r"the x-velocity changes sign, the\s*closest approach is ([\d.]+) m worse",
+                      self.flat)
+        self.assertIsNotNone(m, "the sign-change sentence was reworded")
+        self.check("the closest-approach gap", m.group(1),
+                   round(self.n16["mean_min_target_distance"] - self.n4["mean_min_target_distance"], 2),
+                   places=2)
+        self.assertGreater(self.n4["mean_x_velocity"], 0.0)
+        self.assertLess(self.n16["mean_x_velocity"], 0.0)
+        m = re.search(r"(\d+(?:\.\d+)?)% and (\d+(?:\.\d+)?)% of episodes inside the radius",
+                      self.flat)
+        self.assertIsNotNone(m, "the closing verdict sentence was reworded")
+        self.check("the two radius shares", [m.group(1), m.group(2)],
+                   [self.n4["reached_target_pct"], self.n16["reached_target_pct"]], places=1)
+
+    def test_the_confound_is_disclosed_and_its_numbers_are_right(self):
+        """At 16 envs the collector also switches backend, so 4.08x is not all the update schedule."""
+        import argparse
+        import train_walker
+        parser = argparse.ArgumentParser()
+        train_walker.add_vec_env_args(parser)
+        threshold = parser.get_default("vec_parallel_threshold")
+        m = re.search(r"crosses `--vec-parallel-threshold` \(default (\d+)\)", self.flat)
+        self.assertIsNotNone(m, "the threshold sentence was reworded")
+        self.assertEqual(int(m.group(1)), threshold,
+                         "the disclosed threshold is not the trainer's default")
+        self.assertEqual(self.amortize["config"]["vec_backend"], "sync",
+                         "the isolated bench is cited as holding one backend and does not")
+        m = re.search(r"attributes ([\d.]+)x to it", self.flat)
+        self.assertIsNotNone(m, "the attribution sentence was reworded")
+        self.check("the bench's own ratio", m.group(1),
+                   self.amortize["per_num_envs"]["16"]["speedup_vs_shipped_n4"], places=2)
+
+    def test_the_windows_the_two_arms_ran_in(self):
+        """One arm kept its stdout and one did not; the README says so instead of implying symmetry."""
+        by_id = {r["run_id"]: r for r in self.rate["runs"]}
+        log = by_id["dreamer_n16_250k"]["evidence_log"]
+        self.assertIsNotNone(log, "the n=16 arm's stdout is the only record of its GPU window")
+        self.assertTrue(os.path.exists(os.path.join(ROOT, log["path"])),
+                        f"the artifact points at {log['path']}, which is not in this checkout")
+        self.assertIn("captured CUDA graph", log["update_mode"] or "",
+                      "the arm is compared against a captured-update baseline and did not capture")
+        held, total, others = re.search(r"(\d+)/(\d+) MiB in use by (\d+) other",
+                                        log["gpu_window"]).groups()
+        m = re.search(r"inside a window holding \*\*(\d+) of (\d+) MiB across (\d+) other\s*"
+                      r"contexts\*\*", self.flat)
+        self.assertIsNotNone(m, "the GPU-window sentence was reworded")
+        self.check("the recorded GPU window", [m.group(1), m.group(2), m.group(3)],
+                   [held, total, others], places=0)
+        self.assertIsNone(by_id["dreamer_v3_1m"]["evidence_log"],
+                          "the n=4 arm's stdout was not kept; if it now exists, quote its window too")
+        m = re.search(r"which give ([\d.]+) env-steps/s against the ([\d.]+) of\s*the 50k→250k "
+                      r"window used here", self.flat)
+        self.assertIsNotNone(m, "the whole-run cross-check sentence was reworded")
+        self.check("the whole-run rate for the same run", m.group(1),
+                   self.rate_full["cited"]["after_graph_capture"]["rate_steps_per_s"], places=1)
+        self.check("the window rate", m.group(2),
+                   by_id["dreamer_v3_1m"]["window"]["rate_steps_per_s"], places=1)
+
+
+class TestReadmeTrainingRateCells(ReadmeGate, unittest.TestCase):
+    """Was training faster before this work? The archive's own answer, and why the intuition differs.
+
+    The claim is a 16.5x speedup measured from the trainers' logged metric timestamps, and the
+    explanation for the opposite intuition is a quoted line of code. Both are checkable: the artifact
+    carries every run it was built from, and the `sps` formula is a string in the trainer.
+    """
+
+    RATE = os.path.join(ROOT, "benchmarks", "training_rate_history.json")
+    STACKED = os.path.join(ROOT, "benchmarks", "stacked_sac_n32_reps2.json")
+    DB = os.path.join(ROOT, "mlruns.db")
+    START = '**"It felt faster before all this work"'
+    END = "**A third way to lose a run"
+
+    def setUp(self):
+        if not os.path.exists(self.RATE):
+            self.skipTest("benchmarks/training_rate_history.json has not been generated")
+        with open(README, encoding="utf-8") as handle:
+            readme = handle.read()
+        start = readme.index(self.START)
+        self.block = readme[start:readme.index(self.END, start)]
+        self.flat = re.sub(r"\s+", " ", self.block)
+        with open(self.RATE, encoding="utf-8") as handle:
+            self.art = json.load(handle)
+        self.before = self.art["cited"]["before_graph_capture"]
+        self.after = self.art["cited"]["after_graph_capture"]
+        self.what = "training-rate history"
+        self.bad = []
+
+    def test_the_two_cited_runs_are_matched_on_everything_but_the_code(self):
+        for field in ("algo", "num_envs", "task_phase", "seed", "reset_mode", "total_timesteps"):
+            self.assertEqual(self.before[field], self.after[field],
+                             f"the two cited runs differ in {field}, so the ratio is not about code")
+        self.assertNotEqual(self.before["update_graph"], self.after["update_graph"],
+                            "the two runs do not differ in the thing the paragraph blames")
+
+    def test_the_table_rows_are_the_cited_runs(self):
+        for run, generation in ((self.before, "before capture"), (self.after, "after capture")):
+            label = f"`{run['name']}`"
+            self.assertEqual(self.cell(label, 1), generation,
+                             f"{label} is in the wrong row of the pair")
+            self.assertEqual(run["started"].replace("T", " ")[:16], self.cell(label, 2),
+                             f"{label}'s start time is not the artifact's")
+            self.check(f"{label} steps", nums(self.cell(label, 3))[0],
+                       run["steps_between_samples"], places=0)
+            self.check(f"{label} span", nums(self.cell(label, 4))[0], run["span_s"], places=1)
+            self.check(f"{label} rate", nums(self.cell(label, 5))[0], run["rate_steps_per_s"],
+                       places=1)
+            self.check(f"{label} hours per 1M", nums(self.cell(label, 6))[0],
+                       run["hours_per_1m_steps"], places=2)
+            self.check(f"{label} first logged sps", nums(self.cell(label, 7))[0],
+                       run["first_logged_sps"], places=0)
+            self.check(f"{label} last logged sps", nums(self.cell(label, 8))[0],
+                       run["last_logged_sps"], places=0)
+
+    def test_the_ratio_and_the_population_it_comes_from(self):
+        m = re.search(r"\*\*([\d.]+)x\*\*, and it is not two lucky draws: all (\d+) Dreamer runs in "
+                      r"the archive from before the capture\s*landed sit between \*\*([\d.]+) and "
+                      r"([\d.]+) env-steps/s\*\*", self.flat)
+        self.assertIsNotNone(m, "the ratio sentence was reworded")
+        self.check("the cited ratio", m.group(1), self.art["cited"]["ratio_after_over_before"],
+                   places=2)
+        pre = [r["rate_steps_per_s"] for r in self.art["runs"]
+               if r["algo"] == "dreamer" and r["started"] < "2026-10-03"]
+        self.check("the pre-capture population", [int(m.group(2)), m.group(3), m.group(4)],
+                   [len(pre), min(pre), max(pre)], places=1)
+        m = re.search(r"recomputes a rate for every run\s*in `mlruns\.db` that logged `sps` twice or "
+                      r"more - (\d+) runs -", self.flat)
+        self.assertIsNotNone(m, "the population sentence was reworded")
+        self.assertEqual(int(m.group(1)), len(self.art["runs"]),
+                         "the run count is not the artifact's")
+
+    def test_the_span_cross_checks_the_published_hours(self):
+        """The 1.27 h in the Phase-1 section comes from the trainer's clock; this is MLflow's."""
+        m = re.search(r"The ([\d,]+\.?\d*) s span is also an independent\s*confirmation of the "
+                      r"([\d.]+) h this README quotes", self.flat)
+        self.assertIsNotNone(m, "the cross-check sentence was reworded")
+        self.check("the span", m.group(1).replace(",", ""), self.after["span_s"], places=1)
+        self.check("the hours", m.group(2), self.after["hours_per_1m_steps"], places=2)
+        with open(README, encoding="utf-8") as handle:
+            readme = handle.read()
+        other = re.search(r"the run above took \*\*([\d.]+) h\*\* of machine time", readme)
+        self.assertIsNotNone(other, "the Phase-1 wall-clock sentence moved")
+        self.assertEqual(float(other.group(1)), self.after["hours_per_1m_steps"],
+                         "the two independent instruments no longer agree on the run's hours")
+
+    def test_the_mechanism_is_the_line_of_code_it_quotes(self):
+        m = re.search(r"`sps` is\s*`([^`]+)`", self.flat)
+        self.assertIsNotNone(m, "the sps-definition sentence was reworded")
+        with open(os.path.join(ROOT, "train_dreamer.py"), encoding="utf-8") as handle:
+            source = handle.read()
+        self.assertIn(m.group(1), source,
+                      "the README quotes a line of train_dreamer.py that is no longer in it")
+        self.assertIn(m.group(1), self.art["sps_definition"],
+                      "the artifact's recorded definition and the README's quote have diverged")
+        # The shape of the claim: a cumulative average whose first sample precedes any update must
+        # sit well above the settled rate. It is 18x above it in the old run and 3.2x in the new one;
+        # anything under 2x would make "the chart decays" the wrong explanation.
+        for run in (self.before, self.after):
+            self.assertGreater(run["first_logged_sps"], 2.0 * run["last_logged_sps"],
+                               f"{run['name']} does not show the decay the paragraph explains")
+        m = re.search(r"the old trainer's chart read \*\*(\d+)\*\* and the new one reads \*\*(\d+)\*\*",
+                      self.flat)
+        self.assertIsNotNone(m, "the chart sentence was reworded")
+        self.check("the two first samples", [m.group(1), m.group(2)],
+                   [self.before["first_logged_sps"], self.after["first_logged_sps"]], places=0)
+
+    def test_the_two_limits_on_the_claim(self):
+        m = re.search(r"the (\d+) earlier runs span (\d{4}-\d{2}-\d{2}) to (\d{4}-\d{2}-\d{2})",
+                      self.flat)
+        self.assertIsNotNone(m, "the archive-limit sentence was reworded")
+        if not os.path.exists(self.DB):
+            self.skipTest("mlruns.db is not in this checkout")
+        cutoff_ms = int(datetime.datetime.fromisoformat(
+            min(r["started"] for r in self.art["runs"])).timestamp() * 1000)
+        con = sqlite3.connect("file:" + self.DB.replace(os.sep, "/") + "?mode=ro", uri=True,
+                              timeout=10)
+        try:
+            count, first, last = con.execute(
+                "SELECT COUNT(*), MIN(date(start_time/1000,'unixepoch','localtime')), "
+                "MAX(date(start_time/1000,'unixepoch','localtime')) FROM runs "
+                "WHERE start_time < ?", (cutoff_ms,)).fetchone()
+        finally:
+            con.close()
+        self.check("the earlier-run count", int(m.group(1)), count, places=0)
+        self.assertEqual([m.group(2), m.group(3)], [first, last],
+                         "the date range of the pre-metric runs is not the database's")
+        with open(self.STACKED, encoding="utf-8") as handle:
+            stacked = json.load(handle)["n32"]
+        # Same basis as TestReadmeStackedReplicationCells: the rate a reader re-divides from the
+        # median printed beside it, not from the artifact's unrounded median.
+        rates = [round(stacked["config"]["steps"] / round(statistics.median(v), 1))
+                 for v in stacked["arms"].values()]
+        m = re.search(r"measures \*\*([\d,]+)-([\d,]+) env-steps/s\*\*", self.flat)
+        self.assertIsNotNone(m, "the cross-algorithm sentence was reworded")
+        self.check("the stacked SAC range", [int(m.group(1).replace(",", "")),
+                                             int(m.group(2).replace(",", ""))],
+                   [min(rates), max(rates)], places=0)
 
 
 if __name__ == "__main__":

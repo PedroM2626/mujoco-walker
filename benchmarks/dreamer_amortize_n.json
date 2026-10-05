@@ -1,0 +1,50 @@
+{
+  "gpu_other_contexts": 5,
+  "runs_s": {
+    "n4_8000": 36.5,
+    "n4_16000": 70.96,
+    "n8_8000": 25.06,
+    "n8_16000": 45.41,
+    "n16_8000": 18.13,
+    "n16_16000": 32.32
+  },
+  "per_num_envs": {
+    "4": {
+      "ms_per_iteration": 17.23,
+      "env_steps_per_s": 232.2,
+      "gradient_steps_per_1k_env_steps": 250.0,
+      "hours_per_1m_env_steps": 1.2,
+      "updates_in_window": 3750,
+      "speedup_vs_shipped_n4": 1.0
+    },
+    "8": {
+      "ms_per_iteration": 20.35,
+      "env_steps_per_s": 393.1,
+      "gradient_steps_per_1k_env_steps": 125.0,
+      "hours_per_1m_env_steps": 0.71,
+      "updates_in_window": 1875,
+      "speedup_vs_shipped_n4": 1.69
+    },
+    "16": {
+      "ms_per_iteration": 28.38,
+      "env_steps_per_s": 563.8,
+      "gradient_steps_per_1k_env_steps": 62.5,
+      "hours_per_1m_env_steps": 0.49,
+      "updates_in_window": 937,
+      "speedup_vs_shipped_n4": 2.43
+    }
+  },
+  "config": {
+    "seq_len": 50,
+    "batch_size": 16,
+    "imag_horizon": 15,
+    "learning_starts": 1000,
+    "budgets": [
+      8000,
+      16000
+    ],
+    "update_graph": "on",
+    "vec_backend": "sync"
+  },
+  "note": "steady-state rates per num_envs from the two-budget subtraction; one captured dreamer_update per collection step at every n, so the update-to-data ratio falls as 1/num_envs - the wall clock and the gradient count move together and both are reported."
+}

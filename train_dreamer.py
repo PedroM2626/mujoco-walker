@@ -30,6 +30,7 @@ from train_walker import (
     log_mlflow_artifact,
     end_mlflow_run,
 )
+from envs.reward_shaping import TRAINING_REWARD_KWARGS
 
 # Symlog scaling functions used in DreamerV3 to stabilize targets
 def symlog(x):
@@ -647,6 +648,9 @@ def save_dreamer_checkpoint(
         "rssm_state_dict": model.rssm.state_dict(),
         "encoder_state_dict": model.encoder.state_dict(),
         "obs_rms": envs.obs_rms if hasattr(envs, "obs_rms") else None,
+        # Recorded so an evaluator scores this policy under the reward it was trained with. Without
+        # it the scorer has to guess, and it guessed wrong once already (see reward_kwargs_for).
+        "reward_kwargs": dict(TRAINING_REWARD_KWARGS),
     }, actor_only_path)
     
     # Save full state
@@ -663,6 +667,7 @@ def save_dreamer_checkpoint(
         "obs_rms": envs.obs_rms if hasattr(envs, "obs_rms") else None,
         "task_phase": task_phase,
         "target_forward_velocity": target_forward_velocity,
+        "reward_kwargs": dict(TRAINING_REWARD_KWARGS),
         "rng_state": get_rng_state(),
     }
     torch.save(state, ckpt_path)

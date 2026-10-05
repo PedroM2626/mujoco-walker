@@ -84,12 +84,69 @@ its walking term from 5.44 to 2.18 per step. Measured in `benchmarks/reward_term
 (the v8 recording) and reproduced by `python bench_reward_terms.py`.
 
 The fix is one shared dict, `envs/reward_shaping.py::TRAINING_REWARD_KWARGS`, imported by the
-trainer and by `eval_phase1.py` / `evaluate_merging.py`; new SAC/TD3/PPO checkpoints carry their
-effective `reward_kwargs` (and their `target_forward_velocity`) so a scorer reads the reward off
-the artifact instead of guessing, and `reward_kwargs_for()` falls back to the trainer shaping for
-the historical SAC runs and to the environment defaults for ARS/REDQ/Dreamer, which never used
-shaping at all. `--reward-weights env-default` reproduces the old protocol, and every scored row
-prints and stores which reward it used.
+trainer and by `eval_phase1.py` / `evaluate_merging.py`; checkpoints carry their effective
+`reward_kwargs` (and their `target_forward_velocity`) so a scorer reads the reward off the artifact
+instead of guessing, and `reward_kwargs_for()` falls back to the trainer shaping for every
+checkpoint that predates recording it. `--reward-weights env-default` reproduces the old protocol,
+and every scored row prints and stores which reward it used.
+
+**That fallback was wrong for three of the four algorithms, and it had already shipped numbers.**
+Its first version split the legacy checkpoints by trainer - SAC/TD3/PPO went through
+`train_walker.py` so they got the shaping, and ARS/REDQ/Dreamer "never used shaping at all" so they
+got the environment defaults. The second half is false. `make_env` has passed
+`**TRAINING_REWARD_KWARGS` to every sub-environment since **8d37846 (2026-05-20)**, five months
+before any v9 checkpoint existed, and `train_dreamer.py`, `train_redq.py` and `train_ars.py` all
+build their environments through it; **ad22c94** (2026-10-02) only moved literals that were already
+identical into the shared constant. So every Dreamer, REDQ and ARS return published before
+2026-10-04 was computed against a reward those runs never optimised - the defect the paragraph above
+describes, on exactly the three algorithms the fix did not cover, and the README repeated it as a
+reason ("scored with the environment defaults because `train_ars.py` never used the trainer
+shaping"). All three trainers now record `reward_kwargs` in every checkpoint they write, the
+fallback resolves to the shaping for the ones that do not, and `tests/test_reward_shaping.py` pins
+both halves of the invariant: that `make_env` really does apply every kwarg - which is what makes
+the fallback a fact rather than a convenience - and that a legacy checkpoint resolves to the
+shaping. The check that it resolved correctly is a pair of artifacts that must agree: the same
+checkpoint and seeds scored by default resolution
+(`benchmarks/phase1_dreamer_v3_1m.json`) and by the explicit flag
+(`benchmarks/phase1_dreamer_v3_1m_training_reward.json`) hold bit-identical per-episode returns
+and telemetry.
+
+Re-scoring moved the returns and moved no behaviour, which is the cleanest available evidence that
+the shaping is a scoring question and not a training one. On the 1M Dreamer (50 episodes, cuda,
+same seeds) the telemetry - steps, closest approach, target reached, x-velocity - is **identical to
+the digit**, 19 of the 50 returns changed, and the mean moved 5215.46 → **5315.86** (+1.9%). The
+extremes did not move at all (-6998.07 and 14535.79 both before and after): the worst and best
+episodes are ones where the robot never gets inside the standing gate, so none of the reweighted
+terms is live in them. ARS at 1M moved 8679.40 → **8814.81** with its fall count, closest approach
+and x-velocity unchanged at 0.35 / 3.015 m / -0.0216 m/s.
+
+**A second defect fell out of checking the first: the retired tables did not record the device.**
+`eval_phase1.py` wrote `protocol`, `env_version` and `env_commit` into its artifact but not the
+device it ran on, and the device changes the answer - see "⚠️ The return depends on the device" in
+the Phase-1 section below. Three published rows turn out to have been scored on **cpu** while the
+rows they were compared against were scored on cuda. Both halves of the retired evidence table
+reproduce exactly on cpu, each under the weights the retired fallback chose for it:
+`benchmarks/phase1_evidence_eval_cpu_defaults.json` returns **3540.76 / 4892.44 / -409.43** for the
+REDQ, Dreamer and ARS smoke checkpoints, and `benchmarks/phase1_evidence_eval_cpu_auto.json` returns
+**23589.07** for the 40M SAC row - the one row the retired fallback already resolved to the shaping.
+The retired 269k Dreamer row reproduces the same way:
+`benchmarks/phase1_dreamer_v9_269k_cpu_reproduction.json` returns 6486.27 with median 6176.57 and
+0.10 falls on cpu. `eval_phase1.py` now records `device` and
+`torch_threads` alongside the protocol, so a row that cannot be compared says so.
+
+A third and smaller one: `--reward-weights training` replaced the whole kwarg set, which silently
+dropped the checkpoint's own `target_forward_velocity`. That is a task parameter - the speed the walk
+reward is centred on, and the clip on velocity-toward-target - not a reward weight. On the 40M SAC
+checkpoint, which records `target_forward_velocity=10.0`, dropping it moved the score from 23589.07 to
+23007.95 on the same device and the same seeds: the telemetry is identical and exactly **3 of the 10**
+episodes change return (1, 5 and 9 - the ones where the robot moved toward the target), which is what
+a clip at 10.0 m/s against 0.8 m/s should touch and nothing else. Both arms are committed
+(`benchmarks/phase1_evidence_eval_cpu_auto.json` and
+`benchmarks/phase1_evidence_eval_cpu_training.json`), and the second is the only artifact here that
+current code will not reproduce, because it was written by the buggy arm; it is kept as the regression
+fixture rather than as a protocol. The guard that replaces it is
+`benchmarks/phase1_sac_40m_forced_training_control.json`: forced and auto resolution must now agree on
+that checkpoint, and on cuda they both give 17363.56.
 
 Re-scoring the same 200 episodes with the reward these policies actually optimised
 (`benchmarks/target_learning_curve_v9_trainreward.json`) moves the returns by an order of
@@ -135,29 +192,37 @@ were regenerated for v9 (`obs_sum` is bit-identical to the v8 recording - the ob
 not move; `reward_sum` did, e.g. target 300-step 598.46 to 5576.32).
 
 The first Phase-1 run trained on v9 is ARS at its full 1M budget
-(`benchmarks/phase1_ars_v2_1m_v9.json`, 20 seeded target-phase episodes, scored with the
-environment defaults because `train_ars.py` never used the trainer shaping): mean 8679.40,
-median 8898.85, std 4904.52, 0.35 falls per episode, **0 of 20 inside the radius**, mean closest
-approach 3.015 m, mean x-velocity -0.0216 m/s. Same verdict as v8's ARS at the same budget, which
-is the comparison that makes the v9 change safe to have made: the reward shape moved the returns,
-not the behaviour.
+(`benchmarks/phase1_ars_v2_1m_v9.json`, 20 seeded target-phase episodes on cuda, scored with the
+trainer shaping it was actually trained under): mean 8814.81, median 8937.07, std 5059.09, 0.35
+falls per episode, **0 of 20 inside the radius**, mean closest approach 3.015 m, mean x-velocity
+-0.0216 m/s. Same verdict as v8's ARS at the same budget, which is the comparison that makes the v9
+change safe to have made: the reward shape moved the returns, not the behaviour. This row was
+published once already as 8679.40 under the environment defaults, on the false premise that
+`train_ars.py` never used the shaping; the three behaviour columns are identical in both versions,
+because the reward weights do not touch the trajectory.
 
 The second Phase-1 run to reach its full budget on v9 is **Dreamer at 1,000,000 steps**
-(`benchmarks/phase1_dreamer_v3_1m.json`, 50 seeded target-phase episodes, `run-id
-dreamer_v3_1m`, seed 7, capture on): mean 5215.46, median 5582.17, std 5091.03, min -6998.07,
+(`benchmarks/phase1_dreamer_v3_1m.json`, 50 seeded target-phase episodes on cuda, `run-id
+dreamer_v3_1m`, seed 7, capture on): mean 5315.86, median 5581.13, std 5150.85, min -6998.07,
 max 14535.79, 0.14 falls per episode - and **0 of 50 inside the radius**, mean closest approach
 2.893 m, mean x-velocity 0.0055 m/s, standing at the end of the episode 0%. So the run completes,
 and the verdict is the same one the ARS run and the inert-reference table already give: the return
 is the posture bonus, and the animal does not walk. It is a small favour to the reader to say that
-plainly instead of letting 5215.46 read like a score.
+plainly instead of letting 5315.86 read like a score.
 
 Two useful comparisons fall out of it. Against the *partial* v9 checkpoint - the run that stopped at
 269,404 steps and is recorded in `benchmarks/phase1_dreamer_v9_269k.json` - the full budget moved
-the mean from 6486.27 down to 5215.46 and the std from 3357.26 up to 5091.03, on 50 episodes rather
-than the 10 the partial one was scored on: **more training did not buy a better policy here**, which
-is the honest reason to stop spending 1.27 h runs on this task until the reward makes walking
-attractive. And against ARS at the same budget, Dreamer sits closer to the target on average
-(2.893 m against 3.015 m) with a lower return - two different ways of not reaching it.
+the mean from 6368.15 down to 5315.86 (-16.5%) and the std from 4272.68 up to 5150.85, on 50
+episodes rather than the 10 the partial one was scored on: **more training did not buy a better
+policy here**, which is the honest reason to stop spending 1.27 h runs on this task until the reward
+makes walking attractive. That sentence used to read "from 6486.27 down to 5215.46", and both of
+those numbers were wrong in a way that matters more than the 2% they are off by: 6486.27 was scored
+on **cpu** and 5215.46 on cuda, so the comparison was between two devices as well as two budgets
+(`benchmarks/phase1_dreamer_v9_269k_cpu_reproduction.json` reproduces 6486.27 exactly on cpu, which
+is how the row was identified). Both rows are now cuda, both are the training reward, and the
+direction of the comparison survives the correction. And against ARS at the same budget, Dreamer
+sits closer to the target on average (2.893 m against 3.015 m) with a lower return - two different
+ways of not reaching it.
 
 What the task geometrically requires is not in dispute: `timestep=0.002` with `frame_skip=5` makes one env step 0.01 s, episodes are capped at 1,000 steps (10 s of simulated time), targets
 spawn 2-5 m away and the success radius is 0.45 m. Reaching the near target needs 0.2 m/s
@@ -167,6 +232,129 @@ anywhere near that floor. What a retraining costs in wall clock is no longer a p
 Dreamer: the run above took **1.27 h** of machine time for its 1M steps (`benchmarks/dreamer_real_rate.json`
 measured 1.18 h before it ran, and the run itself came out 8% slower), and the throughput section's
 "What a training run costs" carries the SAC-stack figures.
+
+**And the rung below walking is the one nobody clears.** The environment is a curriculum -
+`standup_balance_walk_curriculum_v9` - so "does it walk?" presupposes "does it stand?", and the env
+defines standing as torso height inside `healthy_z_range = (1.0, 2.0)` m. `python bench_posture.py
+--episodes 50` (`benchmarks/phase1_posture_probe.json`) measures the height instead of inferring it
+from the return, on 50 seeded episodes per row (the ARS score above used 20, so its return here is
+not the same number), on the device the published harness
+resolves to (cuda) - which is why its return column reproduces `5315.86` to the cent:
+
+| model | episodes that ever reached the band | mean peak torso z | % of steps in the band | falls / episode | mean return |
+|:---|---:|---:|---:|---:|---:|
+| SAC at 40M steps | 23 of 50 | 0.864 | **14.73%** | 0.46 | 24534.17 |
+| SAC at 9M steps | 28 of 50 | 0.947 | 10.39% | 0.72 | 20447.84 |
+| ARS at 1M | 16 of 50 | 0.883 | 0.84% | 0.38 | 8560.92 |
+| Dreamer at 269,404 | 10 of 50 | 0.713 | 0.68% | 0.20 | 5572.43 |
+| **Dreamer at 1M** | **7 of 50** | 0.701 | 0.19% | 0.14 | 5315.86 |
+| commanding zero | 7 of 50 | 0.557 | 0.66% | 0.14 | 2964.48 |
+| uniform random | 7 of 50 | 0.567 | 0.46% | 0.14 | 2172.91 |
+
+Two rows of the first version of that table were wrong, and both errors are the kind a return cannot
+reveal. **(1) The row labelled "SAC at 40M steps" was the 9M checkpoint.** The script's roster held
+one entry keyed `sac_40m` pointing at `sac_ckpt_9000000.pt`, so the published 28 of 50 / 10.39% /
+20447.84 measured `sac_ckpt_9000000.pt`; the real 40M policy is the row above it, and it stands for
+14.73% of its steps while entering the band in *fewer* episodes (23 of 50) - it gets up less often
+and stays up longer. Both rows are now in the table, every row records the checkpoint path it was
+scored from, and a gate compares that path's step count against its label. **(2) The passive
+references were scored under a different reward from the trained rows.** `commanding zero` and
+`uniform random` have no checkpoint to read a reward off, so they fell back to the environment
+defaults while every trained row used the shaping - two reward functions in one column, and the
+defaults pay `standing_reward=50/step` that training sets to 0, i.e. the yardstick was paid for
+lying still. All rows now use `TRAINING_REWARD_KWARGS`. One caveat the weights do not cover: a row
+also carries the `target_forward_velocity` its own checkpoint records, so the table spans three task
+speeds - the environment's 0.8 for the two Dreamer rows, ARS and both passive references, and the
+10.0 and 1.2 that the 40M and 9M SAC runs were trained at. The posture columns are unaffected, and
+the comparison reading 3 rests on, Dreamer against commanding zero, is between two rows on the same
+0.8. The control that identifies
+which numbers moved is the one row whose weights did not change: SAC at 9M was already shaped and is
+the only row
+whose return is identical to the cent (20447.84), while the zero reference dropped 3202.71 →
+2964.48 once the standing bonus was removed. Every height, fall and band column in the table is
+unchanged by all of this, because none of them is computed from the reward - the environment-default
+arm of the same probe (`benchmarks/phase1_posture_probe_env_default.json`) reproduces all five
+retired returns exactly (5215.46, 5476.97, 8340.83, 3202.71, 2130.14) with every geometry column
+identical to the table above.
+
+Three things come out of that table, and one of them corrects a sentence higher up on this page.
+
+1. **The 1M Dreamer reaches standing height in as few episodes as commanding zero - 7 of 50 each -
+and spends less time up than a policy that emits nothing at all** (0.19% of steps against 0.66%). "The
+animal does not walk" was true and far too generous: by the environment's own gate it mostly does not
+stand either.
+2. The fall counts are why nobody noticed. `terminated` latches only after an episode has been
+healthy once, so the trained policy and doing nothing report the **same 0.14 falls per episode** - a
+low fall count in this env measures the latch, not balance, and it was read as stability.
+3. The ordering is nearly the honest one, and where it is not, it is not in the trained policies'
+favour. Return and time-on-feet agree at the top (both SAC rows) and at the bottom (uniform random
+is last on both), but the 1M Dreamer **outranks the zero-action reference on return while standing
+for a third as long** (5315.86 against 2964.48, 0.19% of steps against 0.66%): the return is a
+posture proxy that a policy can beat without standing, which is the whole reason this script exists.
+
+⚠️ **The return depends on the device the evaluator runs on. The posture *verdict* survives that;
+the posture *numbers* do not always.** Same
+checkpoints, same seeds, cuda against cpu (`python bench_posture.py --compare-devices`,
+`benchmarks/phase1_eval_device_sensitivity.json`): the 1M Dreamer scores **5824.49 on cuda and
+4737.23 on cpu**, 20.6% apart on the same ten episodes, and the 269k one 6368.15 against 6620.16.
+The two entries that do *not* move are ARS at 9024.24 on both devices and the zero-action reference
+at 2829.82 on both. The first version of this paragraph explained that by saying neither action
+"depends on a sampled latent", and the SAC row refutes it: `agent.get_action(...,
+deterministic=True)` has no sampling anywhere, and the same checkpoint under the same reward scores
+**23589.07 on cpu against 17363.56 on cuda** - 30% apart, with 7 of the 10 episodes on
+completely different trajectories (episode 1's closest approach 1.917 m on cpu, 3.608 m on cuda).
+The mechanism is not stochasticity, it is that this is a chaotic system scored in float32: any
+rounding difference between the two devices' matmuls compounds over a thousand steps, and a deep MLP
+amplifies it while ARS - a single linear map evaluated in float64 numpy, identical on both devices -
+and the zero policy, which does no arithmetic at all, have nothing to amplify. Dreamer's reparametrised
+posterior adds a second source on top. The standing verdict is
+unaffected for the run this section is about (0.12% of steps in the band on either device for the 1M
+run, 1 of 10 episodes reaching it on both), which is the point of measuring height instead of reading
+it off the return - but the posture *figures* are device-dependent too wherever the policy diverges:
+the 269k checkpoint reads 0.86% of steps in the band on cuda against 0.42% on cpu, 3 episodes against
+1. Both readings are "nowhere near standing", so the conclusion holds; a posture number quoted to two
+decimals without its device does not. That is why this script pins the device
+and the torch CPU thread count into its artifact, why `eval_phase1.py` now records both as well, and
+why a Phase-1 return quoted without them is
+only half a measurement. (The thread pin is not decoration either: with torch's default threading the
+identical command gave 0.634 m and 0.616 m peak torso height on two runs of the same checkpoint.)
+
+**Would one run that does everything beat the phase split? The target phase already is that run.**
+`task_phase=target` is not "walking only": its reward is the constant 1.0, the v9 posture bonus graded
+from the floor up, the recovery and upright terms, the stability term, progress toward the target,
+velocity toward the target, perpendicular-drift penalty and the success bonus - the `reward = (...)`
+sum in `WalkerRagdollEnv.step` - and it is the only phase the trainers give
+`terminate_when_unhealthy=True` (`train_walker.env_common_kwargs`). Every number in this section - ARS
+at 1M, Dreamer at 250k, 269k and 1M, the whole posture table - comes from a single run on `target`
+starting from `reset_mode=mixed`, which is 25% fixed-fallen, 15% upright and 60% randomized-fallen
+resets. So "train once and do everything" is not a missing feature here; it is what has been measured,
+and the 40M SAC policy is the only thing that ever cleared the standing rung on it (14.73% of its steps
+in the band). The 1M Dreamer is the same unified task with a smaller budget and a different algorithm,
+and the difference between those two rows is 14.73% against 0.19% - not a difference in task setup.
+
+What the phase split does cost is that a phase cannot change mid-run. `task_phase` is read once in the
+constructor and decides the observation width - `observation_size = 49 if task_phase == "target" else
+46`, the three extra components being the target's relative x, y and clipped distance - and that width
+sizes the networks, the replay and sequence buffers, the observation normalizer, the PPO rollout
+tensors and, for Dreamer, the static buffers inside the captured CUDA graph. A run that promoted itself
+from `balance` to `target` would invalidate all five. So this repository composes skills *after*
+training instead: Phase 3 merges separately trained
+policies (task arithmetic in `merge_models.py`, an MoE gate over the 46-wide observations in
+`train_moe_gate.py`), and `train_walker.py --init-from-run-id` starts a new run from another run's
+actor, zero-filling the three new input columns (`load_state_dict_with_expanded_input`) and padding
+`obs_rms` (`adapt_obs_rms`). That is a phase curriculum across runs, which the 46→49 widening permits;
+it is not one run, and the difference is that the replay buffer and the normalizer statistics do not
+survive the switch.
+
+The in-environment curriculum that would let a single run get progressively harder is present in the
+constructor and dead: `target_curriculum_streak` is accepted and forwarded to `EzPickle` for
+re-pickling but no attribute of the env ever reads it, `target_success_streak` is hard-coded to 0 in
+the step info dict, and `_target_fixed_until_curriculum` is assigned once in `__init__` and never read
+again. The only adaptivity that actually runs is target resampling - 2-5 m away, within ±0.15 rad, on
+every reset and on every success, with `_curriculum_level` counting the successes. Whether to finish
+that machinery or delete it is an open question;
+what is not open is that it is not what separates the policies above, since none of them reached the
+radius often enough for a target curriculum to engage.
 
 
 The scale of that table matters: REDQ and Dreamer wrap the environment in `NormalizeReward`,
@@ -991,6 +1179,78 @@ budgets against the gate-aware model, the process startup comes back as **5.1 s*
 and **6.1 s** with it, so the one-time CUDA graph capture is worth about a second on a budget this
 size: cheap, paid once, and invisible in the per-iteration rate.
 
+**The last lever in the loop, and what it costs.** With the update at 12.6-12.8 ms and the collection
+side at 3.3-4.2 ms, the only way left to cut wall clock without touching the update's arithmetic is to
+collect more environment steps per gradient step: the trainer runs exactly one `dreamer_update` per
+collection step, so `--num-envs` divides the update's share directly. `python
+bench_dreamer_update.py --mode amortize` measures that at two budgets per `n`, in one window
+(`benchmarks/dreamer_amortize_n.json`):
+
+| `--num-envs` | ms per iteration | env-steps/s | h per 1M env steps | gradient steps per 1k env steps | vs shipped |
+|---:|---:|---:|---:|---:|---:|
+| 4 (shipped) | 17.23 | 232.2 | 1.20 | 250.0 | 1.00x |
+| 8 | 20.35 | 393.1 | 0.71 | 125.0 | **1.69x** |
+| 16 | 28.38 | 563.8 | 0.49 | 62.5 | **2.43x** |
+
+The n=4 row is the control, and it is why the other two are believable: 17.23 ms per iteration here
+against the 16.96 ms the two-budget run measured and the 15.70 ms the in-process split attributed -
+three instruments in three windows, 9% apart, and this one ran with 5 other CUDA contexts on the GPU
+(the artifact records the count, because a first attempt at it ran against 6 and produced numbers
+worth nothing). So a 1M-step Dreamer run at `--num-envs 16` costs **0.49 h** where the shipped
+configuration costs 1.20 h. The price is the last column: the update-to-data ratio falls from one
+gradient step per 4 environment steps to one per 16, so 250 gradient steps per 1,000 environment steps
+become 62.5. Whether that is a speedup or simply a shorter run that learns less is a learning question
+and not a timing one, so it gets measured rather than assumed - see "Does the cheaper update schedule
+still learn?" below.
+
+**Does the cheaper update schedule still learn?** Two real runs, both to exactly 250,000 environment
+steps, both `--seed 7 --task-phase target --reset-mode mixed`: the shipped `--num-envs 4` (the first
+quarter of run-id `dreamer_v3_1m`) and `--num-envs 16` (run-id `dreamer_n16_250k`). The trainer runs
+one `dreamer_update` per collection step and a collection step advances `num_envs` steps, so the two
+arms spent **62,500 and 15,625 gradient steps** on the same experience. Over the step window both
+runs have checkpoints for (50,000 → 250,000, so neither window contains startup or graph capture)
+the wall clock is **1028.0 s against 252.0 s - 4.08x** (`benchmarks/training_rate_history.json`, from
+the checkpoints' own mtimes; per-interval rates 157.4-211.8 and 751.3-890.0 env-steps/s, so the
+window is not a single sample). Neither arm's `--num-envs` is taken on faith either: the observation
+normalizer updates once per environment step and once on the initial reset, so `count - global_step`
+is 4.0001 and 16.0001 in the two full checkpoints, and the gate fails if a label and its own counter
+ever disagree. The `--num-envs 16` arm's stdout was also kept
+(`dreamer_n16_250k_evidence.log`, parsed into the same artifact): it ran with the update captured as
+a CUDA graph inside a window holding **531 of 8188 MiB across 5 other contexts**. The `--num-envs 4`
+arm's stdout was not kept, so its window is unrecorded; the same run is instead corroborated by
+MLflow's timestamps over its whole 995,000 steps, which give 217.9 env-steps/s against the 194.6 of
+the 50k→250k window used here. The gap is the run slowing down after 250k, in a window where other
+measurements were competing for the same GPU - which is the reason the comparison below is made over
+one window rather than over two whole runs. Both policies were then scored identically: 50 seeded
+episodes, cuda, the training reward.
+
+| at 250,000 env steps | `--num-envs 4` (shipped) | `--num-envs 16` |
+|:---|---:|---:|
+| gradient steps spent | 62,500 | 15,625 |
+| mean return | 6628.71 | 5301.00 |
+| **median return** | **6466.67** | **627.00** |
+| std | 4062.99 | 7460.70 |
+| min / max | -7001.49 / 13563.15 | -302.55 / 23572.76 |
+| episodes inside the 0.45 m radius | 1 of 50 (2.0%) | 0 of 50 |
+| mean closest approach | 2.647 m | 3.176 m |
+| mean x-velocity | +0.0079 m/s | -0.0293 m/s |
+
+**It learns less, and the mean is the number that hides it.** The median falls by a factor of ten
+(6466.67 → 627.00) while the mean falls only 20%, because the cheap arm's distribution is bimodal:
+its best episode (23572.76) beats the shipped arm's best (13563.15) and most of its episodes are near
+nothing. It also stops making progress toward the target at all - the x-velocity changes sign, the
+closest approach is 0.53 m worse, and the single episode that reached the radius in the shipped arm
+has no counterpart. Two caveats that cut in opposite directions, both worth stating: at 16
+environments the trainer also crosses `--vec-parallel-threshold` (default 16) and switches the
+collector from `sync` to process-parallel, so the 4.08x is not all attributable to the update
+schedule - the isolated bench above, which holds `sync` for every arm, attributes 2.43x to it. And
+this is one seed per arm, not a seed study.
+
+So the last lever is real and it is not free: 4x the wall clock for a quarter of the gradient steps
+buys a measurably worse policy at this budget. Neither arm walks - 2.0% and 0% of episodes inside the
+radius - so what the table compares is two failures, and the honest reading is which one is cheaper
+rather than which one works. Whether the gap closes by 1M steps is not measured; at 250k it does not.
+
 The batch axis is the second version of a sentence that was wrong before: an earlier window said the
 eager update was "flat in batch, sixteen times the samples for free", and the claim was wrong in the
 way that matters - it was measured once. On the arm that repeats, batch 16 -> 64 -> 256 costs
@@ -1076,6 +1336,42 @@ is trustworthy. And a long job started with `nohup` from an ordinary shell call 
 that call's process tree some minutes later: three runs died that way in one afternoon, silently,
 with no traceback. Both are written up, with what they cost, in
 [docs/lab-notes.md](docs/lab-notes.md).
+
+**"It felt faster before all this work" - the archive says the opposite, by 16.5x.** Worth answering
+with data rather than reassurance, because the intuition has a real source. `python
+summarize_training_rate.py` (`benchmarks/training_rate_history.json`) recomputes a rate for every run
+in `mlruns.db` that logged `sps` twice or more - 17 runs - as (last step − first step) / (last
+timestamp − first timestamp), which needs no interpretation of what the trainer meant by `sps`. The
+two it cites are the furthest each generation of the Dreamer trainer got, and they are matched on
+every parameter that is recorded (`algo=dreamer`, `num_envs=4`, `task_phase=target`, `seed=7`,
+`total_timesteps=1000000`, `reset_mode=mixed`); the only difference between them is the code:
+
+| run | generation | started | steps measured | span | rate | h per 1M steps | first logged `sps` | last logged `sps` |
+|:---|:---|:---|---:|---:|---:|---:|---:|---:|
+| `dreamer_dreamer_v2_1m_v9__7` | before capture | 2026-10-02 11:30 | 263,000 | 19,981.7 s | 13.2 /s | 21.10 | **235** | 13 |
+| `dreamer_dreamer_v3_1m__7` | after capture | 2026-10-04 15:01 | 995,000 | 4,565.4 s | 217.9 /s | **1.27** | **690** | 218 |
+
+**16.51x**, and it is not two lucky draws: all 11 Dreamer runs in the archive from before the capture
+landed sit between **9.3 and 23.7 env-steps/s**. The 4,565.4 s span is also an independent
+confirmation of the 1.27 h this README quotes for the completed run - MLflow's metric timestamps
+against the trainer's own clock, agreeing to the minute.
+
+The intuition's source is in the last two columns. `sps` is
+`int(global_step / (time.time() - start_time))` - a **cumulative average since process start**, and
+its first sample is logged at `learning_starts`, before a single gradient update has run, so it
+reports the collection-only rate and then decays for the rest of the run. Opened in the first minutes,
+the old trainer's chart read **235** and the new one reads **690**; left alone, they settle at **13**
+and **218**. The old runs were also the ones that died early (that run stopped at 263,000 of
+1,000,000), so the decay never landed on screen. A rate read off the top of that curve is the
+collection rate, and it was higher before too - it just was not the run's cost.
+
+Two limits on what this can claim. The archive's `sps` metric only exists from 2026-10-01 onward; the
+21 earlier runs span 2026-06-07 to 2026-06-26 and are offline RL (BC/IQL/CQL) with no rate metric at
+all, so there is no measured "a week ago" to compare against - the nearest earlier generation of the
+same trainer is the 2026-10-01/10-02 one above. And env-steps/s is not comparable across algorithms:
+the stacked SAC harness measures **2,883-4,049 env-steps/s** because SAC spends one small-MLP gradient
+step per environment step, where Dreamer spends a world-model update per four. If the memory is of
+watching a SAC run, that is the difference - what a step costs, not how fast the machine was.
 
 **A third way to lose a run: sharing this laptop's GPU.** The Dreamer 1M attempt of 2026-10-02 got
 to 84,456 steps and died with `CUDA error: unspecified launch failure`, inside a window where two
@@ -1291,11 +1587,12 @@ Three facts to keep in mind:
 
 The suite is plain `unittest` (no pytest required) and covers the environment contract, the
 golden reward rollouts, the parallel/serial vector-env parity, checkpointing and the race
-harness — **157 tests, 230 s in this window** (`Ran 157 tests in 230.268s ... OK
+harness — **194 tests, 170 s in this window** (`Ran 194 tests in 170.304s ... OK
 (skipped=7)` under `.venv`). Windows of this suite have measured 176.3 s at 102 tests, 269.995 s
 at 121, 261.1 s at 127, 329.964 s at 128, 319.168 s at 130, 184.716 s, 203.108 s and 306.976 s at
-140, 144.678 s at 147 and 230.268 s at 157 - one afternoon apart on the same laptop, 1.6x apart for
-ten more tests. The
+140, 144.678 s at 147, 230.268 s at 157 and 171.016 s and 170.304 s at 194 - the last two are the
+same commit run twice minutes apart, 0.4% apart, where the 147 and 157 windows an afternoon earlier
+were 1.6x apart for ten more tests. The
 duration belongs to the machine's state, the
 count does not, and a gate checks the count so it cannot go stale quietly):
 
@@ -1348,7 +1645,7 @@ that they ran - see Phase 4, item 6. How each of those states was found, with th
 ## 🔬 Reproducing and measuring
 
 ```bash
-python -m unittest discover -s tests -t .   # 157 tests in .venv, 230 s; see "Running the tests"
+python -m unittest discover -s tests -t .   # 194 tests in .venv, 170 s; see "Running the tests"
 python bench_env.py --seconds 4             # env throughput, physics vs Python split
 python bench_mjx.py --sizes 32,128          # MJX/JAX batched stepping
 python verify.py                            # Phase-2 artifact check (exits 2 when missing)
@@ -1357,6 +1654,10 @@ python bench_dreamer_update.py --mode scaling # per-loop-step cost, eager vs cap
 python bench_dreamer_update.py --mode loop-split  # one iteration, segment by segment, one window
 python bench_dreamer_update.py --mode real-rate   # the shipped command at two budgets, 2 reps/cell
 python bench_dreamer_update.py --mode checkpoint-cost  # bytes and ms per Dreamer save, per interval
+python bench_dreamer_update.py --mode amortize  # rate and gradient steps per --num-envs, one window
+python bench_posture.py --episodes 50           # does it stand? torso height per step, not the return
+python bench_posture.py --compare-devices       # the same rows on cuda and cpu, and what moves
+python summarize_training_rate.py               # every run's real rate, from its own logged timestamps
 python -m utils.gpu_window                    # the GPU window a long run would start into
 python bench_jax_update.py                    # JAX imagination rollout, fwd + fwd/rev (needs a
                                               # CUDA jaxlib: WSL2, see the MJX section)

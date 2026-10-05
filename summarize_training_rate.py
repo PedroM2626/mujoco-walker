@@ -158,6 +158,36 @@ def evidence_log(run_id, root):
             "update_mode": update.group(1).strip() if update else None}
 
 
+def mlflow_window(run_id):
+    """The GPU window the arm started into, from its MLflow params, if the run logged there.
+
+    `start_mlflow_run` records `gpu_memory_used_mib_before_run` and `gpu_other_cuda_contexts`, which
+    is the context a wall-clock ratio needs: the same schedule measured in a contended window is not
+    the same measurement. An arm trained while the tracker was pointed at a scratch database has no
+    row here, and then its stdout is the only record (see `evidence_log`).
+    """
+    if not os.path.exists(DB):
+        return None
+    con = sqlite3.connect("file:" + DB.replace(os.sep, "/") + "?mode=ro", uri=True, timeout=10)
+    try:
+        rows = con.execute(
+            "SELECT run_uuid, name FROM runs WHERE name LIKE ? ORDER BY start_time DESC",
+            (f"dreamer_{run_id}__%",)).fetchall()
+        for run_uuid, name in rows:
+            params = dict(con.execute(
+                "SELECT key, value FROM params WHERE run_uuid=?", (run_uuid,)).fetchall())
+            if "gpu_memory_used_mib_before_run" not in params:
+                continue
+            return {"run_name": name,
+                    "memory_used_mib": int(params["gpu_memory_used_mib_before_run"]),
+                    "memory_total_mib": int(params["gpu_memory_total_mib"]),
+                    "other_cuda_contexts": int(params["gpu_other_cuda_contexts"]),
+                    "num_envs": params.get("num_envs"), "seed": params.get("seed")}
+    finally:
+        con.close()
+    return None
+
+
 def checkpoint_wall_clock(specs, checkpoints_root, root=ROOT):
     """Each run's own record of how fast it advanced: the mtimes of the checkpoints it wrote.
 
@@ -199,6 +229,7 @@ def checkpoint_wall_clock(specs, checkpoints_root, root=ROOT):
             "num_envs_from_normalizer": None if residue is None else round(residue),
             "normalizer_residue": residue,
             "evidence_log": evidence_log(run_id, root),
+            "mlflow_window": mlflow_window(run_id),
             "checkpoints": [{"step": s, "mtime": datetime.datetime.fromtimestamp(t).isoformat(
                 timespec="seconds")} for s, t in points],
             "intervals": intervals,
@@ -243,7 +274,9 @@ def main():
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--min-steps", type=int, default=2000,
                    help="drop runs that advanced less than this between their first and last sample")
-    p.add_argument("--runs", default="dreamer_v3_1m:4,dreamer_n16_250k:16",
+    p.add_argument("--runs",
+                   default="dreamer_v3_1m:4,dreamer_n8_250k:8,dreamer_n16_250k:16,"
+                           "dreamer_n4_s8_250k:4,dreamer_n8_s8_250k:8,dreamer_n16_s8_250k:16",
                    help="comma-separated RUN_ID:NUM_ENVS arms to time from their checkpoint mtimes")
     p.add_argument("--out", default=OUT)
     args = p.parse_args()

@@ -999,7 +999,11 @@ class TestReadmeMlflowHistoryCells(unittest.TestCase):
             readme = handle.read()
         self.whole = readme
         start = readme.index("The history lives in **one** database")
-        self.block = re.sub(r"\s+", " ", readme[start:start + 900])
+        # To the next heading, not a fixed character window: a 900-character one silently dropped the
+        # last sentence of this paragraph the first time somebody added a clause to it, and the gate
+        # for that sentence then failed with "reworded" when nothing had been reworded.
+        end = readme.find("\n## ", start)
+        self.block = re.sub(r"\s+", " ", readme[start:end if end > start else len(readme)])
 
     def tearDown(self):
         self.con.close()
@@ -1009,11 +1013,21 @@ class TestReadmeMlflowHistoryCells(unittest.TestCase):
         self.assertIsNotNone(m, f"the {what} sentence was reworded; re-point this test at it")
         return m
 
+    # The archive only grows, so an exact cell here can only ever be true while nothing is running -
+    # the same reason the metric-row count below is a bound. Staleness is allowed; lying is not.
+    STALENESS_LIMIT = 30
+
     def test_the_run_and_experiment_counts(self):
         active = self.con.execute("SELECT COUNT(*) FROM runs WHERE lifecycle_stage='active'").fetchone()[0]
         exps = self.con.execute("SELECT COUNT(*) FROM experiments").fetchone()[0]
         m = self.find(r"\*\*(\d+) active runs\*\* in (\d+) experiments", "the run and experiment counts")
-        self.assertEqual(int(m.group(1)), active, "the README's active-run count is not the database's")
+        typed = int(m.group(1))
+        self.assertLessEqual(typed, active,
+                             f"the README claims {typed} active runs and the database holds {active}: "
+                             f"over-claiming the archive is the dangerous direction")
+        self.assertLessEqual(active - typed, self.STALENESS_LIMIT,
+                             f"the published run count is {active - typed} runs behind the database; "
+                             f"restate it (and its date) rather than let the bound go slack")
         self.assertEqual(int(m.group(2)), exps, "the README's experiment count is not the database's")
 
     def test_every_experiment_split_figure_is_its_own_run_count(self):
@@ -1026,7 +1040,10 @@ class TestReadmeMlflowHistoryCells(unittest.TestCase):
         self.assertEqual(set(typed), set(want),
                          "the README lists a different set of experiments than the database holds")
         for name, value in typed.items():
-            self.assertEqual(value, want[name], f"{name}: README says {value}, database has {want[name]}")
+            self.assertLessEqual(value, want[name],
+                                 f"{name}: README claims {value} runs, the database holds {want[name]}")
+            self.assertLessEqual(want[name] - value, self.STALENESS_LIMIT,
+                                 f"{name} is {want[name] - value} runs behind its published figure")
 
     def test_the_metric_row_count_and_the_schema_revision(self):
         rows = self.con.execute("SELECT COUNT(*) FROM metrics").fetchone()[0]
@@ -1465,6 +1482,43 @@ class TestReadmeRewardProvenanceCells(ReadmeGate, unittest.TestCase):
         self.assertEqual(b["reward_kwargs"], {},
                          "`--reward-weights env-default` is what reproduces the retired row")
 
+    def test_the_episodes_that_moved_are_separated_by_the_standing_gate_floor(self):
+        """Exact separation, not a tendency: changed episodes peak above 0.65 m, unchanged below.
+
+        The first version of this sentence explained the unmoved extremes by saying those episodes
+        "never get inside the standing gate", which is wrong - the gate is graded from z=0.65 and the
+        healthy band starts at 1.0, so 12 episodes moved without ever reaching the band. The height
+        that actually separates them is the gate's own floor, and it does so with no overlap.
+        """
+        current = self.artifact("phase1_dreamer_v3_1m.json")
+        retired = self.artifact("phase1_dreamer_v3_1m_env_default.json")
+        probe = self.artifact("phase1_posture_probe.json")["models"]["dreamer_v3_1m"]["per_episode"]
+        a = current["per_episode"]["dreamer_v3_1m"]
+        b = retired["per_episode"]["dreamer_v3_1m"]
+        self.assertEqual(len(a), len(b))
+        self.assertTrue(all(abs(p["return"] - x) < 0.01 for p, x in zip(probe, a)),
+                        "the probe and the scorer disagree episode by episode, so the heights below "
+                        "describe a different rollout than the returns")
+        changed = {i for i, (x, y) in enumerate(zip(a, b)) if abs(x - y) > 1e-9}
+        moved_z = [probe[i]["max_z"] for i in sorted(changed)]
+        still_z = [probe[i]["max_z"] for i in range(len(a)) if i not in changed]
+        m = re.search(r"all (\d+) that changed peak at or above \*\*([\d.]+) m\*\* of torso height "
+                      r"and all (\d+)\s*that did not peak at or below \*\*([\d.]+) m\*\*", self.block)
+        self.assertIsNotNone(m, "the separation sentence was reworded")
+        self.assertEqual(int(m.group(1)), len(moved_z))
+        self.assertEqual(int(m.group(3)), len(still_z))
+        self.check("the floor of the moved set", m.group(2), min(moved_z), places=3)
+        self.check("the ceiling of the unmoved set", m.group(4), max(still_z), places=3)
+        self.assertGreater(min(moved_z), max(still_z),
+                           "the two sets overlap, so the separation is not the exact one claimed")
+        with open(os.path.join(ROOT, "envs", "walker_ragdoll_env.py"), encoding="utf-8") as handle:
+            source = handle.read()
+        self.assertIn("min(max((z_after - 0.65) / 0.60, 0.0), 1.0)", source,
+                      "the standing-gate height factor the sentence quotes has moved or changed")
+        m = re.search(r"`clip\(\(z - ([\d.]+)\) / ([\d.]+), 0, 1\)`", self.block)
+        self.assertIsNotNone(m, "the clip expression was reworded")
+        self.check("the clip the prose quotes", [m.group(1), m.group(2)], [0.65, 0.60], places=2)
+
     def test_the_ars_row_and_the_version_it_replaces(self):
         current = self.artifact("phase1_ars_v2_1m_v9.json")["models"]["ars_v9"]
         retired = self.artifact("phase1_ars_v2_1m_v9_env_default.json")["models"]["ars_v9"]
@@ -1555,6 +1609,26 @@ class TestReadmeRewardProvenanceCells(ReadmeGate, unittest.TestCase):
         self.assertIsNotNone(m, "the retired SAC cpu sentence was reworded")
         self.check("the retired SAC cpu row", m.group(1), auto["models"]["sac_target_40M"]["mean"],
                    places=2)
+        # The count in the sentence: five rows were cpu-scored, and each of them has to actually
+        # differ from its cuda counterpart, or "the device changed the answer" is decoration.
+        cuda = self.artifact("phase1_evidence_eval.json")
+        moved = [k for k in auto["models"]
+                 if auto["models"][k]["mean"] != cuda["models"][k]["mean"]]
+        moved += [k for k in defaults["models"]
+                  if defaults["models"][k]["mean"] != cuda["models"][k]["mean"]]
+        moved = sorted(set(moved))
+        partial = self.artifact("phase1_dreamer_v9_269k.json")
+        cpu_partial = self.artifact("phase1_dreamer_v9_269k_cpu_reproduction.json")
+        if cpu_partial["models"]["dreamer_v9_269k"]["mean"] != partial["models"][
+                "dreamer_v9_269k"]["mean"]:
+            moved.append("dreamer_v9_269k")
+        m = re.search(r"\b(\w+) rows turn out to have been scored on \*\*cpu\*\*", self.block)
+        self.assertIsNotNone(m, "the five-rows sentence was reworded")
+        words = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7}
+        self.assertIn(m.group(1).lower(), words,
+                      f"the row count is spelled {m.group(1)!r}, which this gate cannot read")
+        self.assertEqual(words[m.group(1).lower()], len(moved),
+                         f"the rows whose score depends on the device are {moved}")
 
 
 class TestReadmePostureCells(ReadmeGate, unittest.TestCase):
@@ -1604,19 +1678,24 @@ class TestReadmePostureCells(ReadmeGate, unittest.TestCase):
         """The bug this guards: a roster entry keyed `sac_40m` pointing at `sac_ckpt_9000000.pt`.
 
         The row printed, the table looked fine, and the README described a 9M policy as a 40M one for
-        a day. Every row now records the path it was scored from, so the label can be checked against
-        the file rather than against the roster's key.
+        a day. Every row now records the path it was scored from, so the step count in the label can
+        be compared against the step count in the file rather than against the roster's key. "ARS at
+        1M" is 1,000,917 steps, so the comparison is at 0.1% rather than exact.
         """
         for key, art in self.posture.items():
             self.assertIn("checkpoint", art, f"{key} does not record what it was scored on")
-        self.assertTrue(self.posture["sac_40m"]["checkpoint"].endswith("sac_ckpt_40000000.pt"),
-                        f"the row labelled 40M was scored on "
-                        f"{self.posture['sac_40m']['checkpoint']}")
-        self.assertTrue(self.posture["sac_9m"]["checkpoint"].endswith("sac_ckpt_9000000.pt"),
-                        f"the row labelled 9M was scored on {self.posture['sac_9m']['checkpoint']}")
         paths = [a["checkpoint"] for a in self.posture.values() if a["checkpoint"] not in
                  ("none", "random")]
         self.assertEqual(len(paths), len(set(paths)), "two rows were scored on the same checkpoint")
+        for label, key in self.ROWS.items():
+            text = label.replace("*", "")
+            m = re.search(r"at ([\d,]+)(M?)", text)
+            if not m:
+                continue
+            want = float(m.group(1).replace(",", "")) * (1e6 if m.group(2) else 1.0)
+            got = int(re.search(r"_(\d+)\.pt$", self.posture[key]["checkpoint"]).group(1))
+            self.assertLessEqual(abs(got - want) / want, 0.001,
+                                 f"the row labelled {text!r} was scored on step {got}")
 
     def test_the_whole_table_is_one_reward_function(self):
         """The passive references used to be scored under the environment defaults while every
@@ -1763,7 +1842,7 @@ class TestReadmePostureCells(ReadmeGate, unittest.TestCase):
                          "the probe's thread pin is what makes it repeatable run to run")
         self.assertEqual({v["device"] for v in self.posture.values()}, {"cuda"},
                          "the published harness resolves to cuda on this box; mixing devices in one "
-                         "artifact is how the 18.5% cpu-versus-cuda gap becomes invisible")
+                         "artifact is how a cpu row next to a cuda row becomes invisible")
 
     def test_the_device_sensitivity_pair_is_the_run_that_ran(self):
         if not os.path.exists(self.SENS):
@@ -1942,20 +2021,32 @@ class TestReadmeAmortizeCells(ReadmeGate, unittest.TestCase):
 
 
 class TestReadmeNumEnvsLearningCells(ReadmeGate, unittest.TestCase):
-    """The learning half of the `--num-envs` lever: two real runs, same budget, same protocol.
+    """The learning half of the `--num-envs` ladder: three schedules x two seeds at one budget.
 
-    The timing half is `TestReadmeAmortizeCells`. This one exists because the timing half ends with a
-    forward reference it has to honour - a 4x cheaper run is only a speedup if the policy it produces
-    is not worse, and "worse" is a measurement, not an opinion. Both arms are gated on the fields that
-    make them comparable (same step budget, same seed, same device, same reward) before any score is.
+    The timing half is `TestReadmeAmortizeCells`. This class exists because that half ends with a
+    forward reference it has to honour, and because the first answer it gave - written from one seed
+    per schedule, "8 envs is free, 16 is a cliff" - did not survive the second seed. So the gates
+    here check the replicated design: every quoted figure is tied to an artifact, the two tables are
+    tied to each other arm by arm, and the prose's central claim (that returns do not separate the
+    schedules while forward speed does) is recomputed rather than remembered.
     """
 
-    N4 = os.path.join(ROOT, "benchmarks", "phase1_dreamer_v3_250k.json")
-    N16 = os.path.join(ROOT, "benchmarks", "phase1_dreamer_n16_250k.json")
     RATE = os.path.join(ROOT, "benchmarks", "training_rate_history.json")
     AMORTIZE = os.path.join(ROOT, "benchmarks", "dreamer_amortize_n.json")
     START = "**Does the cheaper update schedule still learn?**"
     END = "The batch axis is the second version of a sentence that was wrong before"
+
+    # (schedule, seed) -> eval artifact, model key, run-id in the wall-clock table, table column
+    ARMS = {
+        ("4", "7"): ("phase1_dreamer_v3_250k.json", "dreamer_v3_250k", "dreamer_v3_1m", 1),
+        ("4", "8"): ("phase1_dreamer_n4_s8_250k.json", "dreamer_n4_s8_250k", "dreamer_n4_s8_250k", 2),
+        ("8", "7"): ("phase1_dreamer_n8_250k.json", "dreamer_n8_250k", "dreamer_n8_250k", 3),
+        ("8", "8"): ("phase1_dreamer_n8_s8_250k.json", "dreamer_n8_s8_250k", "dreamer_n8_s8_250k", 4),
+        ("16", "7"): ("phase1_dreamer_n16_250k.json", "dreamer_n16_250k", "dreamer_n16_250k", 5),
+        ("16", "8"): ("phase1_dreamer_n16_s8_250k.json", "dreamer_n16_s8_250k",
+                      "dreamer_n16_s8_250k", 6),
+    }
+    TIMING_ROWS = {"4 (shipped)": "4", "8": "8", "16": "16"}
 
     def setUp(self):
         with open(README, encoding="utf-8") as handle:
@@ -1963,172 +2054,191 @@ class TestReadmeNumEnvsLearningCells(ReadmeGate, unittest.TestCase):
         start = readme.index(self.START)
         self.block = readme[start:readme.index(self.END, start)]
         self.flat = re.sub(r"\s+", " ", self.block)
-        load = lambda p: json.load(open(p, encoding="utf-8"))
-        self.n4 = load(self.N4)["models"]["dreamer_v3_250k"]
-        self.n16 = load(self.N16)["models"]["dreamer_n16_250k"]
-        self.rate_full = load(self.RATE)
+        load = lambda name: json.load(
+            open(os.path.join(ROOT, "benchmarks", name), encoding="utf-8"))
+        self.art = {}
+        for key, (name, model_key, run_id, col) in self.ARMS.items():
+            top = load(name)
+            self.art[key] = {"top": top, "model": top["models"][model_key],
+                             "run_id": run_id, "col": col}
+        self.rate_full = load("training_rate_history.json")
         self.rate = self.rate_full["checkpoint_wall_clock"]
-        self.amortize = load(self.AMORTIZE)
+        self.by_run = {r["run_id"]: r for r in self.rate["runs"]}
+        self.amortize = load("dreamer_amortize_n.json")
         self.what = "num-envs learning"
         self.bad = []
 
-    def test_the_two_arms_are_actually_comparable(self):
-        for arm, name, envs in ((self.n4, "n=4", 4), (self.n16, "n=16", 16)):
-            self.assertEqual(arm["global_step"], 250000, f"{name} did not run to 250,000 env steps")
-            self.assertEqual(arm["episodes"], 50, f"{name} was not scored on 50 episodes")
-            self.assertEqual(arm["task_phase"], "target", f"{name} was scored on a different phase")
-        by_id = {r["run_id"]: r for r in self.rate["runs"]}
-        self.assertEqual(by_id["dreamer_v3_1m"]["num_envs"], 4)
-        self.assertEqual(by_id["dreamer_n16_250k"]["num_envs"], 16)
-        for run_id, arm in by_id.items():
-            self.assertEqual(arm["num_envs_from_normalizer"], arm["num_envs"],
-                             f"{run_id}'s --num-envs label disagrees with its checkpoint's own "
-                             f"observation-normalizer counter ({arm['normalizer_residue']}), so the "
-                             f"arm is mislabelled or was resumed and the comparison means nothing")
-        with open(self.N4, encoding="utf-8") as handle:
-            d4 = json.load(handle)
-        with open(self.N16, encoding="utf-8") as handle:
-            d16 = json.load(handle)
-        self.assertEqual(d4["device"], d16["device"],
-                         "the two arms were scored on different devices, which is a 20% effect on a "
-                         "Dreamer policy and would swamp the comparison")
-        self.assertEqual(self.n4["reward_kwargs"], self.n16["reward_kwargs"],
-                         "the two arms were scored under different rewards")
-        m = re.search(r"spent \*\*([\d,]+) and ([\d,]+) gradient steps\*\*", self.flat)
-        self.assertIsNotNone(m, "the gradient-step sentence was reworded")
-        self.check("gradient steps per arm",
-                   [int(m.group(1).replace(",", "")), int(m.group(2).replace(",", ""))],
-                   [250000 // 4, 250000 // 16], places=0)
-        m = re.search(r"`count - global_step` is ([\d.]+) and\s*([\d.]+)", self.flat)
-        self.assertIsNotNone(m, "the normalizer cross-check sentence was reworded")
-        self.check("the two residues", [m.group(1), m.group(2)],
-                   [by_id["dreamer_v3_1m"]["normalizer_residue"],
-                    by_id["dreamer_n16_250k"]["normalizer_residue"]], places=4)
+    def test_every_arm_is_the_same_experiment_except_the_schedule(self):
+        for (n, seed), arm in self.art.items():
+            model, top = arm["model"], arm["top"]
+            self.assertEqual(model["global_step"], 250000, f"n={n} seed={seed} budget")
+            self.assertEqual(model["episodes"], 50, f"n={n} seed={seed} episodes")
+            self.assertEqual(model["task_phase"], "target", f"n={n} seed={seed} phase")
+            self.assertEqual(top["device"], "cuda", f"n={n} seed={seed} device")
+        self.assertEqual({a["top"]["device"] for a in self.art.values()}, {"cuda"})
+        rewards = {json.dumps(a["model"]["reward_kwargs"], sort_keys=True)
+                   for a in self.art.values()}
+        self.assertEqual(len(rewards), 1, "the arms were scored under more than one reward")
+        for (n, seed), arm in self.art.items():
+            run = self.by_run[arm["run_id"]]
+            self.assertEqual(run["num_envs"], int(n), f"{arm['run_id']} labelled {run['num_envs']}")
+            self.assertEqual(run["num_envs_from_normalizer"], int(n),
+                             f"n={n} seed={seed}'s label disagrees with its checkpoint's normalizer "
+                             f"counter ({run['normalizer_residue']}): mislabelled or resumed")
+            mlflow_w = run["mlflow_window"]
+            if mlflow_w:
+                self.assertEqual(mlflow_w["seed"], seed,
+                                 f"{arm['run_id']}: the MLflow row is seed {mlflow_w['seed']}")
 
-    def test_the_wall_clock_is_the_runs_own_checkpoints(self):
-        arms = {r["run_id"]: r for r in self.rate["runs"]}
-        self.assertEqual(set(arms), {"dreamer_v3_1m", "dreamer_n16_250k"})
-        self.assertEqual(arms["dreamer_v3_1m"]["num_envs"], 4)
-        self.assertEqual(arms["dreamer_n16_250k"]["num_envs"], 16)
-        window = self.rate["common_window"]
-        m = re.search(r"\(([\d,]+) → ([\d,]+), so neither window contains startup or graph capture\) "
-                      r"the wall clock is \*\*([\d.]+) s against ([\d.]+) s - ([\d.]+)x\*\*",
-                      self.flat)
-        self.assertIsNotNone(m, "the wall-clock sentence was reworded")
-        self.check("the common window", [int(m.group(1).replace(",", "")),
-                                         int(m.group(2).replace(",", ""))],
-                   [window["from_step"], window["to_step"]], places=0)
-        self.check("the two wall clocks", [m.group(3), m.group(4)],
-                   [arms["dreamer_v3_1m"]["window"]["seconds"],
-                    arms["dreamer_n16_250k"]["window"]["seconds"]], places=1)
-        self.check("the ratio", m.group(5), window["fastest_over_slowest"], places=2)
-        m = re.search(r"per-interval rates ([\d.]+)-([\d.]+) and ([\d.]+)-([\d.]+) env-steps/s",
-                      self.flat)
-        self.assertIsNotNone(m, "the per-interval spread sentence was reworded")
-        for i, run in enumerate(("dreamer_v3_1m", "dreamer_n16_250k")):
-            rates = arms[run]["window"]["interval_rates"]
-            self.check(f"{run} interval range", [float(m.group(2 * i + 1)), float(m.group(2 * i + 2))],
-                       [min(rates), max(rates)], places=1)
-            self.assertGreaterEqual(len(rates), 3,
-                                    f"{run}'s window rests on {len(rates)} intervals")
-
-    def test_every_cell_of_the_learning_table(self):
-        rows = {"gradient steps spent": (250000 // 4, 250000 // 16),
-                "mean return": (self.n4["mean"], self.n16["mean"]),
-                "**median return**": (self.n4["median"], self.n16["median"]),
-                "std": (self.n4["std"], self.n16["std"]),
-                "mean closest approach": (self.n4["mean_min_target_distance"],
-                                          self.n16["mean_min_target_distance"])}
-        for label, (want4, want16) in rows.items():
-            got = nums(self.cell(label, 1)), nums(self.cell(label, 2))
-            self.check(f"{label}, n=4", got[0], want4, places=2)
-            self.check(f"{label}, n=16", got[1], want16, places=2)
-        lo = snums(self.cell("min / max", 1))
-        hi = snums(self.cell("min / max", 2))
-        self.check("min/max, n=4", lo, [self.n4["min"], self.n4["max"]], places=2)
-        self.check("min/max, n=16", hi, [self.n16["min"], self.n16["max"]], places=2)
-        for col, arm in ((1, self.n4), (2, self.n16)):
-            text = self.cell("episodes inside the 0.45 m radius", col)
-            n, of = re.match(r"(\d+) of (\d+)", text).groups()
-            self.check(f"radius episodes, col {col}", [int(n), int(of)],
-                       [round(arm["reached_target_pct"] / 100.0 * arm["episodes"]), arm["episodes"]],
+    def test_the_timing_table(self):
+        for label, n in self.TIMING_ROWS.items():
+            self.check(f"n={n} gradient steps", nums(self.cell(label, 1))[0], 250000 // int(n),
                        places=0)
-            self.check(f"x-velocity, col {col}", snums(self.cell("mean x-velocity", col)),
-                       arm["mean_x_velocity"], places=4)
+            for col, seed, timing_col in ((1, "7", 2), (2, "8", 3)):
+                run = self.by_run[self.art[(n, seed)]["run_id"]]["window"]
+                text = self.cell(label, timing_col)
+                self.check(f"n={n} seed={seed} seconds", nums(text)[0], run["seconds"], places=1)
+                self.check(f"n={n} seed={seed} rate", nums(text)[1], run["rate_steps_per_s"],
+                           places=1)
+                base = self.by_run[self.art[(n, seed)]["run_id"]]
+                zero = self.by_run[self.art[("4", seed)]["run_id"]]
+                want = round(base["window"]["rate_steps_per_s"]
+                             / zero["window"]["rate_steps_per_s"], 2)
+                self.check(f"n={n} seed={seed} speedup",
+                           nums(self.cell(label, 4 + (1 if seed == "8" else 0)))[0], want,
+                           places=2)
+        self.assertEqual(self.rate["common_window"]["from_step"], 50000)
+        self.assertEqual(self.rate["common_window"]["to_step"], 250000)
 
-    def test_the_prose_reads_the_distribution_and_not_just_the_mean(self):
-        m = re.search(r"The median falls by a factor of ten\s*\(([\d.]+) → ([\d.]+)\) while the mean "
-                      r"falls only (\d+)%", self.flat)
-        self.assertIsNotNone(m, "the median-versus-mean sentence was reworded")
-        self.check("the median pair", [m.group(1), m.group(2)],
-                   [self.n4["median"], self.n16["median"]], places=2)
-        self.assertEqual(int(m.group(3)), round(100.0 * (1.0 - self.n16["mean"] / self.n4["mean"])),
-                         "the mean's percentage drop is derived, so recompute it")
-        self.assertGreater(self.n4["median"] / self.n16["median"], 5.0,
-                           "the prose says 'a factor of ten'; the artifact does not support it")
-        m = re.search(r"its best episode \(([\d.]+)\)\s*beats the shipped arm's best \(([\d.]+)\)",
-                      self.flat)
-        self.assertIsNotNone(m, "the bimodality sentence was reworded")
-        self.check("the two maxima", [m.group(1), m.group(2)], [self.n16["max"], self.n4["max"]],
-                   places=2)
-        self.assertGreater(self.n16["max"], self.n4["max"])
-        m = re.search(r"the x-velocity changes sign, the\s*closest approach is ([\d.]+) m worse",
-                      self.flat)
-        self.assertIsNotNone(m, "the sign-change sentence was reworded")
-        self.check("the closest-approach gap", m.group(1),
-                   round(self.n16["mean_min_target_distance"] - self.n4["mean_min_target_distance"], 2),
-                   places=2)
-        self.assertGreater(self.n4["mean_x_velocity"], 0.0)
-        self.assertLess(self.n16["mean_x_velocity"], 0.0)
-        m = re.search(r"(\d+(?:\.\d+)?)% and (\d+(?:\.\d+)?)% of episodes inside the radius",
-                      self.flat)
-        self.assertIsNotNone(m, "the closing verdict sentence was reworded")
-        self.check("the two radius shares", [m.group(1), m.group(2)],
-                   [self.n4["reached_target_pct"], self.n16["reached_target_pct"]], places=1)
+    def test_the_learning_table(self):
+        self.assertEqual(nums(self.cell("seed", 1)), [7.0], "the seed row is out of step")
+        for (n, seed), arm in self.art.items():
+            model, col = arm["model"], arm["col"]
+            self.assertEqual(int(nums(self.cell("seed", col))[0]), int(seed))
+            self.check(f"n={n} seed={seed} mean", self.cell("mean return", col), model["mean"],
+                       places=2)
+            self.check(f"n={n} seed={seed} median", self.cell("median return", col),
+                       model["median"], places=2)
+            self.check(f"n={n} seed={seed} std", self.cell("std", col), model["std"], places=2)
+            hit, of = re.match(r"(\d+) of (\d+)",
+                               self.cell("episodes inside the 0.45 m radius", col)).groups()
+            self.check(f"n={n} seed={seed} radius", [int(hit), int(of)],
+                       [round(model["reached_target_pct"] / 100.0 * model["episodes"]),
+                        model["episodes"]], places=0)
+            self.check(f"n={n} seed={seed} closest", nums(self.cell("mean closest approach", col))[0],
+                       model["mean_min_target_distance"], places=3)
+            self.check(f"n={n} seed={seed} x-velocity", snums(self.cell("mean x-velocity", col)),
+                       model["mean_x_velocity"], places=4)
 
-    def test_the_confound_is_disclosed_and_its_numbers_are_right(self):
-        """At 16 envs the collector also switches backend, so 4.08x is not all the update schedule."""
+    def test_the_replication_is_what_the_section_concludes(self):
+        a = {k: v["model"] for k, v in self.art.items()}
+        gap7 = a[("8", "7")]["mean"] - a[("4", "7")]["mean"]
+        gap8 = a[("8", "8")]["mean"] - a[("4", "8")]["mean"]
+        m = self.sentence(r"the 8-env arm led by (\d+) and the 16-env arm's median had collapsed to\s*"
+                          r"([\d.]+)\. Re-run at seed 8, the 8-env arm \*trailed\* by (\d+)",
+                          "the replication sentence")
+        self.check("the two-seed gaps", [m.group(1), m.group(3)], [round(gap7), round(-gap8)],
+                   places=0)
+        self.check("the seed-7 16-env median", m.group(2), a[("16", "7")]["median"], places=2)
+        self.assertGreater(gap7, 0, "the prose says 8 envs led at seed 7")
+        self.assertLess(gap8, 0, "the prose says 8 envs trailed at seed 8 - the sign flip is the "
+                                 "whole finding, so it has to hold")
+        self.assertGreater(a[("16", "8")]["median"], 5.0 * a[("16", "7")]["median"],
+                           "the prose says the 627.00 median was one draw, so seed 8 must not be low")
+        spread4 = abs(a[("4", "7")]["mean"] - a[("4", "8")]["mean"])
+        spread8 = abs(a[("8", "7")]["mean"] - a[("8", "8")]["mean"])
+        m = self.sentence(r"(\d+\.\d+) across the 4-env mean and (\d+\.\d+) across the 8-env one -\s*"
+                          r"is larger than any gap between schedules", "the seed-spread sentence")
+        self.check("the within-schedule spreads", [m.group(1), m.group(2)],
+                   [round(spread4, 2), round(spread8, 2)], places=2)
+        means = {n: round(sum(a[(n, s)]["mean"] for s in ("7", "8")) / 2.0, 2) for n in ("4", "8", "16")}
+        m = self.sentence(r"averaged over both seeds the means are ([\d.]+),\s*([\d.]+)\s*and ([\d.]+)",
+                          "the per-schedule means")
+        self.check("the per-schedule means", [m.group(1), m.group(2), m.group(3)],
+                   [means["4"], means["8"], means["16"]], places=2)
+        self.assertLess(max(gap7, -gap8), max(spread4, spread8),
+                        "the section's claim is that no between-schedule gap exceeds the seed spread")
+
+    def test_forward_speed_is_the_column_that_replicates(self):
+        xv = {(n, s): self.art[(n, s)]["model"]["mean_x_velocity"]
+              for (n, s) in self.art}
+        m = self.sentence(r"the 16-env arm averaged\s*\*\*(-?[\d.]+) and (-?[\d.]+) m/s\*\*, two runs "
+                          r"agreeing to ([\d.]+)%", "the stable x-velocity claim")
+        self.check("the two 16-env velocities", [m.group(1), m.group(2)],
+                   [xv[("16", "7")], xv[("16", "8")]], places=4)
+        agreement = 100.0 * abs(xv[("16", "7")] - xv[("16", "8")]) / abs(xv[("16", "7")])
+        self.check("their agreement", m.group(3), round(agreement, 1), places=1)
+        self.assertLess(agreement, 1.0, "'agreeing to 0.3%' no longer describes the pair")
+        self.assertLess(xv[("16", "7")], 0.0)
+        self.assertLess(xv[("16", "8")], 0.0)
+        hits = {n: sum(round(self.art[(n, s)]["model"]["reached_target_pct"] / 100.0 * 50)
+                      for s in ("7", "8")) for n in ("4", "8", "16")}
+        m = self.sentence(r"reached the radius in \*\*(\d+) of (\d+) episodes\*\*\.\s*The 4-env arm "
+                          r"was positive in both seeds\s*\(\+?([\d.]+), \+?([\d.]+)\) and reached it "
+                          r"in (\d+) of (\d+)", "the radius comparison")
+        self.check("the 16-env radius record", [int(m.group(1)), int(m.group(2))],
+                   [hits["16"], 100], places=0)
+        self.check("the 4-env velocities and radius",
+                   [float(m.group(3)), float(m.group(4)), int(m.group(5)), int(m.group(6))],
+                   [xv[("4", "7")], xv[("4", "8")], hits["4"], 100], places=4)
+        self.assertGreater(xv[("4", "7")], 0.0)
+        self.assertGreater(xv[("4", "8")], 0.0, "the prose says the 4-env arm was positive twice")
+
+    def test_the_confound_and_the_bench_are_disclosed(self):
+        """At 16 envs the collector also switches backend, so the 16-env row is two changes at once."""
         import argparse
         import train_walker
         parser = argparse.ArgumentParser()
         train_walker.add_vec_env_args(parser)
-        threshold = parser.get_default("vec_parallel_threshold")
-        m = re.search(r"crosses `--vec-parallel-threshold` \(default (\d+)\)", self.flat)
-        self.assertIsNotNone(m, "the threshold sentence was reworded")
-        self.assertEqual(int(m.group(1)), threshold,
+        m = self.sentence(r"crosses\s*`--vec-parallel-threshold` \(default (\d+)\)", "the threshold")
+        self.assertEqual(int(m.group(1)), parser.get_default("vec_parallel_threshold"),
                          "the disclosed threshold is not the trainer's default")
+        self.assertLess(8, int(m.group(1)), "8 envs must stay under the threshold or the clean "
+                                             "4-versus-8 comparison is not one")
+        self.assertLessEqual(int(m.group(1)), 16, "16 envs must cross it, or the confound named "
+                                                "in the prose does not exist")
         self.assertEqual(self.amortize["config"]["vec_backend"], "sync",
                          "the isolated bench is cited as holding one backend and does not")
-        m = re.search(r"attributes ([\d.]+)x to it", self.flat)
-        self.assertIsNotNone(m, "the attribution sentence was reworded")
-        self.check("the bench's own ratio", m.group(1),
+        m = self.sentence(r"the isolated\s*bench's ([\d.]+)x sits inside it", "the bench ratio")
+        self.check("the bench's 16-env ratio", m.group(1),
                    self.amortize["per_num_envs"]["16"]["speedup_vs_shipped_n4"], places=2)
 
-    def test_the_windows_the_two_arms_ran_in(self):
-        """One arm kept its stdout and one did not; the README says so instead of implying symmetry."""
-        by_id = {r["run_id"]: r for r in self.rate["runs"]}
-        log = by_id["dreamer_n16_250k"]["evidence_log"]
-        self.assertIsNotNone(log, "the n=16 arm's stdout is the only record of its GPU window")
-        self.assertTrue(os.path.exists(os.path.join(ROOT, log["path"])),
-                        f"the artifact points at {log['path']}, which is not in this checkout")
-        self.assertIn("captured CUDA graph", log["update_mode"] or "",
-                      "the arm is compared against a captured-update baseline and did not capture")
-        held, total, others = re.search(r"(\d+)/(\d+) MiB in use by (\d+) other",
-                                        log["gpu_window"]).groups()
-        m = re.search(r"inside a window holding \*\*(\d+) of (\d+) MiB across (\d+) other\s*"
-                      r"contexts\*\*", self.flat)
-        self.assertIsNotNone(m, "the GPU-window sentence was reworded")
-        self.check("the recorded GPU window", [m.group(1), m.group(2), m.group(3)],
-                   [held, total, others], places=0)
-        self.assertIsNone(by_id["dreamer_v3_1m"]["evidence_log"],
-                          "the n=4 arm's stdout was not kept; if it now exists, quote its window too")
-        m = re.search(r"which give ([\d.]+) env-steps/s against the ([\d.]+) of\s*the 50k→250k "
-                      r"window used here", self.flat)
-        self.assertIsNotNone(m, "the whole-run cross-check sentence was reworded")
-        self.check("the whole-run rate for the same run", m.group(1),
-                   self.rate_full["cited"]["after_graph_capture"]["rate_steps_per_s"], places=1)
-        self.check("the window rate", m.group(2),
-                   by_id["dreamer_v3_1m"]["window"]["rate_steps_per_s"], places=1)
+    def test_each_run_started_into_a_recorded_window(self):
+        m = self.sentence(r"\((\d+) MiB held by (\d+) other contexts for the 4-env seed-7 run, "
+                          r"(\d+) by (\d+) for 8-env\s*seed 7, (\d+) by (\d+) for 16-env seed 7, and "
+                          r"(\d+) by (\d+) for the 16-env seed-8 run", "the four windows")
+        want = []
+        for key, i in ((("4", "7"), 1), (("8", "7"), 3), (("16", "7"), 5), (("16", "8"), 7)):
+            run = self.by_run[self.art[key]["run_id"]]
+            w = run["mlflow_window"] or run["evidence_log"]
+            if run["mlflow_window"]:
+                want += [w["memory_used_mib"], w["other_cuda_contexts"]]
+            else:
+                held, _, others = re.search(r"(\d+)/(\d+) MiB in use by (\d+) other",
+                                            w["gpu_window"]).groups()
+                want += [int(held), int(others)]
+        self.check("the four recorded windows", [int(m.group(i)) for i in range(1, 9)], want,
+                   places=0)
+
+    def test_four_of_the_six_checkpoints_record_their_own_reward(self):
+        # The two that do not were trained before train_dreamer.py started writing reward_kwargs:
+        # the shipped arm's 250k file is part of dreamer_v3_1m, and so is the 16-env seed-7 run.
+        before = {("4", "7"), ("16", "7")}
+        for key, arm in self.art.items():
+            if key in before:
+                self.assertIn("predates recording", arm["model"]["reward_source"],
+                              f"n={key[0]} seed={key[1]} now records its reward; the README counts "
+                              f"four and this test names the two exceptions")
+            else:
+                self.assertEqual(arm["model"]["reward_source"], "checkpoint",
+                                 f"n={key[0]} seed={key[1]} fell back to an inferred reward")
+        self.assertEqual(sum(1 for a in self.art.values()
+                             if a["model"]["reward_source"] == "checkpoint"), 4,
+                         "the prose counts four recording checkpoints")
+        from envs.reward_shaping import TRAINING_REWARD_KWARGS
+        self.assertEqual(self.art[("8", "7")]["model"]["reward_kwargs"],
+                         dict(TRAINING_REWARD_KWARGS))
+        self.sentence(r"The other four report\s*`reward_source = checkpoint`", "the recording sentence")
 
 
 class TestReadmeTrainingRateCells(ReadmeGate, unittest.TestCase):
@@ -2197,11 +2307,15 @@ class TestReadmeTrainingRateCells(ReadmeGate, unittest.TestCase):
                if r["algo"] == "dreamer" and r["started"] < "2026-10-03"]
         self.check("the pre-capture population", [int(m.group(2)), m.group(3), m.group(4)],
                    [len(pre), min(pre), max(pre)], places=1)
+        # The prose quotes no run count on purpose - the archive grows with every run - so the check
+        # is that the artifact really is the list it is described as, and that the cited pair is in it.
+        self.assertTrue(len(self.art["runs"]) >= 2, "the artifact holds no population to draw from")
+        for run in (self.before, self.after):
+            self.assertIn(run["run_uuid"], [r["run_uuid"] for r in self.art["runs"]],
+                          "a cited run is not in the list the artifact publishes")
         m = re.search(r"recomputes a rate for every run\s*in `mlruns\.db` that logged `sps` twice or "
-                      r"more - (\d+) runs -", self.flat)
+                      r"more - the artifact lists them all", self.flat)
         self.assertIsNotNone(m, "the population sentence was reworded")
-        self.assertEqual(int(m.group(1)), len(self.art["runs"]),
-                         "the run count is not the artifact's")
 
     def test_the_span_cross_checks_the_published_hours(self):
         """The 1.27 h in the Phase-1 section comes from the trainer's clock; this is MLflow's."""
@@ -2237,6 +2351,34 @@ class TestReadmeTrainingRateCells(ReadmeGate, unittest.TestCase):
         self.assertIsNotNone(m, "the chart sentence was reworded")
         self.check("the two first samples", [m.group(1), m.group(2)],
                    [self.before["first_logged_sps"], self.after["first_logged_sps"]], places=0)
+
+    def test_the_first_sample_is_the_one_logged_at_learning_starts(self):
+        """The mechanism the paragraph names, checked rather than described.
+
+        If the first `sps` sample is logged before any update runs, then every run's first sample is
+        at the same step - `learning_starts` - and that step is the trainer's default. Both halves
+        are in the archive and the source.
+        """
+        dreamer = [r for r in self.art["runs"] if r["algo"] == "dreamer"]
+        with open(os.path.join(ROOT, "train_dreamer.py"), encoding="utf-8") as handle:
+            source = handle.read()
+        default = re.search(r'"--learning-starts", type=int, default=(\d+)', source)
+        self.assertIsNotNone(default, "the --learning-starts default moved or was reworded")
+        starts = int(default.group(1))
+        # A run logs its first sample at the first global_step it reaches at or after
+        # learning_starts, and global_step advances by num_envs, so the step is a multiple of
+        # num_envs. 18 of 18 Dreamer runs in the archive land on exactly that grid.
+        for r in dreamer:
+            n = int(r["num_envs"])
+            self.assertEqual(r["first_step"], n * -(-starts // n),
+                             f"{r['name']}: first sample at {r['first_step']}, expected the first "
+                             f"multiple of {n} at or above {starts}")
+        m = re.search(r"its first sample is logged at the first step the run actually reaches at or "
+                      r"after `learning_starts`\s*\((\d+) for a 4- or 8-env run, (\d+) for a "
+                      r"16-env one", self.flat)
+        self.assertIsNotNone(m, "the first-sample sentence was reworded")
+        self.assertEqual([int(m.group(1)), int(m.group(2))], [starts, 16 * -(-starts // 16)],
+                         "the two steps the prose names are not the grid the runs land on")
 
     def test_the_two_limits_on_the_claim(self):
         m = re.search(r"the (\d+) earlier runs span (\d{4}-\d{2}-\d{2}) to (\d{4}-\d{2}-\d{2})",

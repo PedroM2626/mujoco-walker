@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-04T21:10:08",
+  "generated_at": "2026-10-04T23:23:03",
   "source": "mlruns.db",
   "query": "runs having >=2 'sps' samples and >= --min-steps between the first and last; rate = (last step - first step) / (last timestamp - first timestamp)",
   "min_steps": 2000,
@@ -482,6 +482,156 @@
       "first_logged_sps": 690.0,
       "last_logged_sps": 218.0,
       "median_logged_sps": 213.0
+    },
+    {
+      "run_uuid": "0a0a384851c644c3a1673a67fe8aab5e",
+      "name": "dreamer_dreamer_n8_250k__7",
+      "started": "2026-10-04T21:35:55",
+      "start_time_ms": 1791160555772,
+      "status": "FINISHED",
+      "lifecycle_stage": "active",
+      "algo": "dreamer",
+      "num_envs": "8",
+      "task_phase": "target",
+      "seed": "7",
+      "reset_mode": "mixed",
+      "total_timesteps": "250000",
+      "update_graph": "True",
+      "sps_samples": 246,
+      "first_step": 5000,
+      "last_step": 250000,
+      "steps_between_samples": 245000,
+      "span_s": 809.9,
+      "rate_steps_per_s": 302.5,
+      "hours_per_1m_steps": 0.92,
+      "first_logged_sps": 695.0,
+      "last_logged_sps": 305.0,
+      "median_logged_sps": 347.0
+    },
+    {
+      "run_uuid": "548bade8daea40239e3f8789956f26a8",
+      "name": "dreamer_dreamer_n4_s8_250k__8",
+      "started": "2026-10-04T22:30:21",
+      "start_time_ms": 1791163821502,
+      "status": "FINISHED",
+      "lifecycle_stage": "active",
+      "algo": "dreamer",
+      "num_envs": "4",
+      "task_phase": "target",
+      "seed": "8",
+      "reset_mode": "mixed",
+      "total_timesteps": "250000",
+      "update_graph": "True",
+      "sps_samples": 246,
+      "first_step": 5000,
+      "last_step": 250000,
+      "steps_between_samples": 245000,
+      "span_s": 1138.7,
+      "rate_steps_per_s": 215.2,
+      "hours_per_1m_steps": 1.29,
+      "first_logged_sps": 311.0,
+      "last_logged_sps": 216.0,
+      "median_logged_sps": 217.0
+    },
+    {
+      "run_uuid": "68b6158dbcfc4416b935d9d291c3b55f",
+      "name": "dreamer_dreamer_n8_s8_250k__8",
+      "started": "2026-10-04T22:51:35",
+      "start_time_ms": 1791165095497,
+      "status": "FINISHED",
+      "lifecycle_stage": "active",
+      "algo": "dreamer",
+      "num_envs": "8",
+      "task_phase": "target",
+      "seed": "8",
+      "reset_mode": "mixed",
+      "total_timesteps": "250000",
+      "update_graph": "True",
+      "sps_samples": 246,
+      "first_step": 5000,
+      "last_step": 250000,
+      "steps_between_samples": 245000,
+      "span_s": 711.1,
+      "rate_steps_per_s": 344.5,
+      "hours_per_1m_steps": 0.81,
+      "first_logged_sps": 520.0,
+      "last_logged_sps": 347.0,
+      "median_logged_sps": 353.0
+    },
+    {
+      "run_uuid": "33d184525faf4224b5e97270a010e026",
+      "name": "dreamer_dreamer_n8_1m__7",
+      "started": "2026-10-04T23:05:20",
+      "start_time_ms": 1791165920271,
+      "status": "FINISHED",
+      "lifecycle_stage": "active",
+      "algo": "dreamer",
+      "num_envs": "8",
+      "task_phase": "target",
+      "seed": "7",
+      "reset_mode": "mixed",
+      "total_timesteps": "1000000",
+      "update_graph": "True",
+      "sps_samples": 26,
+      "first_step": 5000,
+      "last_step": 30000,
+      "steps_between_samples": 25000,
+      "span_s": 70.8,
+      "rate_steps_per_s": 353.3,
+      "hours_per_1m_steps": 0.79,
+      "first_logged_sps": 772.0,
+      "last_logged_sps": 382.0,
+      "median_logged_sps": 391.5
+    },
+    {
+      "run_uuid": "e96eb14173634bb6903e0a253bac703c",
+      "name": "dreamer_dreamer_n16_s8_250k__8",
+      "started": "2026-10-04T23:10:23",
+      "start_time_ms": 1791166223562,
+      "status": "FINISHED",
+      "lifecycle_stage": "active",
+      "algo": "dreamer",
+      "num_envs": "16",
+      "task_phase": "target",
+      "seed": "8",
+      "reset_mode": "mixed",
+      "total_timesteps": "250000",
+      "update_graph": "True",
+      "sps_samples": 3,
+      "first_step": 5008,
+      "last_step": 7008,
+      "steps_between_samples": 2000,
+      "span_s": 11.7,
+      "rate_steps_per_s": 170.6,
+      "hours_per_1m_steps": 1.63,
+      "first_logged_sps": 78.0,
+      "last_logged_sps": 97.0,
+      "median_logged_sps": 88.0
+    },
+    {
+      "run_uuid": "d84b24cc5cfb4a36b6fb60dc353ad9cf",
+      "name": "dreamer_dreamer_n16_s8_250k__8",
+      "started": "2026-10-04T23:12:40",
+      "start_time_ms": 1791166360608,
+      "status": "FINISHED",
+      "lifecycle_stage": "active",
+      "algo": "dreamer",
+      "num_envs": "16",
+      "task_phase": "target",
+      "seed": "8",
+      "reset_mode": "mixed",
+      "total_timesteps": "250000",
+      "update_graph": "True",
+      "sps_samples": 246,
+      "first_step": 5008,
+      "last_step": 250000,
+      "steps_between_samples": 244992,
+      "span_s": 513.9,
+      "rate_steps_per_s": 476.8,
+      "hours_per_1m_steps": 0.58,
+      "first_logged_sps": 93.0,
+      "last_logged_sps": 440.0,
+      "median_logged_sps": 425.0
     }
   ],
   "checkpoint_wall_clock": {
@@ -494,6 +644,14 @@
         "num_envs_from_normalizer": 4,
         "normalizer_residue": 4.000100000062957,
         "evidence_log": null,
+        "mlflow_window": {
+          "run_name": "dreamer_dreamer_v3_1m__7",
+          "memory_used_mib": 255,
+          "memory_total_mib": 8188,
+          "other_cuda_contexts": 4,
+          "num_envs": "4",
+          "seed": "7"
+        },
         "checkpoints": [
           {
             "step": 50000,
@@ -726,6 +884,86 @@
         }
       },
       {
+        "run_id": "dreamer_n8_250k",
+        "num_envs": 8,
+        "num_envs_from_normalizer": 8,
+        "normalizer_residue": 8.00010000000475,
+        "evidence_log": null,
+        "mlflow_window": {
+          "run_name": "dreamer_dreamer_n8_250k__7",
+          "memory_used_mib": 626,
+          "memory_total_mib": 8188,
+          "other_cuda_contexts": 5,
+          "num_envs": "8",
+          "seed": "7"
+        },
+        "checkpoints": [
+          {
+            "step": 50000,
+            "mtime": "2026-10-04T21:38:09"
+          },
+          {
+            "step": 100000,
+            "mtime": "2026-10-04T21:40:32"
+          },
+          {
+            "step": 150000,
+            "mtime": "2026-10-04T21:44:01"
+          },
+          {
+            "step": 200000,
+            "mtime": "2026-10-04T21:46:54"
+          },
+          {
+            "step": 250000,
+            "mtime": "2026-10-04T21:49:31"
+          }
+        ],
+        "intervals": [
+          {
+            "from_step": 50000,
+            "to_step": 100000,
+            "steps": 50000,
+            "seconds": 142.57,
+            "rate_steps_per_s": 350.7
+          },
+          {
+            "from_step": 100000,
+            "to_step": 150000,
+            "steps": 50000,
+            "seconds": 209.45,
+            "rate_steps_per_s": 238.7
+          },
+          {
+            "from_step": 150000,
+            "to_step": 200000,
+            "steps": 50000,
+            "seconds": 172.47,
+            "rate_steps_per_s": 289.9
+          },
+          {
+            "from_step": 200000,
+            "to_step": 250000,
+            "steps": 50000,
+            "seconds": 157.59,
+            "rate_steps_per_s": 317.3
+          }
+        ],
+        "window": {
+          "from_step": 50000,
+          "to_step": 250000,
+          "steps": 200000,
+          "seconds": 682.0,
+          "rate_steps_per_s": 293.3,
+          "interval_rates": [
+            350.7,
+            238.7,
+            289.9,
+            317.3
+          ]
+        }
+      },
+      {
         "run_id": "dreamer_n16_250k",
         "num_envs": 16,
         "num_envs_from_normalizer": 16,
@@ -735,6 +973,7 @@
           "gpu_window": "NVIDIA GeForce RTX 4070 Laptop GPU driver 556.29, 531/8188 MiB in use by 5 other CUDA contexts",
           "update_mode": "captured CUDA graph (auto for device=cuda)"
         },
+        "mlflow_window": null,
         "checkpoints": [
           {
             "step": 50000,
@@ -800,6 +1039,246 @@
             890.0
           ]
         }
+      },
+      {
+        "run_id": "dreamer_n4_s8_250k",
+        "num_envs": 4,
+        "num_envs_from_normalizer": 4,
+        "normalizer_residue": 4.00010000000475,
+        "evidence_log": null,
+        "mlflow_window": {
+          "run_name": "dreamer_dreamer_n4_s8_250k__8",
+          "memory_used_mib": 626,
+          "memory_total_mib": 8188,
+          "other_cuda_contexts": 5,
+          "num_envs": "4",
+          "seed": "8"
+        },
+        "checkpoints": [
+          {
+            "step": 50000,
+            "mtime": "2026-10-04T22:34:05"
+          },
+          {
+            "step": 100000,
+            "mtime": "2026-10-04T22:37:57"
+          },
+          {
+            "step": 150000,
+            "mtime": "2026-10-04T22:41:51"
+          },
+          {
+            "step": 200000,
+            "mtime": "2026-10-04T22:45:49"
+          },
+          {
+            "step": 250000,
+            "mtime": "2026-10-04T22:49:35"
+          }
+        ],
+        "intervals": [
+          {
+            "from_step": 50000,
+            "to_step": 100000,
+            "steps": 50000,
+            "seconds": 231.52,
+            "rate_steps_per_s": 216.0
+          },
+          {
+            "from_step": 100000,
+            "to_step": 150000,
+            "steps": 50000,
+            "seconds": 234.25,
+            "rate_steps_per_s": 213.4
+          },
+          {
+            "from_step": 150000,
+            "to_step": 200000,
+            "steps": 50000,
+            "seconds": 237.79,
+            "rate_steps_per_s": 210.3
+          },
+          {
+            "from_step": 200000,
+            "to_step": 250000,
+            "steps": 50000,
+            "seconds": 225.86,
+            "rate_steps_per_s": 221.4
+          }
+        ],
+        "window": {
+          "from_step": 50000,
+          "to_step": 250000,
+          "steps": 200000,
+          "seconds": 930.0,
+          "rate_steps_per_s": 215.1,
+          "interval_rates": [
+            216.0,
+            213.4,
+            210.3,
+            221.4
+          ]
+        }
+      },
+      {
+        "run_id": "dreamer_n8_s8_250k",
+        "num_envs": 8,
+        "num_envs_from_normalizer": 8,
+        "normalizer_residue": 8.00010000000475,
+        "evidence_log": null,
+        "mlflow_window": {
+          "run_name": "dreamer_dreamer_n8_s8_250k__8",
+          "memory_used_mib": 657,
+          "memory_total_mib": 8188,
+          "other_cuda_contexts": 5,
+          "num_envs": "8",
+          "seed": "8"
+        },
+        "checkpoints": [
+          {
+            "step": 50000,
+            "mtime": "2026-10-04T22:53:51"
+          },
+          {
+            "step": 100000,
+            "mtime": "2026-10-04T22:56:14"
+          },
+          {
+            "step": 150000,
+            "mtime": "2026-10-04T22:58:39"
+          },
+          {
+            "step": 200000,
+            "mtime": "2026-10-04T23:01:04"
+          },
+          {
+            "step": 250000,
+            "mtime": "2026-10-04T23:03:34"
+          }
+        ],
+        "intervals": [
+          {
+            "from_step": 50000,
+            "to_step": 100000,
+            "steps": 50000,
+            "seconds": 142.56,
+            "rate_steps_per_s": 350.7
+          },
+          {
+            "from_step": 100000,
+            "to_step": 150000,
+            "steps": 50000,
+            "seconds": 145.7,
+            "rate_steps_per_s": 343.2
+          },
+          {
+            "from_step": 150000,
+            "to_step": 200000,
+            "steps": 50000,
+            "seconds": 144.23,
+            "rate_steps_per_s": 346.7
+          },
+          {
+            "from_step": 200000,
+            "to_step": 250000,
+            "steps": 50000,
+            "seconds": 150.23,
+            "rate_steps_per_s": 332.8
+          }
+        ],
+        "window": {
+          "from_step": 50000,
+          "to_step": 250000,
+          "steps": 200000,
+          "seconds": 583.0,
+          "rate_steps_per_s": 343.1,
+          "interval_rates": [
+            350.7,
+            343.2,
+            346.7,
+            332.8
+          ]
+        }
+      },
+      {
+        "run_id": "dreamer_n16_s8_250k",
+        "num_envs": 16,
+        "num_envs_from_normalizer": 16,
+        "normalizer_residue": 16.00010000000475,
+        "evidence_log": null,
+        "mlflow_window": {
+          "run_name": "dreamer_dreamer_n16_s8_250k__8",
+          "memory_used_mib": 618,
+          "memory_total_mib": 8188,
+          "other_cuda_contexts": 5,
+          "num_envs": "16",
+          "seed": "8"
+        },
+        "checkpoints": [
+          {
+            "step": 50000,
+            "mtime": "2026-10-04T23:14:12"
+          },
+          {
+            "step": 100000,
+            "mtime": "2026-10-04T23:15:54"
+          },
+          {
+            "step": 150000,
+            "mtime": "2026-10-04T23:17:38"
+          },
+          {
+            "step": 200000,
+            "mtime": "2026-10-04T23:19:30"
+          },
+          {
+            "step": 250000,
+            "mtime": "2026-10-04T23:21:17"
+          }
+        ],
+        "intervals": [
+          {
+            "from_step": 50000,
+            "to_step": 100000,
+            "steps": 50000,
+            "seconds": 101.6,
+            "rate_steps_per_s": 492.1
+          },
+          {
+            "from_step": 100000,
+            "to_step": 150000,
+            "steps": 50000,
+            "seconds": 103.93,
+            "rate_steps_per_s": 481.1
+          },
+          {
+            "from_step": 150000,
+            "to_step": 200000,
+            "steps": 50000,
+            "seconds": 112.4,
+            "rate_steps_per_s": 444.8
+          },
+          {
+            "from_step": 200000,
+            "to_step": 250000,
+            "steps": 50000,
+            "seconds": 107.4,
+            "rate_steps_per_s": 465.5
+          }
+        ],
+        "window": {
+          "from_step": 50000,
+          "to_step": 250000,
+          "steps": 200000,
+          "seconds": 425.0,
+          "rate_steps_per_s": 470.6,
+          "interval_rates": [
+            492.1,
+            481.1,
+            444.8,
+            465.5
+          ]
+        }
       }
     ],
     "common_window": {
@@ -808,7 +1287,11 @@
       "fastest_over_slowest": 4.08,
       "arms": {
         "dreamer_v3_1m": 194.6,
-        "dreamer_n16_250k": 793.7
+        "dreamer_n8_250k": 293.3,
+        "dreamer_n16_250k": 793.7,
+        "dreamer_n4_s8_250k": 215.1,
+        "dreamer_n8_s8_250k": 343.1,
+        "dreamer_n16_s8_250k": 470.6
       }
     }
   }

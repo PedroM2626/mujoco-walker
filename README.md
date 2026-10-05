@@ -94,8 +94,8 @@ and every scored row prints and stores which reward it used.
 Its first version split the legacy checkpoints by trainer - SAC/TD3/PPO went through
 `train_walker.py` so they got the shaping, and ARS/REDQ/Dreamer "never used shaping at all" so they
 got the environment defaults. The second half is false. `make_env` has passed
-`**TRAINING_REWARD_KWARGS` to every sub-environment since **8d37846 (2026-05-20)**, five months
-before any v9 checkpoint existed, and `train_dreamer.py`, `train_redq.py` and `train_ars.py` all
+`**TRAINING_REWARD_KWARGS` to every sub-environment since **8d37846 (2026-05-20)**, four and a half
+months before any v9 checkpoint existed, and `train_dreamer.py`, `train_redq.py` and `train_ars.py` all
 build their environments through it; **ad22c94** (2026-10-02) only moved literals that were already
 identical into the shared constant. So every Dreamer, REDQ and ARS return published before
 2026-10-04 was computed against a reward those runs never optimised - the defect the paragraph above
@@ -115,16 +115,21 @@ Re-scoring moved the returns and moved no behaviour, which is the cleanest avail
 the shaping is a scoring question and not a training one. On the 1M Dreamer (50 episodes, cuda,
 same seeds) the telemetry - steps, closest approach, target reached, x-velocity - is **identical to
 the digit**, 19 of the 50 returns changed, and the mean moved 5215.46 → **5315.86** (+1.9%). The
-extremes did not move at all (-6998.07 and 14535.79 both before and after): the worst and best
-episodes are ones where the robot never gets inside the standing gate, so none of the reweighted
-terms is live in them. ARS at 1M moved 8679.40 → **8814.81** with its fall count, closest approach
+extremes did not move at all (-6998.07 and 14535.79 both before and after), and which episodes moved
+is not a matter of degree: all 19 that changed peak at or above **0.650 m** of torso height and all 31
+that did not peak at or below **0.647 m**, because every term whose weight the shaping changes is
+either multiplied by `standing_gate` or requires the robot to be up at all, and `standing_gate`'s
+height factor is `clip((z - 0.65) / 0.60, 0, 1)` - exactly zero below 0.65 m. An episode that never
+lifts its torso off the floor scores the same under both reward functions, which is why 31 of 50 did
+not move. ARS at 1M moved 8679.40 → **8814.81** with its fall count, closest approach
 and x-velocity unchanged at 0.35 / 3.015 m / -0.0216 m/s.
 
 **A second defect fell out of checking the first: the retired tables did not record the device.**
 `eval_phase1.py` wrote `protocol`, `env_version` and `env_commit` into its artifact but not the
 device it ran on, and the device changes the answer - see "⚠️ The return depends on the device" in
-the Phase-1 section below. Three published rows turn out to have been scored on **cpu** while the
-rows they were compared against were scored on cuda. Both halves of the retired evidence table
+the Phase-1 section below. Five rows turn out to have been scored on **cpu** while the rows they were
+compared against were scored on cuda: the 269k step of the budget comparison below, and all four rows
+of `benchmarks/phase1_evidence_eval.json`. Both halves of that retired evidence table
 reproduce exactly on cpu, each under the weights the retired fallback chose for it:
 `benchmarks/phase1_evidence_eval_cpu_defaults.json` returns **3540.76 / 4892.44 / -409.43** for the
 REDQ, Dreamer and ARS smoke checkpoints, and `benchmarks/phase1_evidence_eval_cpu_auto.json` returns
@@ -1197,59 +1202,86 @@ against the 16.96 ms the two-budget run measured and the 15.70 ms the in-process
 three instruments in three windows, 9% apart, and this one ran with 5 other CUDA contexts on the GPU
 (the artifact records the count, because a first attempt at it ran against 6 and produced numbers
 worth nothing). So a 1M-step Dreamer run at `--num-envs 16` costs **0.49 h** where the shipped
-configuration costs 1.20 h. The price is the last column: the update-to-data ratio falls from one
+configuration costs 1.20 h. These are bench hours in one window with one collector backend; the same
+ladder measured on three real runs is in "Does the cheaper update schedule still learn?" below, and
+its absolute rates differ - the 16-env arm there also crosses `--vec-parallel-threshold` and runs the
+process-parallel collector, so it went faster than this table predicts rather than slower.
+The price is the last column: the update-to-data ratio falls from one
 gradient step per 4 environment steps to one per 16, so 250 gradient steps per 1,000 environment steps
 become 62.5. Whether that is a speedup or simply a shorter run that learns less is a learning question
 and not a timing one, so it gets measured rather than assumed - see "Does the cheaper update schedule
 still learn?" below.
 
-**Does the cheaper update schedule still learn?** Two real runs, both to exactly 250,000 environment
-steps, both `--seed 7 --task-phase target --reset-mode mixed`: the shipped `--num-envs 4` (the first
-quarter of run-id `dreamer_v3_1m`) and `--num-envs 16` (run-id `dreamer_n16_250k`). The trainer runs
-one `dreamer_update` per collection step and a collection step advances `num_envs` steps, so the two
-arms spent **62,500 and 15,625 gradient steps** on the same experience. Over the step window both
-runs have checkpoints for (50,000 → 250,000, so neither window contains startup or graph capture)
-the wall clock is **1028.0 s against 252.0 s - 4.08x** (`benchmarks/training_rate_history.json`, from
-the checkpoints' own mtimes; per-interval rates 157.4-211.8 and 751.3-890.0 env-steps/s, so the
-window is not a single sample). Neither arm's `--num-envs` is taken on faith either: the observation
-normalizer updates once per environment step and once on the initial reset, so `count - global_step`
-is 4.0001 and 16.0001 in the two full checkpoints, and the gate fails if a label and its own counter
-ever disagree. The `--num-envs 16` arm's stdout was also kept
-(`dreamer_n16_250k_evidence.log`, parsed into the same artifact): it ran with the update captured as
-a CUDA graph inside a window holding **531 of 8188 MiB across 5 other contexts**. The `--num-envs 4`
-arm's stdout was not kept, so its window is unrecorded; the same run is instead corroborated by
-MLflow's timestamps over its whole 995,000 steps, which give 217.9 env-steps/s against the 194.6 of
-the 50k→250k window used here. The gap is the run slowing down after 250k, in a window where other
-measurements were competing for the same GPU - which is the reason the comparison below is made over
-one window rather than over two whole runs. Both policies were then scored identically: 50 seeded
-episodes, cuda, the training reward.
+**Does the cheaper update schedule still learn?** Six real runs: three update schedules × two seeds,
+all to exactly 250,000 environment steps, all `--task-phase target --reset-mode mixed`, all scored
+identically afterwards (50 seeded episodes, cuda, the training reward). The trainer runs one
+`dreamer_update` per collection step and a collection step advances `num_envs` steps, so the arms spent
+62,500, 31,250 and 15,625 gradient steps on the same experience. Wall clock is each run's own record -
+the mtimes of the checkpoints it wrote, over the 50,000 → 250,000 window every run has, which excludes
+startup and graph capture (`benchmarks/training_rate_history.json`):
 
-| at 250,000 env steps | `--num-envs 4` (shipped) | `--num-envs 16` |
-|:---|---:|---:|
-| gradient steps spent | 62,500 | 15,625 |
-| mean return | 6628.71 | 5301.00 |
-| **median return** | **6466.67** | **627.00** |
-| std | 4062.99 | 7460.70 |
-| min / max | -7001.49 / 13563.15 | -302.55 / 23572.76 |
-| episodes inside the 0.45 m radius | 1 of 50 (2.0%) | 0 of 50 |
-| mean closest approach | 2.647 m | 3.176 m |
-| mean x-velocity | +0.0079 m/s | -0.0293 m/s |
+| `--num-envs` | gradient steps | seed 7 | seed 8 | speedup within seed 7 | within seed 8 |
+|---:|---:|---:|---:|---:|---:|
+| 4 (shipped) | 62,500 | 1028.0 s, 194.6 /s | 930.0 s, 215.1 /s | 1.00x | 1.00x |
+| 8 | 31,250 | 682.0 s, 293.3 /s | 583.0 s, 343.1 /s | **1.51x** | **1.60x** |
+| 16 | 15,625 | 252.0 s, 793.7 /s | 425.0 s, 470.6 /s | **4.08x** | **2.19x** |
 
-**It learns less, and the mean is the number that hides it.** The median falls by a factor of ten
-(6466.67 → 627.00) while the mean falls only 20%, because the cheap arm's distribution is bimodal:
-its best episode (23572.76) beats the shipped arm's best (13563.15) and most of its episodes are near
-nothing. It also stops making progress toward the target at all - the x-velocity changes sign, the
-closest approach is 0.53 m worse, and the single episode that reached the radius in the shipped arm
-has no counterpart. Two caveats that cut in opposite directions, both worth stating: at 16
-environments the trainer also crosses `--vec-parallel-threshold` (default 16) and switches the
-collector from `sync` to process-parallel, so the 4.08x is not all attributable to the update
-schedule - the isolated bench above, which holds `sync` for every arm, attributes 2.43x to it. And
-this is one seed per arm, not a seed study.
+| at 250,000 env steps | 4 (shipped) | 4 | 8 | 8 | 16 | 16 |
+|:---|---:|---:|---:|---:|---:|---:|
+| seed | 7 | 8 | 7 | 8 | 7 | 8 |
+| mean return | 6628.71 | 5323.76 | 8402.69 | 2790.46 | 5301.00 | 5643.10 |
+| median return | 6466.67 | 5826.98 | 8320.57 | 2241.89 | 627.00 | 5840.20 |
+| std | 4062.99 | 4746.02 | 4017.59 | 5380.37 | 7460.70 | 3795.10 |
+| episodes inside the 0.45 m radius | 1 of 50 | 2 of 50 | 3 of 50 | 0 of 50 | 0 of 50 | 0 of 50 |
+| mean closest approach | 2.647 m | 2.364 m | 2.456 m | 3.023 m | 3.176 m | 2.720 m |
+| mean x-velocity | +0.0079 m/s | +0.0129 m/s | +0.0496 m/s | -0.0262 m/s | -0.0293 m/s | -0.0294 m/s |
 
-So the last lever is real and it is not free: 4x the wall clock for a quarter of the gradient steps
-buys a measurably worse policy at this budget. Neither arm walks - 2.0% and 0% of episodes inside the
-radius - so what the table compares is two failures, and the honest reading is which one is cheaper
-rather than which one works. Whether the gap closes by 1M steps is not measured; at 250k it does not.
+**The first version of this section said the 8-env arm was free and the 16-env arm was a cliff. The
+second seed refuted both halves, and the timing is what repeats.** Written from one seed each, the
+8-env arm led by 1774 and the 16-env arm's median had collapsed to 627.00. Re-run at seed 8, the
+8-env arm *trailed* by 2533 and the 16-env arm's median was 5840.20, its healthiest column. Each
+schedule's own seed spread - 1304.95 across the 4-env mean and 5612.23 across the 8-env one - is
+larger than any gap between schedules, and averaged over both seeds the means are 5976.24, 5596.58
+and 5472.05: monotone in the right direction, and small enough that two seeds cannot rank them. So
+what the return measures at this budget is the draw, not the schedule.
+
+What does repeat is the **timing of the 8-env arm and the behaviour of the 16-env arm.** The 1.51x and
+the 1.60x are 6% apart across seeds, so `--num-envs 8` is a real 1.5x. The 16-env arm's speedup is not:
+4.08x at one seed and 2.19x at the other, which is why it is quoted as a range and why the isolated
+bench's 2.43x sits inside it rather than being contradicted by it. And the column that does not wobble
+is forward speed: the 16-env arm averaged **-0.0293 and -0.0294 m/s**, two runs agreeing to 0.3%, both
+negative, and it reached the radius in **0 of 100 episodes**. The 4-env arm was positive in both seeds
+(+0.0079, +0.0129) and reached it in 3 of 100. So the cost of the cheap schedule shows up as *not
+moving toward the target* while the return - which this task pays mostly for posture, see the Phase-1
+section - stays statistically the same. That is the cheapest example in this repository of why the
+return is the wrong column to decide on.
+
+Two confounds, both disclosed rather than argued away. At 16 environments the trainer crosses
+`--vec-parallel-threshold` (default 16) and switches the collector from `sync` to process-parallel, so
+the 16-env row is two changes at once; the 4- and 8-env arms both stay on `sync`, which is what makes
+their 1.51x/1.60x a clean schedule comparison. And the windows differ: each run's starting GPU window
+is recorded with it (255 MiB held by 4 other contexts for the 4-env seed-7 run, 626 by 5 for 8-env
+seed 7, 531 by 5 for 16-env seed 7, and 618 by 5 for the 16-env seed-8 run, from MLflow params or, for
+the one run that logged to a scratch database, its stdout). Each arm's `--num-envs` is corroborated
+twice rather than taken on faith: the observation normalizer's counter exceeds `global_step` by exactly
+that number, and the MLflow row repeats the flag the run was started with.
+
+**So, for the question that started this - can training be faster?** Yes: `--num-envs 8` is 1.5x on
+measured wall clock with nothing detectable lost over two seeds, and it is one flag. `--num-envs 16`
+is 2.2-4.1x and, on the one column that replicated, it is the worst of the three at actually approaching
+the target - so it is offered as a way to explore, not to train the result. Settling the ranking
+properly needs three seeds per schedule at the 1M budget (about 4 h on this machine for the 8- and
+16-env arms) and is **not measured**; the 1M comparison in the Phase-1 section is single-seed on both
+sides. Changing the shipped default is deliberately not part of this either: `--num-envs 4` is the
+configuration every other rate in this section was measured against, so moving it would invalidate
+those numbers rather than improve them.
+
+**Four of the six checkpoints here record their own reward.** The two that do not - the shipped arm's
+250k checkpoint, which is the first quarter of `dreamer_v3_1m`, and the 16-env seed-7 run - were
+trained before `train_dreamer.py` started saving `reward_kwargs` this evening, so they resolve through
+the fallback and their rows say so. The other four report `reward_source = checkpoint`: scoring a run
+trained from here on never has to reason about which trainer an algorithm name implies, which is the
+whole point of the change.
 
 The batch axis is the second version of a sentence that was wrong before: an earlier window said the
 eager update was "flat in batch, sixteen times the samples for free", and the claim was wrong in the
@@ -1340,8 +1372,9 @@ with no traceback. Both are written up, with what they cost, in
 **"It felt faster before all this work" - the archive says the opposite, by 16.5x.** Worth answering
 with data rather than reassurance, because the intuition has a real source. `python
 summarize_training_rate.py` (`benchmarks/training_rate_history.json`) recomputes a rate for every run
-in `mlruns.db` that logged `sps` twice or more - 17 runs - as (last step − first step) / (last
-timestamp − first timestamp), which needs no interpretation of what the trainer meant by `sps`. The
+in `mlruns.db` that logged `sps` twice or more - the artifact lists them all, and the list only grows -
+as (last step − first step) / (last timestamp − first timestamp), which needs no interpretation of
+what the trainer meant by `sps`. The
 two it cites are the furthest each generation of the Dreamer trainer got, and they are matched on
 every parameter that is recorded (`algo=dreamer`, `num_envs=4`, `task_phase=target`, `seed=7`,
 `total_timesteps=1000000`, `reset_mode=mixed`); the only difference between them is the code:
@@ -1358,12 +1391,14 @@ against the trainer's own clock, agreeing to the minute.
 
 The intuition's source is in the last two columns. `sps` is
 `int(global_step / (time.time() - start_time))` - a **cumulative average since process start**, and
-its first sample is logged at `learning_starts`, before a single gradient update has run, so it
+its first sample is logged at the first step the run actually reaches at or after `learning_starts`
+(5000 for a 4- or 8-env run, 5008 for a 16-env one, because `global_step` advances `num_envs` at a
+time) - before a single gradient update has run, so it
 reports the collection-only rate and then decays for the rest of the run. Opened in the first minutes,
 the old trainer's chart read **235** and the new one reads **690**; left alone, they settle at **13**
-and **218**. The old runs were also the ones that died early (that run stopped at 263,000 of
-1,000,000), so the decay never landed on screen. A rate read off the top of that curve is the
-collection rate, and it was higher before too - it just was not the run's cost.
+and **218**. The old runs were also the ones that died early - that one has a 1,000,000-step budget
+and its last checkpoint is at 269,404 - so the decay never landed on screen. A rate read off the top
+of that curve is the collection rate, and it was higher before too - it just was not the run's cost.
 
 Two limits on what this can claim. The archive's `sps` metric only exists from 2026-10-01 onward; the
 21 earlier runs span 2026-06-07 to 2026-06-26 and are offline RL (BC/IQL/CQL) with no rate metric at
@@ -1587,11 +1622,11 @@ Three facts to keep in mind:
 
 The suite is plain `unittest` (no pytest required) and covers the environment contract, the
 golden reward rollouts, the parallel/serial vector-env parity, checkpointing and the race
-harness — **201 tests, 170 s in this window** (`Ran 201 tests in 170.391s ... OK
+harness — **205 tests, 169 s in this window** (`Ran 205 tests in 168.986s ... OK
 (skipped=7)` under `.venv`). Windows of this suite have measured 176.3 s at 102 tests, 269.995 s
 at 121, 261.1 s at 127, 329.964 s at 128, 319.168 s at 130, 184.716 s, 203.108 s and 306.976 s at
-140, 144.678 s at 147, 230.268 s at 157, 171.016 s and 170.304 s at 194, and 174.008 s and
-170.391 s at 201 - each pair is the same commit run twice minutes apart and agrees to 2%, where the
+140, 144.678 s at 147, 230.268 s at 157, 171.016 s and 170.304 s at 194, and 174.008 s,
+170.391 s, 175.036 s, 168.775 s and 168.986 s at 201/205 - consecutive runs of one commit agree to 4%, where the
 147 and 157 windows an afternoon earlier were 1.6x apart for ten more tests. The
 duration belongs to the machine's state, the
 count does not, and a gate checks the count so it cannot go stale quietly):
@@ -1629,14 +1664,16 @@ deliberately fault-tolerant, that error used to be swallowed - runs looked like 
 while writing nothing. `requirements.txt` pins `mlflow>=3.0` for that reason, and
 `start_mlflow_run` prints the version and the remedy when it hits the wall.
 
-The history lives in **one** database at the repository root: **147 active runs** in 6 experiments
-(126 `walker-ragdoll`, 10 `Walker_Offline_To_Online`, 8 `Walker2d_Offline_to_Online`,
-2 `Walker_Behavioral_Cloning`, 1 `Walker_OpenAI_BC`, 0 `Default`) and **276,447 metric rows** as of
+The history lives in **one** database at the repository root: **154 active runs** in 6 experiments
+(133 `walker-ragdoll`, 10 `Walker_Offline_To_Online`, 8 `Walker2d_Offline_to_Online`,
+2 `Walker_Behavioral_Cloning`, 1 `Walker_OpenAI_BC`, 0 `Default`) and **284,919 metric rows** as of
 2026-10-04 — and 103 of them carry an `integration_test`/`smoke`/`bench` name, because the training
 tests wrote here until they were pointed at a throwaway backend (`tests/test_training.py` now sets
 `MLFLOW_TRACKING_URI`, and the benches always did). Read the run count as an archive of everything
-this repository has ever executed, not as 147 research runs. `utils/mlflow_uri.py` resolves the path
-from the repo root, so the working directory no longer decides where a run goes. Nine runs killed
+this repository has ever executed, not as 154 research runs - and read it as a floor, because every
+training run adds to it and the gate only checks that the published figure is not above the database.
+`utils/mlflow_uri.py` resolves the path
+from the repo root, so the working directory no longer decides where a run goes. 13 runs killed
 mid-training were closed with a
 `closed_as_stale` tag rather than deleted, because the metric history is the only surviving evidence
 that they ran - see Phase 4, item 6. How each of those states was found, with the commands, is in
@@ -1645,7 +1682,7 @@ that they ran - see Phase 4, item 6. How each of those states was found, with th
 ## 🔬 Reproducing and measuring
 
 ```bash
-python -m unittest discover -s tests -t .   # 201 tests in .venv, 170 s; see "Running the tests"
+python -m unittest discover -s tests -t .   # 205 tests in .venv, 169 s; see "Running the tests"
 python bench_env.py --seconds 4             # env throughput, physics vs Python split
 python bench_mjx.py --sizes 32,128          # MJX/JAX batched stepping
 python verify.py                            # Phase-2 artifact check (exits 2 when missing)

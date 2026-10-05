@@ -202,7 +202,8 @@ def main():
     p.add_argument("--reset-mode", default="mixed")
     p.add_argument("--device", default="auto", choices=["auto", "cpu", "cuda"],
                    help="device the policies run on; auto matches eval_phase1.py, and it matters - "
-                        "the same checkpoint and seeds scored 18.5% apart cpu against cuda")
+                        "see --compare-devices and benchmarks/phase1_eval_device_sensitivity.json "
+                        "for the spread this box produces")
     p.add_argument("--threads", type=int, default=THREADS,
                    help="torch CPU thread count pinned for the run; 0 leaves torch's default")
     p.add_argument("--reward-weights", default="auto", choices=["auto", "env-default"],

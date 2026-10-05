@@ -28,6 +28,47 @@ The trainers print only when an episode ends, so sampling the last `global_step=
 minute reported 48 env-steps/s for a Dreamer that actually runs at 15.6. Only wall clock over a
 whole run is trustworthy.
 
+A second way the same log misleads, found 2026-10-04: the `sps` metric is
+`int(global_step / (time.time() - start_time))`, a cumulative average since process start, and its
+first sample lands at `learning_starts` before any update has run. Every Dreamer run in the archive
+therefore opens with a sample that reads like the collection rate - 235, 423, 683, 782, 826 - and
+decays from there to what the run costs, 9.3 to 23.7 env-steps/s before the CUDA graph and 218 after.
+The old runs were also the ones that died early, so the decay never appeared on screen and the top of
+the curve was the last thing anyone saw. `python summarize_training_rate.py`
+(`benchmarks/training_rate_history.json`) recomputes each run's rate from the metric's own timestamps
+instead of reading its values, which is immune to both traps.
+
+## A score without its device is half a measurement
+
+`eval_phase1.py` wrote the protocol, the env revision and the reward source into its artifact but not
+the device it ran on, so nothing downstream could tell that five published rows had been scored on
+cpu while the rows they were compared against were scored on cuda. One of them carried a conclusion:
+"more training did not buy a better policy" compared 6486.27 at 269,404 steps against 5215.46 at
+1,000,000, and the first of those was a cpu number
+(`benchmarks/phase1_dreamer_v9_269k_cpu_reproduction.json` reproduces it exactly). The comparison
+survived the correction - both rows on cuda are 6368.15 and 5315.86 - but it had not been the
+comparison it claimed to be.
+
+The size of the effect is what makes this a rule rather than a nitpick: same checkpoint, same seeds,
+same reward, 20.6% apart for a stochastic Dreamer policy and 30% apart for a *deterministic* SAC
+actor (23589.07 cpu against 17363.56 cuda, `benchmarks/phase1_evidence_eval_cpu_auto.json` against
+`benchmarks/phase1_evidence_eval.json`). Seven of those ten episodes are on different trajectories.
+The explanation this repository published first - that only policies with a sampled latent move -
+was wrong for exactly that reason; the mechanism is a chaotic thousand-step rollout amplifying
+float32 rounding, which is why ARS (one linear map in float64 numpy) and the zero-action reference
+are the two entries that do not move at all. `eval_phase1.py` and `bench_posture.py` now both record
+`device` and `torch_threads`.
+
+## A roster key is not a label
+
+`bench_posture.py` held one entry keyed `sac_40m` pointing at `sac_ckpt_9000000.pt`. The table
+printed, the row read plausibly, and the README described a 9M policy as the 40M one for a day - the
+row that the whole standing-band argument ranked first. Both checkpoints are now separate rows
+(14.73% and 10.39% of steps inside the band), every row records the path it was scored from, and a
+gate compares the step count in the label against the step count in the filename. The general form:
+a harness that takes its row labels from a dict key will eventually be handed a key that lies, and
+only the recorded path can catch it.
+
 ## A long job started with `nohup` dies with the call that started it
 
 Three runs died in one afternoon, silently, with no traceback and the wrapper's exit line never

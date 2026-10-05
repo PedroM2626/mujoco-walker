@@ -1,0 +1,39 @@
+{
+  "protocol": "SAC 1M, seed 7, num_envs=8, task_phase=target, reset_mode=mixed, target_forward_velocity=1.2, trained once per preset; scored by eval_phase1.py --num-episodes 20 --seed 11 in the world each arm trained in",
+  "arms": {
+    "v9": {
+      "checkpoint": "checkpoints/screen_sac_v9_1m/sac_actor_1000000.pt",
+      "scored_in_version": "standup_balance_walk_curriculum_v9",
+      "device": "cuda",
+      "torch_threads": 24,
+      "wall_clock_seconds": 1345,
+      "wall_clock_window": "2026-10-05 19:30:16 -> 19:52:41",
+      "mean": 7616.16,
+      "std": 7572.4,
+      "min": -1666.94,
+      "max": 30595.83,
+      "falls_per_episode": 0.2,
+      "reached_target_pct": 0.0,
+      "mean_min_target_distance": 3.266,
+      "mean_x_velocity": -0.0364
+    },
+    "fast": {
+      "checkpoint": "checkpoints/screen_sac_fast_1m/sac_actor_1000000.pt",
+      "scored_in_version": "standup_balance_walk_curriculum_v9_fast",
+      "device": "cuda",
+      "torch_threads": 24,
+      "wall_clock_seconds": 1172,
+      "wall_clock_window": "2026-10-05 19:52:41 -> 20:12:13",
+      "mean": 4889.51,
+      "std": 16367.17,
+      "min": -27352.58,
+      "max": 37622.47,
+      "falls_per_episode": 0.35,
+      "reached_target_pct": 0.0,
+      "mean_min_target_distance": 3.138,
+      "mean_x_velocity": -0.0336
+    }
+  },
+  "end_to_end_speedup_fast_vs_v9": 1.148,
+  "note": "the environment step itself is 2.707x cheaper at n=8 (benchmarks/physics_presets.json), and the training run is 1.15x faster - the difference is the learner and the vector-env plumbing, which this preset does not touch"
+}

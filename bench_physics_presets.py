@@ -37,10 +37,23 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 REFERENCE = "v9"
 
 
-def _stats(values):
-    arr = np.asarray(values, dtype=float)
-    return {"median": round(float(np.median(arr)), 1), "min": round(float(arr.min()), 1),
-            "max": round(float(arr.max()), 1)}
+def _arm(row):
+    """One bench_env repetition summary, in the units this artifact quotes.
+
+    `bench_env._repeated` already reduces its reps to a median plus the window's min/max/spread, so
+    those fields are carried through rather than recomputed - the spread is the point of the column.
+    """
+    out = {"median_steps_per_s": round(float(row["steps_per_s"]), 1),
+           "us_per_step": round(float(row["us_per_step"]), 2),
+           "reps": int(row.get("reps", 1))}
+    for key in ("min_steps_per_s", "max_steps_per_s"):
+        if key in row:
+            out[key] = round(float(row[key]), 1)
+    if "spread_pct" in row:
+        out["spread_pct"] = round(float(row["spread_pct"]), 1)
+    if "note" in row:
+        out["model_note"] = row["note"]
+    return out
 
 
 def throughput(presets, seconds, reps, n, task_phase, reset_mode):
@@ -58,22 +71,22 @@ def throughput(presets, seconds, reps, n, task_phase, reset_mode):
                                   dict(common, physics_preset=preset, n=n, copy=True))
         physics = bench_env._repeated(bench_env.bench_physics, reps,
                                       dict(common, physics_preset=preset))
-        out[preset] = {
-            "env_step_per_s": _stats([r["steps_per_s"] for r in single]),
-            "env_step_us": _stats([r["us_per_step"] for r in single]),
-            f"vec{n}_steps_per_s": _stats([r["steps_per_s"] for r in vec]),
-            "mj_step_us": _stats([r["us_per_step"] for r in physics]),
-            "integrator_note": physics[0].get("note", ""),
-        }
-    ratios = {}
+        out[preset] = {"env_step_n1": _arm(single),
+                       f"env_step_n{n}": _arm(vec),
+                       f"vec{n}_steps_per_s": round(float(vec["steps_per_s"]), 1),
+                       "mj_step_raw": _arm(physics)}
     base = out[REFERENCE]
+    ratios = {}
     for preset, values in out.items():
         ratios[preset] = {
-            "env_step_vs_v9": round(values["env_step_per_s"]["median"]
-                                    / base["env_step_per_s"]["median"], 3),
-            f"vec{n}_vs_v9": round(values[f"vec{n}_steps_per_s"]["median"]
-                                   / base[f"vec{n}_steps_per_s"]["median"], 3),
-            "mj_step_vs_v9": round(base["mj_step_us"]["median"] / values["mj_step_us"]["median"], 3),
+            "env_step_n1_vs_v9": round(values["env_step_n1"]["median_steps_per_s"]
+                                       / base["env_step_n1"]["median_steps_per_s"], 3),
+            f"env_step_n{n}_vs_v9": round(values[f"env_step_n{n}"]["median_steps_per_s"]
+                                          / base[f"env_step_n{n}"]["median_steps_per_s"], 3),
+            # Physics cost is a time, not a rate: a third of the microseconds per mj_step is a 3x
+            # cheaper step, so this ratio runs the other way from the throughput ones.
+            "mj_step_time_vs_v9": round(base["mj_step_raw"]["us_per_step"]
+                                        / values["mj_step_raw"]["us_per_step"], 3),
         }
     return out, ratios
 
@@ -83,6 +96,7 @@ def _roll(env, seed, actions, steps):
     obs, _ = env.reset(seed=seed)
     unwrapped = env.unwrapped
     z, upright, healthy, contacts, rewards, obs_rows = [], [], [], [], [], []
+    foot_steps = bad_steps = 0
     for t in range(steps):
         obs, reward, terminated, truncated, _ = env.step(actions[t])
         z.append(float(unwrapped.data.qpos[2]))
@@ -90,6 +104,8 @@ def _roll(env, seed, actions, steps):
         healthy.append(bool(unwrapped.is_healthy))
         bad, feet = unwrapped.floor_contact_counts
         contacts.append((bad, feet))
+        foot_steps += int(feet > 0)
+        bad_steps += int(bad > 0)
         rewards.append(float(reward))
         obs_rows.append(np.asarray(obs, dtype=float))
         if terminated or truncated:
@@ -97,7 +113,8 @@ def _roll(env, seed, actions, steps):
     env.close()
     return {"z": np.asarray(z), "upright": np.asarray(upright), "healthy": np.asarray(healthy),
             "contacts": contacts, "rewards": np.asarray(rewards),
-            "obs": np.asarray(obs_rows), "steps": len(z)}
+            "obs": np.asarray(obs_rows), "steps": len(z),
+            "foot_steps": foot_steps, "bad_steps": bad_steps}
 
 
 def divergence(presets, episodes, steps, seed, task_phase, reset_mode):
@@ -140,6 +157,14 @@ def divergence(presets, episodes, steps, seed, task_phase, reset_mode):
                     1 for bad, feet in reference["contacts"][:n] if bad == 0 and feet > 0)),
                 "preset_steps_standing": int(sum(
                     1 for bad, feet in rolled["contacts"][:n] if bad == 0 and feet > 0)),
+                # The step-by-step contact "flip" count above measures when contacts happened, and
+                # two integrators disagree about that constantly. These two totals are the question
+                # the standing gate actually asks: how many steps had a foot on the floor, and how
+                # many had some other body on it.
+                "reference_foot_contact_steps": reference["foot_steps"],
+                "preset_foot_contact_steps": rolled["foot_steps"],
+                "reference_bad_support_steps": reference["bad_steps"],
+                "preset_bad_support_steps": rolled["bad_steps"],
             })
     summary = {}
     for preset in presets:
@@ -156,6 +181,12 @@ def divergence(presets, episodes, steps, seed, task_phase, reset_mode):
                 [abs(r["return_delta"]) for r in sub])), 2),
             "steps_standing_total": int(sum(r["preset_steps_standing"] for r in sub)),
             "reference_steps_standing_total": int(sum(r["reference_steps_standing"] for r in sub)),
+            "foot_contact_steps_total": int(sum(r["preset_foot_contact_steps"] for r in sub)),
+            "reference_foot_contact_steps_total": int(sum(r["reference_foot_contact_steps"]
+                                                          for r in sub)),
+            "bad_support_steps_total": int(sum(r["preset_bad_support_steps"] for r in sub)),
+            "reference_bad_support_steps_total": int(sum(r["reference_bad_support_steps"]
+                                                         for r in sub)),
         }
     return rows, summary
 
@@ -184,6 +215,7 @@ def main():
     if bad:
         p.error(f"unknown presets {bad}, expected one of {list(PHYSICS_PRESETS)}")
     presets = [REFERENCE] + [a for a in wanted if a != REFERENCE]
+    target = os.path.join(ROOT, args.out) if not os.path.isabs(args.out) else args.out
 
     out = {
         "protocol": (f"presets {presets} (reference {REFERENCE} = {ENV_VERSION}) in one process; "
@@ -202,22 +234,32 @@ def main():
                                    args.task_phase, args.reset_mode)
         out["throughput"] = rates
         out["throughput_ratio"] = ratios
+    elif os.path.exists(target):
+        # Re-running the divergence in another window must not silently drop the ratios that were
+        # measured back-to-back: they belong to their window and cannot be recomputed later.
+        previous = json.load(open(target, encoding="utf-8"))
+        carried = []
+        for key in ("throughput", "throughput_ratio"):
+            if key in previous:
+                out[key] = previous[key]
+                carried.append(key)
+        if carried:
+            out["carried_from_first_run"] = carried
     if not args.skip_divergence:
         rows, summary = divergence(presets, args.episodes, args.steps, args.seed,
                                    args.task_phase, args.reset_mode)
         out["divergence"] = summary
         out["divergence_per_episode"] = rows
 
-    target = os.path.join(ROOT, args.out) if not os.path.isabs(args.out) else args.out
     os.makedirs(os.path.dirname(target), exist_ok=True)
     with open(target, "w", encoding="utf-8") as handle:
         json.dump(out, handle, indent=2, ensure_ascii=False)
     print(f"wrote {args.out}")
     if "throughput_ratio" in out:
         for preset, ratio in out["throughput_ratio"].items():
-            print(f"  {preset:6s} env.step x{ratio['env_step_vs_v9']:.2f}  "
-                  f"vec{args.n} x{ratio[f'vec{args.n}_vs_v9']:.2f}  "
-                  f"mj_step x{ratio['mj_step_vs_v9']:.2f}")
+            print(f"  {preset:6s} env.step(n=1) x{ratio['env_step_n1_vs_v9']:.2f}  "
+                  f"n={args.n} x{ratio[f'env_step_n{args.n}_vs_v9']:.2f}  "
+                  f"mj_step time x{ratio['mj_step_time_vs_v9']:.2f}")
     for preset, values in out.get("divergence", {}).items():
         print(f"  {preset:6s} max |dz| {values['max_abs_torso_z_delta']:.6f}  "
               f"obs L2 {values['mean_abs_obs_l2']:.4f}  "

@@ -1118,6 +1118,46 @@ there was batching the ensemble - **2.15x end to end, 3.4x on the update phase**
 learner-side section below. "Why is training still slow" and "the environment is already fast" are
 both true, and the second one is why the first one cannot be fixed from the physics side.
 
+**That sentence now has a number on it, because a cheaper world was built and measured.**
+`WalkerRagdoll-v0` takes a `physics_preset`: `v9` is the published one and changes nothing, `euler`
+swaps RK4 for Euler at the same `timestep=0.002` so an action still covers the same simulated time,
+and `fast` additionally drops self-collision while keeping every floor contact - the standing gate
+counts feet-on-floor and penalises any other body on the floor, so those pairs are the ones the task
+reads, and the 138-pair set it pays for is not. Measured in one process, back to back, 3 reps
+(`benchmarks/physics_presets.json`):
+
+| preset | what it changes | `env.step` n=1 | `env.step` n=8 | raw `mj_step` time |
+|:---|:---|---:|---:|---:|
+| `euler` | integrator only | 2.74x | 2.55x | 3.67x less |
+| `fast` | integrator + no self-collision | 3.04x | 2.71x | 4.14x less |
+
+Absolute rates in the same window were 3,668 env-step/s for `v9` at n=1 against 11,133 for `fast`,
+with 1.5-3.2% rep spread - the ratios are the reusable part, as everywhere else in this section.
+
+How far the cheap worlds drift from the published one is the other half of the measurement: 5
+episodes of 1000 steps, identical resets and one shared `uniform(-1,1)` action sequence. `euler`
+separates by up to 0.227 m of torso height and `fast` by 0.301 m, with mean observation L2 distance
+28.18 and 28.42. What matters for the task's own criterion is that the gate's *inputs* survive:
+over those 5,000 steps the reference holds 927 steps with a foot on the floor and 2,866 with some
+other body on it, `euler` gets 830 and 2,961, `fast` 771 and 2,895. The step-by-step "did the contact
+count change" counter says 3,691 and 3,678 - that figure measures *when* contacts happen, which two
+integrators will never agree about, and it is reported here only so nobody reads it as a failure.
+The number that decides whether any of this is worth using is the end-to-end one. Two identical
+SAC screens - 1M steps, seed 7, `num_envs=8`, `target` phase, mixed resets - trained in each world:
+**22 min 25 s in `v9`, 19 min 32 s in `fast`, which is 1.15x** where the environment step was
+2.71x cheaper. That gap is the paragraph above, measured: the rest of the wall clock is the learner
+and the pipes, not MuJoCo.
+
+And the caveat that limits what a screen can ask. Scored at the published protocol, the two arms
+reach the target in 0 of 20 episodes each (`benchmarks/physics_presets_screen_v9.json`,
+`..._fast.json`): mean 7616.16 against 4889.51, std 7572.40 against 16367.17, mean closest approach
+3.266 m against 3.138 m. The 40M from-scratch curve in the Phase-1 section only begins reaching
+between 5M and 30M, so a 1M-budget screen - cheap world or published one - cannot see the walking
+question at all. The presets are justified for questions that are already visible at short budgets
+(does this knob change falls, or time in the standing band), not for the one this repository is
+about. `eval_phase1.py` refuses to score a preset run against an aliased older revision, and a
+preset checkpoint records its own world in `env_version`, so the two can never be mixed by accident.
+
 ### 🧮 The learner side: what was measured, what shipped, what was rejected
 
 Collection is not the bottleneck for the Phase-1 algorithms, so "faster training" has to be
@@ -1746,12 +1786,12 @@ Three facts to keep in mind:
 
 The suite is plain `unittest` (no pytest required) and covers the environment contract, the
 golden reward rollouts, the parallel/serial vector-env parity, checkpointing and the race
-harness — **237 tests, 162 s in this window** (`Ran 237 tests in 161.829s ... OK
+harness — **243 tests, 165 s in this window** (`Ran 243 tests in 164.902s ... OK
 (skipped=7)` under `.venv`). Windows of this suite have measured 176.3 s at 102 tests, 269.995 s
 at 121, 261.1 s at 127, 329.964 s at 128, 319.168 s at 130, 184.716 s, 203.108 s and 306.976 s at
 140, 144.678 s at 147, 230.268 s at 157, 171.016 s and 170.304 s at 194, and 174.008 s,
 170.391 s, 175.036 s, 168.775 s, 168.986 s and 166.606 s at 201/205/210, 169.919 s at 214,
-and 163.920 s and 161.829 s at 237 -
+and 163.920 s and 161.829 s at 237, and 165.360 s and 164.902 s at 243 -
 consecutive runs of one commit agree to 4%, where the
 147 and 157 windows an afternoon earlier were 1.6x apart for ten more tests. The
 duration belongs to the machine's state, the
@@ -1808,7 +1848,7 @@ that they ran - see Phase 4, item 6. How each of those states was found, with th
 ## 🔬 Reproducing and measuring
 
 ```bash
-python -m unittest discover -s tests -t .   # 237 tests in .venv, 162 s; see "Running the tests"
+python -m unittest discover -s tests -t .   # 243 tests in .venv, 165 s; see "Running the tests"
 python bench_env.py --seconds 4             # env throughput, physics vs Python split
 python bench_mjx.py --sizes 32,128          # MJX/JAX batched stepping
 python verify.py                            # Phase-2 artifact check (exits 2 when missing)
@@ -1820,6 +1860,8 @@ python bench_dreamer_update.py --mode checkpoint-cost  # bytes and ms per Dreame
 python bench_dreamer_update.py --mode amortize  # rate and gradient steps per --num-envs, one window
 python bench_posture.py --episodes 50           # does it stand? torso height per step, not the return
 python bench_posture.py --compare-devices       # the same rows on cuda and cpu, and what moves
+python bench_physics_presets.py --skip-divergence  # what each physics_preset costs, back to back
+python bench_physics_presets.py --skip-throughput  # how far each one drifts from v9, same actions
 python summarize_training_rate.py               # every run's real rate, from its own logged timestamps
 python summarize_curriculum_provenance.py       # the manual curriculum's order, widths and stage change
 python -m utils.gpu_window                    # the GPU window a long run would start into

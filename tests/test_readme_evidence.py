@@ -2764,6 +2764,122 @@ class TestReadmeTargetFromScratchCells(ReadmeGate, unittest.TestCase):
                     ["target_forward_velocity"]], places=1)
 
 
+class TestReadmePhysicsPresetCells(ReadmeGate, unittest.TestCase):
+    """The physics-preset block: what each world costs, how far it drifts, what it buys end to end.
+
+    The block makes two claims that could rot in opposite ways. The throughput ratios are a window,
+    so they must keep matching the artifact that was measured back-to-back; and the end-to-end
+    1.15x is a different measurement (two training runs) that must not be allowed to drift into
+    sounding like the 2.71x env-step figure. Each cell is recomputed from its own artifact.
+    """
+
+    PRESETS = os.path.join(ROOT, "benchmarks", "physics_presets.json")
+    SCREENS = os.path.join(ROOT, "benchmarks", "physics_presets_screen_paired.json")
+    START = "**That sentence now has a number on it, because a cheaper world was built and measured.**"
+    END = "### \U0001f9ee The learner side"
+
+    def setUp(self):
+        with open(README, encoding="utf-8") as handle:
+            readme = handle.read()
+        start = readme.index(self.START)
+        self.block = readme[start:readme.index(self.END, start)]
+        self.flat = re.sub(r"\s+", " ", self.block)
+        self.presets, self.screens = self.read_artifacts(self.PRESETS, self.SCREENS)
+        self.bad = []
+        self.what = "physics presets"
+
+    def test_the_preset_table_is_the_ratio_block(self):
+        for label, key in (("`euler`", "euler"), ("`fast`", "fast")):
+            m = re.search(rf"\| {label} \|[^|]*\| ([\d.]+)x \| ([\d.]+)x \| ([\d.]+)x less \|",
+                          self.block)
+            self.assertIsNotNone(m, f"the preset table row {label} is gone")
+            want = self.presets["throughput_ratio"][key]
+            self.check(label, [m.group(1), m.group(2), m.group(3)],
+                       [want["env_step_n1_vs_v9"], want["env_step_n8_vs_v9"],
+                        want["mj_step_time_vs_v9"]], places=2)
+
+    def test_the_absolute_rates_and_spread_are_the_measured_ones(self):
+        m = self.sentence(r"were ([\d,]+) env-step/s for `v9` at n=1 against ([\d,]+) for `fast`, "
+                          r"with ([\d.]+)-([\d.]+)% rep spread", "the absolute rate sentence")
+        v9 = self.presets["throughput"]["v9"]["env_step_n1"]
+        fast = self.presets["throughput"]["fast"]["env_step_n1"]
+        self.check("n=1 rates", [m.group(1), m.group(2)],
+                   [v9["median_steps_per_s"], fast["median_steps_per_s"]], places=0)
+        spreads = sorted([v9["spread_pct"], fast["spread_pct"]])
+        self.check("rep spread", [m.group(3), m.group(4)],
+                   [min(spreads), max(spreads)], places=1)
+
+    def test_the_divergence_cells_are_the_artifacts(self):
+        div = self.presets["divergence"]
+        m = self.sentence(r"`euler` separates by up to ([\d.]*\d) m of torso height and `fast` by "
+                          r"([\d.]*\d) m, with mean observation L2 distance ([\d.]*\d) and "
+                          r"([\d.]*\d)",
+                          "the drift sentence")
+        self.check("drift", m.groups(),
+                   [div["euler"]["max_abs_torso_z_delta"], div["fast"]["max_abs_torso_z_delta"],
+                    div["euler"]["mean_abs_obs_l2"], div["fast"]["mean_abs_obs_l2"]], places=2)
+        m = self.sentence(r"over those ([\d,]+) steps the reference holds ([\d,]+) steps with a "
+                          r"foot on the floor and ([\d,]+) with some other body on it, `euler` gets "
+                          r"([\d,]+) and ([\d,]+), `fast` ([\d,]+) and ([\d,]+)",
+                          "the standing-gate inputs")
+        episodes = div["euler"]["episodes"]
+        self.check("compared steps", m.group(1), episodes * 1000, places=0)
+        self.check("contact totals", m.groups()[1:],
+                   [div["euler"]["reference_foot_contact_steps_total"],
+                    div["euler"]["reference_bad_support_steps_total"],
+                    div["euler"]["foot_contact_steps_total"],
+                    div["euler"]["bad_support_steps_total"],
+                    div["fast"]["foot_contact_steps_total"],
+                    div["fast"]["bad_support_steps_total"]], places=0)
+        m = self.sentence(r"counter says ([\d,]+) and ([\d,]+)", "the per-step contact counter")
+        self.check("contact counter", m.groups(),
+                   [div["euler"]["floor_contact_disagreements"],
+                    div["fast"]["floor_contact_disagreements"]], places=0)
+
+    def test_the_end_to_end_screen_is_a_separate_measurement(self):
+        arms = self.screens["arms"]
+        m = self.sentence(r"\*\*(\d+) min (\d+) s in `v9`, (\d+) min (\d+) s in `fast`, which is "
+                          r"([\d.]+)x\*\* where the environment step was ([\d.]+)x cheaper",
+                          "the end-to-end sentence")
+        typed = [int(m.group(1)) * 60 + int(m.group(2)), int(m.group(3)) * 60 + int(m.group(4))]
+        self.check("screen wall clocks", typed,
+                   [arms["v9"]["wall_clock_seconds"], arms["fast"]["wall_clock_seconds"]], places=0)
+        self.check("end-to-end speedup", m.group(5),
+                   self.screens["end_to_end_speedup_fast_vs_v9"], places=2)
+        self.check("env-step ratio quoted beside it", m.group(6),
+                   self.presets["throughput_ratio"]["fast"]["env_step_n8_vs_v9"], places=2)
+
+    def test_the_screen_scores_and_the_caveat_are_the_paired_artifact(self):
+        arms = self.screens["arms"]
+        m = self.sentence(r"mean ([\d,.]+) against ([\d,.]+), std ([\d,.]+) against ([\d,.]+), "
+                          r"mean closest approach ([\d.]+) m against ([\d.]+) m",
+                          "the screen scores")
+        self.check("screen scores", m.groups()[:4],
+                   [arms["v9"]["mean"], arms["fast"]["mean"],
+                    arms["v9"]["std"], arms["fast"]["std"]], places=2)
+        self.check("closest approach", m.groups()[4:],
+                   [arms["v9"]["mean_min_target_distance"], arms["fast"]["mean_min_target_distance"]],
+                   places=3)
+        m = self.sentence(r"reach the target in (\d+) of (\d+) episodes each", "the 0-of-20 caveat")
+        self.assertEqual([int(m.group(1)), int(m.group(2))],
+                         [0, 20], "the screens now differ from the 'both measure zero' claim")
+        for preset in ("v9", "fast"):
+            self.assertEqual(arms[preset]["reached_target_pct"], 0.0)
+        self.assertEqual(arms["fast"]["scored_in_version"],
+                         self.presets["protocol"].split("=")[1].split(")")[0].strip() + "_fast",
+                         "the fast arm was not scored in the world it trained in")
+        self.assertEqual(arms["fast"]["device"], arms["v9"]["device"],
+                         "the two screens were scored on different devices")
+
+    def test_the_preset_refuses_to_be_scored_in_another_world(self):
+        with open(os.path.join(ROOT, "eval_phase1.py"), encoding="utf-8") as handle:
+            src = handle.read()
+        self.assertIn("aliases an older env revision that has no --physics-preset", src,
+                      "the refusal that the block describes is gone")
+        self.assertIn('"physics_preset": args.physics_preset', src,
+                      "the artifact stopped naming the preset it scored in")
+
+
 class TestReadmeCurriculumProvenanceCells(ReadmeGate, unittest.TestCase):
     """The manual phase curriculum, gated against `benchmarks/curriculum_provenance.json`.
 

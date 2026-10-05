@@ -452,6 +452,57 @@ def target_from_scratch_paired(out="benchmarks/target_learning_curve_from_scratc
     }, out
 
 
+PRESET_SCREEN_WALL_CLOCK = {
+    # Recorded, not derived: the trainers' wall clock lives in the launcher's log and in mlruns.db,
+    # neither of which is committed. The two artifacts below are what the runs scored, and the
+    # checkpoints they name are the durable half of the story.
+    "v9": {"seconds": 1345, "window": "2026-10-05 19:30:16 -> 19:52:41"},
+    "fast": {"seconds": 1172, "window": "2026-10-05 19:52:41 -> 20:12:13"},
+}
+
+
+def physics_preset_screens(out="benchmarks/physics_presets_screen_paired.json"):
+    """Side by side: the same SAC screen trained in the published world and in the cheap one.
+
+    Two things are being compared here and only one of them is a score. The wall clock says what the
+    2.7x cheaper environment step is worth inside a real training loop, which is the question the
+    presets exist to answer; the scores say whether a 1M-step screen can see the walking behaviour
+    at all, and it cannot - the from-scratch curve only begins reaching the target between 5M and
+    30M, so both arms measure 0 of 20.
+    """
+    arms = {}
+    for preset in ("v9", "fast"):
+        data = json.load(open(os.path.join(ROOT, "benchmarks",
+                                           f"physics_presets_screen_{preset}.json"),
+                               encoding="utf-8"))
+        name = list(data["models"])[0]
+        model = data["models"][name]
+        clock = PRESET_SCREEN_WALL_CLOCK[preset]
+        arms[preset] = {
+            "checkpoint": model["checkpoint"],
+            "scored_in_version": data.get("scored_in_version"),
+            "device": data.get("device"), "torch_threads": data.get("torch_threads"),
+            "wall_clock_seconds": clock["seconds"], "wall_clock_window": clock["window"],
+            "mean": model["mean"], "std": model["std"], "min": model["min"], "max": model["max"],
+            "falls_per_episode": model["falls_per_episode"],
+            "reached_target_pct": model["reached_target_pct"],
+            "mean_min_target_distance": model["mean_min_target_distance"],
+            "mean_x_velocity": model["mean_x_velocity"],
+        }
+    faster = arms["v9"]["wall_clock_seconds"] / arms["fast"]["wall_clock_seconds"]
+    return {
+        "protocol": ("SAC 1M, seed 7, num_envs=8, task_phase=target, reset_mode=mixed, "
+                     "target_forward_velocity=1.2, trained once per preset; scored by "
+                     "eval_phase1.py --num-episodes 20 --seed 11 in the world each arm trained in"),
+        "arms": arms,
+        "end_to_end_speedup_fast_vs_v9": round(faster, 3),
+        "note": ("the environment step itself is 2.707x cheaper at n=8 "
+                 "(benchmarks/physics_presets.json), and the training run is 1.15x faster - the "
+                 "difference is the learner and the vector-env plumbing, which this preset does not "
+                 "touch"),
+    }, out
+
+
 TEACHER_EVENTS = os.path.join("openai_walker", "sac_walker_tensorboard", "SAC_2",
                               "events.out.tfevents.1780843517.pedro.36828.0")
 
@@ -531,6 +582,9 @@ BENCHMARKS = [
     # The 40M from-scratch target run vs the curriculum run, paired per seeded episode, both
     # scored in one session on one device because the published curve never recorded its device.
     target_from_scratch_paired,
+    # The same SAC screen trained in the published world and in the cheap preset: what a 2.7x
+    # cheaper env step is worth inside a real loop, and what a 1M screen cannot see.
+    physics_preset_screens,
     # The teacher's own 100-episode evaluations, mined from its committed TensorBoard log: the only
     # pre-retraction evaluation series in the repo, and an independent protocol.
     teacher_eval_curve,

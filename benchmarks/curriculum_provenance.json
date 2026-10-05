@@ -1,0 +1,898 @@
+{
+  "generated_at": "2026-10-05T07:35:39",
+  "source": "mtime and metadata of checkpoints/<run-id>/sac_ckpt_*.pt (no weights compared)",
+  "runs": [
+    {
+      "run_id": "walker_recovery_v1",
+      "absent": false,
+      "checkpoints": [
+        {
+          "file": "sac_ckpt_1000000.pt",
+          "step": 1000000,
+          "written": "2026-05-11T09:55:19",
+          "actor_obs_width": 46,
+          "env_version": "standup_recovery_resets_v3",
+          "task_phase": null,
+          "target_forward_velocity": null,
+          "records_reward_kwargs": false
+        },
+        {
+          "file": "sac_ckpt_20000000.pt",
+          "step": 20000000,
+          "written": "2026-05-12T18:11:03",
+          "actor_obs_width": 46,
+          "env_version": "standup_recovery_resets_v3",
+          "task_phase": null,
+          "target_forward_velocity": null,
+          "records_reward_kwargs": false
+        }
+      ],
+      "distinct_steps": 2,
+      "first_step": 1000000,
+      "last_step": 20000000,
+      "first_written": "2026-05-11T09:55:19",
+      "last_written": "2026-05-12T18:11:03",
+      "actor_obs_width": 46,
+      "env_version": "standup_recovery_resets_v3",
+      "task_phase": null,
+      "target_forward_velocity_switches": []
+    },
+    {
+      "run_id": "walker_target_v1",
+      "absent": false,
+      "checkpoints": [
+        {
+          "file": "sac_actor_1000000.pt",
+          "step": 1000000,
+          "written": "2026-05-17T19:28:42",
+          "actor_obs_width": 49,
+          "env_version": "standup_balance_walk_curriculum_v4",
+          "task_phase": "target",
+          "target_forward_velocity": 1.2,
+          "records_reward_kwargs": false
+        },
+        {
+          "file": "sac_ckpt_1000000.pt",
+          "step": 1000000,
+          "written": "2026-05-17T19:28:42",
+          "actor_obs_width": 49,
+          "env_version": "standup_balance_walk_curriculum_v4",
+          "task_phase": "target",
+          "target_forward_velocity": 1.2,
+          "records_reward_kwargs": false
+        },
+        {
+          "file": "sac_actor_2000000.pt",
+          "step": 2000000,
+          "written": "2026-05-17T19:39:10",
+          "actor_obs_width": 49,
+          "env_version": "standup_balance_walk_curriculum_v4",
+          "task_phase": "target",
+          "target_forward_velocity": 1.2,
+          "records_reward_kwargs": false
+        },
+        {
+          "file": "sac_ckpt_2000000.pt",
+          "step": 2000000,
+          "written": "2026-05-17T19:39:10",
+          "actor_obs_width": 49,
+          "env_version": "standup_balance_walk_curriculum_v4",
+          "task_phase": "target",
+          "target_forward_velocity": 1.2,
+          "records_reward_kwargs": false
+        },
+        {
+          "file": "sac_actor_3000000.pt",
+          "step": 3000000,
+          "written": "2026-05-17T19:53:00",
+          "actor_obs_width": 49,
+          "env_version": "standup_balance_walk_curriculum_v4",
+          "task_phase": "target",
+          "target_forward_velocity": 1.2,
+          "records_reward_kwargs": false
+        },
+        {
+          "file": "sac_ckpt_3000000.pt",
+          "step": 3000000,
+          "written": "2026-05-17T19:53:00",
+          "actor_obs_width": 49,
+          "env_version": "standup_balance_walk_curriculum_v4",
+          "task_phase": "target",
+          "target_forward_velocity": 1.2,
+          "records_reward_kwargs": false
+        },
+        {
+          "file": "sac_actor_4000000.pt",
+          "step": 4000000,
+          "written": "2026-05-17T20:06:51",
+          "actor_obs_width": 49,
+          "env_version": "standup_balance_walk_curriculum_v4",
+          "task_phase": "target",
+          "target_forward_velocity": 1.2,
+          "records_reward_kwargs": false
+        },
+        {
+          "file": "sac_ckpt_4000000.pt",
+          "step": 4000000,
+          "written": "2026-05-17T20:06:51",
+          "actor_obs_width": 49,
+          "env_version": "standup_balance_walk_curriculum_v4",
+          "task_phase": "target",
+          "target_forward_velocity": 1.2,
+          "records_reward_kwargs": false
+        },
+        {
+          "file": "sac_actor_5000000.pt",
+          "step": 5000000,
+          "written": "2026-05-17T20:21:00",
+          "actor_obs_width": 49,
+          "env_version": "standup_balance_walk_curriculum_v4",
+          "task_phase": "target",
+          "target_forward_velocity": 1.2,
+          "records_reward_kwargs": false
+        },
+        {
+          "file": "sac_ckpt_5000000.pt",
+          "step": 5000000,
+          "written": "2026-05-17T20:21:00",
+          "actor_obs_width": 49,
+          "env_version": "standup_balance_walk_curriculum_v4",
+          "task_phase": "target",
+          "target_forward_velocity": 1.2,
+          "records_reward_kwargs": false
+        },
+        {
+          "file": "sac_actor_6000000.pt",
+          "step": 6000000,
+          "written": "2026-05-17T20:34:58",
+          "actor_obs_width": 49,
+          "env_version": "standup_balance_walk_curriculum_v4",
+          "task_phase": "target",
+          "target_forward_velocity": 1.2,
+          "records_reward_kwargs": false
+        },
+        {
+          "file": "sac_ckpt_6000000.pt",
+          "step": 6000000,
+          "written": "2026-05-17T20:34:58",
+          "actor_obs_width": 49,
+          "env_version": "standup_balance_walk_curriculum_v4",
+          "task_phase": "target",
+          "target_forward_velocity": 1.2,
+          "records_reward_kwargs": false
+        },
+        {
+          "file": "sac_actor_7000000.pt",
+          "step": 7000000,
+          "written": "2026-05-17T20:48:59",
+          "actor_obs_width": 49,
+          "env_version": "standup_balance_walk_curriculum_v4",
+          "task_phase": "target",
+          "target_forward_velocity": 1.2,
+          "records_reward_kwargs": false
+        },
+        {
+          "file": "sac_ckpt_7000000.pt",
+          "step": 7000000,
+          "written": "2026-05-17T20:48:59",
+          "actor_obs_width": 49,
+          "env_version": "standup_balance_walk_curriculum_v4",
+          "task_phase": "target",
+          "target_forward_velocity": 1.2,
+          "records_reward_kwargs": false
+        },
+        {
+          "file": "sac_actor_8000000.pt",
+          "step": 8000000,
+          "written": "2026-05-17T21:03:06",
+          "actor_obs_width": 49,
+          "env_version": "standup_balance_walk_curriculum_v4",
+          "task_phase": "target",
+          "target_forward_velocity": 1.2,
+          "records_reward_kwargs": false
+        },
+        {
+          "file": "sac_ckpt_8000000.pt",
+          "step": 8000000,
+          "written": "2026-05-17T21:03:06",
+          "actor_obs_width": 49,
+          "env_version": "standup_balance_walk_curriculum_v4",
+          "task_phase": "target",
+          "target_forward_velocity": 1.2,
+          "records_reward_kwargs": false
+        },
+        {
+          "file": "sac_actor_9000000.pt",
+          "step": 9000000,
+          "written": "2026-05-17T21:18:22",
+          "actor_obs_width": 49,
+          "env_version": "standup_balance_walk_curriculum_v4",
+          "task_phase": "target",
+          "target_forward_velocity": 1.2,
+          "records_reward_kwargs": false
+        },
+        {
+          "file": "sac_ckpt_9000000.pt",
+          "step": 9000000,
+          "written": "2026-05-17T21:18:22",
+          "actor_obs_width": 49,
+          "env_version": "standup_balance_walk_curriculum_v4",
+          "task_phase": "target",
+          "target_forward_velocity": 1.2,
+          "records_reward_kwargs": false
+        },
+        {
+          "file": "sac_actor_10000000.pt",
+          "step": 10000000,
+          "written": "2026-05-17T21:35:03",
+          "actor_obs_width": 49,
+          "env_version": "standup_balance_walk_curriculum_v4",
+          "task_phase": "target",
+          "target_forward_velocity": 1.2,
+          "records_reward_kwargs": false
+        },
+        {
+          "file": "sac_ckpt_10000000.pt",
+          "step": 10000000,
+          "written": "2026-05-17T21:35:03",
+          "actor_obs_width": 49,
+          "env_version": "standup_balance_walk_curriculum_v4",
+          "task_phase": "target",
+          "target_forward_velocity": 1.2,
+          "records_reward_kwargs": false
+        },
+        {
+          "file": "sac_actor_11000000.pt",
+          "step": 11000000,
+          "written": "2026-05-17T21:50:46",
+          "actor_obs_width": 49,
+          "env_version": "standup_balance_walk_curriculum_v4",
+          "task_phase": "target",
+          "target_forward_velocity": 1.2,
+          "records_reward_kwargs": false
+        },
+        {
+          "file": "sac_ckpt_11000000.pt",
+          "step": 11000000,
+          "written": "2026-05-17T21:50:46",
+          "actor_obs_width": 49,
+          "env_version": "standup_balance_walk_curriculum_v4",
+          "task_phase": "target",
+          "target_forward_velocity": 1.2,
+          "records_reward_kwargs": false
+        },
+        {
+          "file": "sac_actor_12000000.pt",
+          "step": 12000000,
+          "written": "2026-05-17T22:06:06",
+          "actor_obs_width": 49,
+          "env_version": "standup_balance_walk_curriculum_v4",
+          "task_phase": "target",
+          "target_forward_velocity": 1.2,
+          "records_reward_kwargs": false
+        },
+        {
+          "file": "sac_ckpt_12000000.pt",
+          "step": 12000000,
+          "written": "2026-05-17T22:06:06",
+          "actor_obs_width": 49,
+          "env_version": "standup_balance_walk_curriculum_v4",
+          "task_phase": "target",
+          "target_forward_velocity": 1.2,
+          "records_reward_kwargs": false
+        },
+        {
+          "file": "sac_actor_13000000.pt",
+          "step": 13000000,
+          "written": "2026-05-17T22:20:47",
+          "actor_obs_width": 49,
+          "env_version": "standup_balance_walk_curriculum_v4",
+          "task_phase": "target",
+          "target_forward_velocity": 1.2,
+          "records_reward_kwargs": false
+        },
+        {
+          "file": "sac_ckpt_13000000.pt",
+          "step": 13000000,
+          "written": "2026-05-17T22:20:47",
+          "actor_obs_width": 49,
+          "env_version": "standup_balance_walk_curriculum_v4",
+          "task_phase": "target",
+          "target_forward_velocity": 1.2,
+          "records_reward_kwargs": false
+        },
+        {
+          "file": "sac_actor_13629184.pt",
+          "step": 13629184,
+          "written": "2026-05-17T22:29:58",
+          "actor_obs_width": 49,
+          "env_version": "standup_balance_walk_curriculum_v4",
+          "task_phase": "target",
+          "target_forward_velocity": 1.2,
+          "records_reward_kwargs": false
+        },
+        {
+          "file": "sac_ckpt_13629184.pt",
+          "step": 13629184,
+          "written": "2026-05-17T22:29:58",
+          "actor_obs_width": 49,
+          "env_version": "standup_balance_walk_curriculum_v4",
+          "task_phase": "target",
+          "target_forward_velocity": 1.2,
+          "records_reward_kwargs": false
+        },
+        {
+          "file": "sac_actor_14000000.pt",
+          "step": 14000000,
+          "written": "2026-05-18T11:32:58",
+          "actor_obs_width": 49,
+          "env_version": "standup_balance_walk_curriculum_v4",
+          "task_phase": "target",
+          "target_forward_velocity": 10.0,
+          "records_reward_kwargs": false
+        },
+        {
+          "file": "sac_ckpt_14000000.pt",
+          "step": 14000000,
+          "written": "2026-05-18T11:32:58",
+          "actor_obs_width": 49,
+          "env_version": "standup_balance_walk_curriculum_v4",
+          "task_phase": "target",
+          "target_forward_velocity": 10.0,
+          "records_reward_kwargs": false
+        },
+        {
+          "file": "sac_actor_15000000.pt",
+          "step": 15000000,
+          "written": "2026-05-18T11:47:04",
+          "actor_obs_width": 49,
+          "env_version": "standup_balance_walk_curriculum_v4",
+          "task_phase": "target",
+          "target_forward_velocity": 10.0,
+          "records_reward_kwargs": false
+        },
+        {
+          "file": "sac_ckpt_15000000.pt",
+          "step": 15000000,
+          "written": "2026-05-18T11:47:04",
+          "actor_obs_width": 49,
+          "env_version": "standup_balance_walk_curriculum_v4",
+          "task_phase": "target",
+          "target_forward_velocity": 10.0,
+          "records_reward_kwargs": false
+        },
+        {
+          "file": "sac_actor_16000000.pt",
+          "step": 16000000,
+          "written": "2026-05-18T12:00:43",
+          "actor_obs_width": 49,
+          "env_version": "standup_balance_walk_curriculum_v4",
+          "task_phase": "target",
+          "target_forward_velocity": 10.0,
+          "records_reward_kwargs": false
+        },
+        {
+          "file": "sac_ckpt_16000000.pt",
+          "step": 16000000,
+          "written": "2026-05-18T12:00:43",
+          "actor_obs_width": 49,
+          "env_version": "standup_balance_walk_curriculum_v4",
+          "task_phase": "target",
+          "target_forward_velocity": 10.0,
+          "records_reward_kwargs": false
+        },
+        {
+          "file": "sac_actor_17000000.pt",
+          "step": 17000000,
+          "written": "2026-05-18T12:14:52",
+          "actor_obs_width": 49,
+          "env_version": "standup_balance_walk_curriculum_v4",
+          "task_phase": "target",
+          "target_forward_velocity": 10.0,
+          "records_reward_kwargs": false
+        },
+        {
+          "file": "sac_ckpt_17000000.pt",
+          "step": 17000000,
+          "written": "2026-05-18T12:14:52",
+          "actor_obs_width": 49,
+          "env_version": "standup_balance_walk_curriculum_v4",
+          "task_phase": "target",
+          "target_forward_velocity": 10.0,
+          "records_reward_kwargs": false
+        },
+        {
+          "file": "sac_actor_18000000.pt",
+          "step": 18000000,
+          "written": "2026-05-18T12:29:53",
+          "actor_obs_width": 49,
+          "env_version": "standup_balance_walk_curriculum_v4",
+          "task_phase": "target",
+          "target_forward_velocity": 10.0,
+          "records_reward_kwargs": false
+        },
+        {
+          "file": "sac_ckpt_18000000.pt",
+          "step": 18000000,
+          "written": "2026-05-18T12:29:53",
+          "actor_obs_width": 49,
+          "env_version": "standup_balance_walk_curriculum_v4",
+          "task_phase": "target",
+          "target_forward_velocity": 10.0,
+          "records_reward_kwargs": false
+        },
+        {
+          "file": "sac_actor_19000000.pt",
+          "step": 19000000,
+          "written": "2026-05-18T13:51:35",
+          "actor_obs_width": 49,
+          "env_version": "standup_balance_walk_curriculum_v4",
+          "task_phase": "target",
+          "target_forward_velocity": 10.0,
+          "records_reward_kwargs": false
+        },
+        {
+          "file": "sac_ckpt_19000000.pt",
+          "step": 19000000,
+          "written": "2026-05-18T13:51:35",
+          "actor_obs_width": 49,
+          "env_version": "standup_balance_walk_curriculum_v4",
+          "task_phase": "target",
+          "target_forward_velocity": 10.0,
+          "records_reward_kwargs": false
+        },
+        {
+          "file": "sac_actor_20000000.pt",
+          "step": 20000000,
+          "written": "2026-05-18T14:05:30",
+          "actor_obs_width": 49,
+          "env_version": "standup_balance_walk_curriculum_v4",
+          "task_phase": "target",
+          "target_forward_velocity": 10.0,
+          "records_reward_kwargs": false
+        },
+        {
+          "file": "sac_ckpt_20000000.pt",
+          "step": 20000000,
+          "written": "2026-05-18T14:05:30",
+          "actor_obs_width": 49,
+          "env_version": "standup_balance_walk_curriculum_v4",
+          "task_phase": "target",
+          "target_forward_velocity": 10.0,
+          "records_reward_kwargs": false
+        },
+        {
+          "file": "sac_actor_21000000.pt",
+          "step": 21000000,
+          "written": "2026-05-18T14:19:24",
+          "actor_obs_width": 49,
+          "env_version": "standup_balance_walk_curriculum_v4",
+          "task_phase": "target",
+          "target_forward_velocity": 10.0,
+          "records_reward_kwargs": false
+        },
+        {
+          "file": "sac_ckpt_21000000.pt",
+          "step": 21000000,
+          "written": "2026-05-18T14:19:24",
+          "actor_obs_width": 49,
+          "env_version": "standup_balance_walk_curriculum_v4",
+          "task_phase": "target",
+          "target_forward_velocity": 10.0,
+          "records_reward_kwargs": false
+        },
+        {
+          "file": "sac_actor_22000000.pt",
+          "step": 22000000,
+          "written": "2026-05-18T14:33:18",
+          "actor_obs_width": 49,
+          "env_version": "standup_balance_walk_curriculum_v4",
+          "task_phase": "target",
+          "target_forward_velocity": 10.0,
+          "records_reward_kwargs": false
+        },
+        {
+          "file": "sac_ckpt_22000000.pt",
+          "step": 22000000,
+          "written": "2026-05-18T14:33:18",
+          "actor_obs_width": 49,
+          "env_version": "standup_balance_walk_curriculum_v4",
+          "task_phase": "target",
+          "target_forward_velocity": 10.0,
+          "records_reward_kwargs": false
+        },
+        {
+          "file": "sac_actor_23000000.pt",
+          "step": 23000000,
+          "written": "2026-05-18T14:47:16",
+          "actor_obs_width": 49,
+          "env_version": "standup_balance_walk_curriculum_v4",
+          "task_phase": "target",
+          "target_forward_velocity": 10.0,
+          "records_reward_kwargs": false
+        },
+        {
+          "file": "sac_ckpt_23000000.pt",
+          "step": 23000000,
+          "written": "2026-05-18T14:47:16",
+          "actor_obs_width": 49,
+          "env_version": "standup_balance_walk_curriculum_v4",
+          "task_phase": "target",
+          "target_forward_velocity": 10.0,
+          "records_reward_kwargs": false
+        },
+        {
+          "file": "sac_actor_24000000.pt",
+          "step": 24000000,
+          "written": "2026-05-18T15:01:12",
+          "actor_obs_width": 49,
+          "env_version": "standup_balance_walk_curriculum_v4",
+          "task_phase": "target",
+          "target_forward_velocity": 10.0,
+          "records_reward_kwargs": false
+        },
+        {
+          "file": "sac_ckpt_24000000.pt",
+          "step": 24000000,
+          "written": "2026-05-18T15:01:12",
+          "actor_obs_width": 49,
+          "env_version": "standup_balance_walk_curriculum_v4",
+          "task_phase": "target",
+          "target_forward_velocity": 10.0,
+          "records_reward_kwargs": false
+        },
+        {
+          "file": "sac_actor_25000000.pt",
+          "step": 25000000,
+          "written": "2026-05-18T15:15:10",
+          "actor_obs_width": 49,
+          "env_version": "standup_balance_walk_curriculum_v4",
+          "task_phase": "target",
+          "target_forward_velocity": 10.0,
+          "records_reward_kwargs": false
+        },
+        {
+          "file": "sac_ckpt_25000000.pt",
+          "step": 25000000,
+          "written": "2026-05-18T15:15:10",
+          "actor_obs_width": 49,
+          "env_version": "standup_balance_walk_curriculum_v4",
+          "task_phase": "target",
+          "target_forward_velocity": 10.0,
+          "records_reward_kwargs": false
+        },
+        {
+          "file": "sac_actor_26000000.pt",
+          "step": 26000000,
+          "written": "2026-05-18T15:29:12",
+          "actor_obs_width": 49,
+          "env_version": "standup_balance_walk_curriculum_v4",
+          "task_phase": "target",
+          "target_forward_velocity": 10.0,
+          "records_reward_kwargs": false
+        },
+        {
+          "file": "sac_ckpt_26000000.pt",
+          "step": 26000000,
+          "written": "2026-05-18T15:29:12",
+          "actor_obs_width": 49,
+          "env_version": "standup_balance_walk_curriculum_v4",
+          "task_phase": "target",
+          "target_forward_velocity": 10.0,
+          "records_reward_kwargs": false
+        },
+        {
+          "file": "sac_actor_27000000.pt",
+          "step": 27000000,
+          "written": "2026-05-18T15:43:19",
+          "actor_obs_width": 49,
+          "env_version": "standup_balance_walk_curriculum_v4",
+          "task_phase": "target",
+          "target_forward_velocity": 10.0,
+          "records_reward_kwargs": false
+        },
+        {
+          "file": "sac_ckpt_27000000.pt",
+          "step": 27000000,
+          "written": "2026-05-18T15:43:19",
+          "actor_obs_width": 49,
+          "env_version": "standup_balance_walk_curriculum_v4",
+          "task_phase": "target",
+          "target_forward_velocity": 10.0,
+          "records_reward_kwargs": false
+        },
+        {
+          "file": "sac_actor_28000000.pt",
+          "step": 28000000,
+          "written": "2026-05-18T15:57:24",
+          "actor_obs_width": 49,
+          "env_version": "standup_balance_walk_curriculum_v4",
+          "task_phase": "target",
+          "target_forward_velocity": 10.0,
+          "records_reward_kwargs": false
+        },
+        {
+          "file": "sac_ckpt_28000000.pt",
+          "step": 28000000,
+          "written": "2026-05-18T15:57:24",
+          "actor_obs_width": 49,
+          "env_version": "standup_balance_walk_curriculum_v4",
+          "task_phase": "target",
+          "target_forward_velocity": 10.0,
+          "records_reward_kwargs": false
+        },
+        {
+          "file": "sac_actor_29000000.pt",
+          "step": 29000000,
+          "written": "2026-05-18T16:11:34",
+          "actor_obs_width": 49,
+          "env_version": "standup_balance_walk_curriculum_v4",
+          "task_phase": "target",
+          "target_forward_velocity": 10.0,
+          "records_reward_kwargs": false
+        },
+        {
+          "file": "sac_ckpt_29000000.pt",
+          "step": 29000000,
+          "written": "2026-05-18T16:11:34",
+          "actor_obs_width": 49,
+          "env_version": "standup_balance_walk_curriculum_v4",
+          "task_phase": "target",
+          "target_forward_velocity": 10.0,
+          "records_reward_kwargs": false
+        },
+        {
+          "file": "sac_actor_30000000.pt",
+          "step": 30000000,
+          "written": "2026-05-18T16:25:56",
+          "actor_obs_width": 49,
+          "env_version": "standup_balance_walk_curriculum_v4",
+          "task_phase": "target",
+          "target_forward_velocity": 10.0,
+          "records_reward_kwargs": false
+        },
+        {
+          "file": "sac_ckpt_30000000.pt",
+          "step": 30000000,
+          "written": "2026-05-18T16:25:56",
+          "actor_obs_width": 49,
+          "env_version": "standup_balance_walk_curriculum_v4",
+          "task_phase": "target",
+          "target_forward_velocity": 10.0,
+          "records_reward_kwargs": false
+        },
+        {
+          "file": "sac_actor_31000000.pt",
+          "step": 31000000,
+          "written": "2026-05-18T16:40:09",
+          "actor_obs_width": 49,
+          "env_version": "standup_balance_walk_curriculum_v4",
+          "task_phase": "target",
+          "target_forward_velocity": 10.0,
+          "records_reward_kwargs": false
+        },
+        {
+          "file": "sac_ckpt_31000000.pt",
+          "step": 31000000,
+          "written": "2026-05-18T16:40:09",
+          "actor_obs_width": 49,
+          "env_version": "standup_balance_walk_curriculum_v4",
+          "task_phase": "target",
+          "target_forward_velocity": 10.0,
+          "records_reward_kwargs": false
+        },
+        {
+          "file": "sac_actor_32000000.pt",
+          "step": 32000000,
+          "written": "2026-05-18T16:54:16",
+          "actor_obs_width": 49,
+          "env_version": "standup_balance_walk_curriculum_v4",
+          "task_phase": "target",
+          "target_forward_velocity": 10.0,
+          "records_reward_kwargs": false
+        },
+        {
+          "file": "sac_ckpt_32000000.pt",
+          "step": 32000000,
+          "written": "2026-05-18T16:54:16",
+          "actor_obs_width": 49,
+          "env_version": "standup_balance_walk_curriculum_v4",
+          "task_phase": "target",
+          "target_forward_velocity": 10.0,
+          "records_reward_kwargs": false
+        },
+        {
+          "file": "sac_actor_33000000.pt",
+          "step": 33000000,
+          "written": "2026-05-18T17:08:26",
+          "actor_obs_width": 49,
+          "env_version": "standup_balance_walk_curriculum_v4",
+          "task_phase": "target",
+          "target_forward_velocity": 10.0,
+          "records_reward_kwargs": false
+        },
+        {
+          "file": "sac_ckpt_33000000.pt",
+          "step": 33000000,
+          "written": "2026-05-18T17:08:26",
+          "actor_obs_width": 49,
+          "env_version": "standup_balance_walk_curriculum_v4",
+          "task_phase": "target",
+          "target_forward_velocity": 10.0,
+          "records_reward_kwargs": false
+        },
+        {
+          "file": "sac_actor_34000000.pt",
+          "step": 34000000,
+          "written": "2026-05-18T17:24:10",
+          "actor_obs_width": 49,
+          "env_version": "standup_balance_walk_curriculum_v4",
+          "task_phase": "target",
+          "target_forward_velocity": 10.0,
+          "records_reward_kwargs": false
+        },
+        {
+          "file": "sac_ckpt_34000000.pt",
+          "step": 34000000,
+          "written": "2026-05-18T17:24:10",
+          "actor_obs_width": 49,
+          "env_version": "standup_balance_walk_curriculum_v4",
+          "task_phase": "target",
+          "target_forward_velocity": 10.0,
+          "records_reward_kwargs": false
+        },
+        {
+          "file": "sac_actor_35000000.pt",
+          "step": 35000000,
+          "written": "2026-05-18T17:40:17",
+          "actor_obs_width": 49,
+          "env_version": "standup_balance_walk_curriculum_v4",
+          "task_phase": "target",
+          "target_forward_velocity": 10.0,
+          "records_reward_kwargs": false
+        },
+        {
+          "file": "sac_ckpt_35000000.pt",
+          "step": 35000000,
+          "written": "2026-05-18T17:40:17",
+          "actor_obs_width": 49,
+          "env_version": "standup_balance_walk_curriculum_v4",
+          "task_phase": "target",
+          "target_forward_velocity": 10.0,
+          "records_reward_kwargs": false
+        },
+        {
+          "file": "sac_actor_36000000.pt",
+          "step": 36000000,
+          "written": "2026-05-18T17:56:23",
+          "actor_obs_width": 49,
+          "env_version": "standup_balance_walk_curriculum_v4",
+          "task_phase": "target",
+          "target_forward_velocity": 10.0,
+          "records_reward_kwargs": false
+        },
+        {
+          "file": "sac_ckpt_36000000.pt",
+          "step": 36000000,
+          "written": "2026-05-18T17:56:23",
+          "actor_obs_width": 49,
+          "env_version": "standup_balance_walk_curriculum_v4",
+          "task_phase": "target",
+          "target_forward_velocity": 10.0,
+          "records_reward_kwargs": false
+        },
+        {
+          "file": "sac_actor_37000000.pt",
+          "step": 37000000,
+          "written": "2026-05-18T18:12:24",
+          "actor_obs_width": 49,
+          "env_version": "standup_balance_walk_curriculum_v4",
+          "task_phase": "target",
+          "target_forward_velocity": 10.0,
+          "records_reward_kwargs": false
+        },
+        {
+          "file": "sac_ckpt_37000000.pt",
+          "step": 37000000,
+          "written": "2026-05-18T18:12:24",
+          "actor_obs_width": 49,
+          "env_version": "standup_balance_walk_curriculum_v4",
+          "task_phase": "target",
+          "target_forward_velocity": 10.0,
+          "records_reward_kwargs": false
+        },
+        {
+          "file": "sac_actor_38000000.pt",
+          "step": 38000000,
+          "written": "2026-05-18T18:28:30",
+          "actor_obs_width": 49,
+          "env_version": "standup_balance_walk_curriculum_v4",
+          "task_phase": "target",
+          "target_forward_velocity": 10.0,
+          "records_reward_kwargs": false
+        },
+        {
+          "file": "sac_ckpt_38000000.pt",
+          "step": 38000000,
+          "written": "2026-05-18T18:28:30",
+          "actor_obs_width": 49,
+          "env_version": "standup_balance_walk_curriculum_v4",
+          "task_phase": "target",
+          "target_forward_velocity": 10.0,
+          "records_reward_kwargs": false
+        },
+        {
+          "file": "sac_actor_39000000.pt",
+          "step": 39000000,
+          "written": "2026-05-18T18:44:35",
+          "actor_obs_width": 49,
+          "env_version": "standup_balance_walk_curriculum_v4",
+          "task_phase": "target",
+          "target_forward_velocity": 10.0,
+          "records_reward_kwargs": false
+        },
+        {
+          "file": "sac_ckpt_39000000.pt",
+          "step": 39000000,
+          "written": "2026-05-18T18:44:35",
+          "actor_obs_width": 49,
+          "env_version": "standup_balance_walk_curriculum_v4",
+          "task_phase": "target",
+          "target_forward_velocity": 10.0,
+          "records_reward_kwargs": false
+        },
+        {
+          "file": "sac_actor_40000000.pt",
+          "step": 40000000,
+          "written": "2026-05-18T19:00:39",
+          "actor_obs_width": 49,
+          "env_version": "standup_balance_walk_curriculum_v4",
+          "task_phase": "target",
+          "target_forward_velocity": 10.0,
+          "records_reward_kwargs": false
+        },
+        {
+          "file": "sac_ckpt_40000000.pt",
+          "step": 40000000,
+          "written": "2026-05-18T19:00:39",
+          "actor_obs_width": 49,
+          "env_version": "standup_balance_walk_curriculum_v4",
+          "task_phase": "target",
+          "target_forward_velocity": 10.0,
+          "records_reward_kwargs": false
+        }
+      ],
+      "distinct_steps": 41,
+      "first_step": 1000000,
+      "last_step": 40000000,
+      "first_written": "2026-05-17T19:28:42",
+      "last_written": "2026-05-18T19:00:39",
+      "actor_obs_width": 49,
+      "env_version": "standup_balance_walk_curriculum_v4",
+      "task_phase": "target",
+      "target_forward_velocity_switches": [
+        {
+          "from_step": 13629184,
+          "to_step": 14000000,
+          "from_velocity": 1.2,
+          "to_velocity": 10.0,
+          "from_written": "2026-05-17T22:29:58",
+          "to_written": "2026-05-18T11:32:58"
+        }
+      ]
+    }
+  ],
+  "order": {
+    "first": "walker_recovery_v1",
+    "second": "walker_target_v1",
+    "gap_days": 6.4,
+    "widths": {
+      "walker_recovery_v1": 46,
+      "walker_target_v1": 49
+    },
+    "env_versions": {
+      "walker_recovery_v1": "standup_recovery_resets_v3",
+      "walker_target_v1": "standup_balance_walk_curriculum_v4"
+    }
+  }
+}

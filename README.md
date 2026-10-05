@@ -67,8 +67,16 @@ was 0.31 m. Re-running the identical protocol against the v4 environment those c
 actually trained in (`python eval_phase1.py --env-commit 8d37846 ...`, written to
 `benchmarks/target_learning_curve_envv4.json`, 80 episodes) gives 0/80
 inside the radius and +0.006 m/s at 40M - so this is not an artefact of the env having changed
-under them, and it is not "not enough steps": the curve is flat from 1M to 40M. `walker_recovery_v1`
-was fine-tuned from this same base policy, which is the honest context for the Phase-3 result
+under them. **Is a million steps enough to walk to the target? No - and no budget measured in this
+repository is, under this reward.** Forty times more training on that same run did not produce
+walking: the curve is flat from 1M to 40M. And the two Phase-1 runs that did reach 1M on env v9 say
+it from the other direction - Dreamer 0 of 50 inside the radius at +0.0055 m/s, ARS 0 of 20 at
+-0.0216 m/s - while the task needs 0.2-0.5 m/s held for 250-625 of an episode's 1000 steps. Nothing
+measured here is within an order of magnitude of that floor, so the missing thing is not steps.
+`walker_recovery_v1` came *first*, 6.4 days before this run and 46-wide against its 49 - it is the
+policy the target run continued from, with the widening being the `--init-from-run-id` step (see
+"the curriculum here is manual" below for the dates and for what they prove and do not) - which is
+the honest context for the Phase-3 result
 that the recovery task vector dominates the merges.
 
 The scorer used to be a different reward from the one the agent optimised. That is now fixed, and
@@ -351,15 +359,36 @@ actor, zero-filling the three new input columns (`load_state_dict_with_expanded_
 it is not one run, and the difference is that the replay buffer and the normalizer statistics do not
 survive the switch.
 
-The in-environment curriculum that would let a single run get progressively harder is present in the
-constructor and dead: `target_curriculum_streak` is accepted and forwarded to `EzPickle` for
-re-pickling but no attribute of the env ever reads it, `target_success_streak` is hard-coded to 0 in
-the step info dict, and `_target_fixed_until_curriculum` is assigned once in `__init__` and never read
+The in-environment curriculum that would let a single run get progressively harder is the part that
+is unused: `target_curriculum_streak` is accepted and forwarded to `EzPickle` for re-pickling but no
+attribute of the env ever reads it, `target_success_streak` is hard-coded to 0 in the step info dict,
+and `_target_fixed_until_curriculum` is assigned once in `__init__` and never read
 again. The only adaptivity that actually runs is target resampling - 2-5 m away, within ±0.15 rad, on
-every reset and on every success, with `_curriculum_level` counting the successes. Whether to finish
-that machinery or delete it is an open question;
-what is not open is that it is not what separates the policies above, since none of them reached the
-radius often enough for a target curriculum to engage.
+every reset and on every success, with `_curriculum_level` counting the successes.
+
+**That is not the same as the curriculum being absent: in this project it is manual, and the
+pre-existing policies are its product.** The checkpoints say so, and this paragraph was written after
+the claim above was corrected by the person who ran it. `walker_recovery_v1` holds 2 checkpoints of a
+**46-wide** policy stamped `env_version = standup_recovery_resets_v3`, written 2026-05-11 09:55 (1M
+steps) and 2026-05-12 18:11 (20M). `walker_target_v1` holds 41 step positions of a **49-wide**
+policy stamped `standup_balance_walk_curriculum_v4` with `task_phase=target`, 2026-05-17 19:28 (1M)
+through 2026-05-18 19:00 (40M). So recovery precedes target by 6.4 days, and the widening is exactly
+the 46->49 step that `--init-from-run-id` exists to carry across:
+`load_state_dict_with_expanded_input` copies the overlapping columns and zero-fills the three new
+ones, and `adapt_obs_rms` pads the normalizer statistics. The staging is not only across runs either -
+inside `walker_target_v1` the nominal walking speed recorded in the checkpoints is **1.2 m/s at the
+13,629,184-step file (2026-05-17 22:29:58) and 10.0 m/s at 14,000,000 (2026-05-18 11:32:58)**: a
+night's gap, then a restart with a different task parameter. A phase, in this project, is something a
+person changes between runs or at a restart; nothing in the environment promotes it by itself.
+`python summarize_curriculum_provenance.py` rebuilds all of it, from the checkpoint metadata alone,
+into `benchmarks/curriculum_provenance.json`.
+
+What the dates do and do not establish is worth stating precisely. They establish order: the recovery
+files are 6.4 days older and 46-wide against 49, so they cannot have been fine-tuned from weights that
+did not exist yet. They do not establish that target was initialized *from* recovery - that would need
+a weight-level comparison the metadata cannot give. And they contradict the two-step story this README
+used to tell in Phase 3 ("first we pre-trained `walker_target_v1`... then `walker_recovery_v1` was
+fine-tuned from it"), which is the sequence reversed; Phase 3 now points here.
 
 
 The scale of that table matters: REDQ and Dreamer wrap the environment in `NormalizeReward`,
@@ -427,18 +456,24 @@ How do we combine a "Walking Policy" with a "Fall Recovery Policy" without catas
 
 **The Transfer Learning Curriculum (Linear Mode Connectivity):**
 To merge two different neural networks, they must share the same *Linear Mode Connectivity Basin*. If two networks are trained from different random initializations, averaging their weights produces garbage. 
-1. First, we pre-trained a base agent intended to walk (`walker_target_v1` - 40M steps).
-   *"Intended"*, not "walking perfectly": measured over 200 seeded target-phase episodes across
-   its 1M-40M checkpoints it enters the 0.45 m success radius twice, with a median forward speed
-   of ~0.00 m/s (see the Phase-1 section). Everything below still holds as stated - the merging
-   experiments compare two policies that share an initialisation - but the "walking policy" leg
-   of the story is a standing/half-fallen policy, which is what the Phase-3 numbers show when
-   they rank the recovery vector above the walking one.
-2. Then, we performed **Transfer Learning**: we duplicated these pre-trained weights and spawned a new training environment focused *exclusively* on recovering from extreme falls (`walker_recovery_v1` - 20M steps).
-3. Because the recovery agent was fine-tuned from the walking agent, they share the same geometric parameter space, allowing us to perform algebraic operations on their matrices.
+1. First came a base agent trained to get up: `walker_recovery_v1`, 20M steps, its checkpoints
+   written 2026-05-11 and 05-12, its actor **46 wide** and stamped `env_version` v3-era.
+2. Then came `walker_target_v1` - 40M steps, checkpoints 2026-05-17 and 05-18, actor **49 wide**,
+   v4-era - trained toward the target phase, and reaching the 0.45 m radius twice in 200 seeded
+   episodes at a median forward speed of ~0.00 m/s (see the Phase-1 section for that measurement,
+   and "the curriculum here is manual" in the same section for the ordering and what the timestamps
+   do and do not prove). This README used to say the two steps in the opposite order - that the
+   walking agent was pre-trained first and recovery was fine-tuned from it - which the file dates
+   contradict; the arithmetic below is what was actually computed, and the benchmark numbers are
+   unaffected by the correction to the prose.
+3. Because the two policies share an initialisation and a geometric parameter space, algebraic
+   operations on their matrices are meaningful.
 
 **Merging Techniques Evaluated:**
-- **Task Arithmetic (`merge_models.py`):** Subtracts the base walking weights from the fine-tuned recovery weights to isolate a pure "Recovery Task Vector" ($\tau = \theta_{rec} - \theta_{walk}$). This vector is then added algebraically to any policy.
+- **Task Arithmetic (`merge_models.py`):** Subtracts the target-phase weights from the recovery
+  weights to isolate a task vector ($\tau = \theta_{rec} - \theta_{walk}$, in that order - note that
+  on the corrected chronology this is the *negative* of the base-to-derived displacement), then adds
+  it to a policy.
 - **Weight Averaging (`merge_models.py`):** Directly interpolates the parameter matrices of the two policies ($\theta_{avg} = 0.5 \cdot \theta_{rec} + 0.5 \cdot \theta_{walk}$).
 - **Mixture of Experts / MoE Gate (`train_moe_gate.py`):** A routing network (`moe_gate.pt`) trained to dynamically switch the robot's control between the Walking Policy and the Recovery Policy based on its current pitch/velocity (e.g., if it detects a fall, it activates the recovery expert).
 - **Evaluation (`evaluate_merging.py` & `play.py`):** Scripts to visually inspect how well the merged/MoE models transition between walking and standing up.
@@ -1622,11 +1657,12 @@ Three facts to keep in mind:
 
 The suite is plain `unittest` (no pytest required) and covers the environment contract, the
 golden reward rollouts, the parallel/serial vector-env parity, checkpointing and the race
-harness — **205 tests, 169 s in this window** (`Ran 205 tests in 168.986s ... OK
+harness — **210 tests, 167 s in this window** (`Ran 210 tests in 166.606s ... OK
 (skipped=7)` under `.venv`). Windows of this suite have measured 176.3 s at 102 tests, 269.995 s
 at 121, 261.1 s at 127, 329.964 s at 128, 319.168 s at 130, 184.716 s, 203.108 s and 306.976 s at
 140, 144.678 s at 147, 230.268 s at 157, 171.016 s and 170.304 s at 194, and 174.008 s,
-170.391 s, 175.036 s, 168.775 s and 168.986 s at 201/205 - consecutive runs of one commit agree to 4%, where the
+170.391 s, 175.036 s, 168.775 s and 168.986 s at 201/205 and 166.606 s at 210 - consecutive
+runs of one commit agree to 4%, where the
 147 and 157 windows an afternoon earlier were 1.6x apart for ten more tests. The
 duration belongs to the machine's state, the
 count does not, and a gate checks the count so it cannot go stale quietly):
@@ -1682,7 +1718,7 @@ that they ran - see Phase 4, item 6. How each of those states was found, with th
 ## 🔬 Reproducing and measuring
 
 ```bash
-python -m unittest discover -s tests -t .   # 205 tests in .venv, 169 s; see "Running the tests"
+python -m unittest discover -s tests -t .   # 210 tests in .venv, 167 s; see "Running the tests"
 python bench_env.py --seconds 4             # env throughput, physics vs Python split
 python bench_mjx.py --sizes 32,128          # MJX/JAX batched stepping
 python verify.py                            # Phase-2 artifact check (exits 2 when missing)
@@ -1695,6 +1731,7 @@ python bench_dreamer_update.py --mode amortize  # rate and gradient steps per --
 python bench_posture.py --episodes 50           # does it stand? torso height per step, not the return
 python bench_posture.py --compare-devices       # the same rows on cuda and cpu, and what moves
 python summarize_training_rate.py               # every run's real rate, from its own logged timestamps
+python summarize_curriculum_provenance.py       # the manual curriculum's order, widths and stage change
 python -m utils.gpu_window                    # the GPU window a long run would start into
 python bench_jax_update.py                    # JAX imagination rollout, fwd + fwd/rev (needs a
                                               # CUDA jaxlib: WSL2, see the MJX section)

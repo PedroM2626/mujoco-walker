@@ -2487,8 +2487,10 @@ class TestReadmeUnifiedPhaseCells(unittest.TestCase):
                          [round(100 * fixed), round(100 * upright),
                           round(100 * (1.0 - fixed - upright))])
 
-    def test_the_in_env_curriculum_is_still_dead(self):
-        """If someone finishes these hooks, this test fails and the paragraph gets rewritten."""
+    def test_the_automatic_curriculum_hooks_are_still_unused(self):
+        """The automatic in-env promotion is unused; the *curriculum* is not - it is run
+        manually across restarts, and `TestReadmeCurriculumProvenanceCells` gates that. If
+        someone finishes these hooks, this test fails and both paragraphs get rewritten."""
         import gymnasium as gym
         import envs.walker_ragdoll_env  # noqa: F401
         env = gym.make("WalkerRagdoll-v0", task_phase="target", reset_mode="mixed",
@@ -2535,6 +2537,122 @@ class TestReadmeUnifiedPhaseCells(unittest.TestCase):
         self.assertAlmostEqual(float(m.group(1)), posture["sac_40m"]["mean_pct_steps_in_band"],
                                places=2)
 
+
+
+class TestReadmeCurriculumProvenanceCells(ReadmeGate, unittest.TestCase):
+    """The manual phase curriculum, gated against `benchmarks/curriculum_provenance.json`.
+
+    The claim being protected is a factual one the README had backwards: that recovery was fine-tuned
+    from the walking policy. The checkpoint metadata says the opposite, and the weights themselves are
+    gitignored, so the *metadata* had to be committed for the correction to be checkable rather than
+    remembered. Every date, width and step count quoted in the paragraph is read from the artifact here.
+    """
+
+    PROV = os.path.join(ROOT, "benchmarks", "curriculum_provenance.json")
+    START = "**That is not the same as the curriculum being absent"
+    END = "The scale of that table matters"
+
+    def setUp(self):
+        if not os.path.exists(self.PROV):
+            self.skipTest("benchmarks/curriculum_provenance.json has not been generated")
+        with open(self.PROV, encoding="utf-8") as handle:
+            self.art = json.load(handle)
+        self.runs = {r["run_id"]: r for r in self.art["runs"]}
+        with open(README, encoding="utf-8") as handle:
+            readme = handle.read()
+        start = readme.index(self.START)
+        self.block = re.sub(r"\s+", " ", readme[start:readme.index(self.END, start)])
+        self.flat = self.block
+        self.what = "curriculum provenance"
+        self.bad = []
+
+    def test_the_order_and_the_gap_are_the_artifact_s(self):
+        order = self.art["order"]
+        self.assertEqual([order["first"], order["second"]],
+                         ["walker_recovery_v1", "walker_target_v1"])
+        m = self.sentence(r"So recovery precedes target by ([\d.]+) days", "the ordering sentence")
+        self.check("the gap in days", m.group(1), order["gap_days"], places=1)
+        m = self.sentence(r"the recovery\s*files are ([\d.]+) days older and (\d+)-wide against (\d+)",
+                          "the restatement of the order")
+        self.check("the same gap, restated", [m.group(1), m.group(2), m.group(3)],
+                   [order["gap_days"], order["widths"]["walker_recovery_v1"],
+                    order["widths"]["walker_target_v1"]], places=1)
+
+    def test_the_two_runs_are_described_as_their_checkpoints_record_them(self):
+        rec, tgt = self.runs["walker_recovery_v1"], self.runs["walker_target_v1"]
+        m = self.sentence(r"`walker_recovery_v1` holds (\d+) checkpoints of a\s*\*\*(\d+)-wide\*\* "
+                          r"policy stamped `env_version = ([A-Za-z0-9_]+)`, written\s*"
+                          r"(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}) \((\d+)M\s*steps\) and\s*"
+                          r"(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}) \((\d+)M\)", "the recovery sentence")
+        self.check("recovery: count, width, steps",
+                   [int(m.group(1)), int(m.group(2)), m.group(6), m.group(9)],
+                   [rec["distinct_steps"], rec["actor_obs_width"],
+                    rec["first_step"] // 1_000_000, rec["last_step"] // 1_000_000], places=0)
+        self.assertEqual(m.group(3), rec["env_version"],
+                         "the env revision the prose names is not the one the checkpoint records")
+        self.assertEqual(m.group(4) + " " + m.group(5), rec["first_written"].replace("T", " ")[:16],
+                         "recovery's first checkpoint date/time is not the file's mtime")
+        self.assertEqual(m.group(7) + " " + m.group(8), rec["last_written"].replace("T", " ")[:16],
+                         "recovery's last checkpoint date/time is not the file's mtime")
+        m = self.sentence(r"`walker_target_v1` holds (\d+) step positions of a \*\*(\d+)-wide\*\*\s*"
+                          r"policy stamped `([A-Za-z0-9_]+)` with `task_phase=([a-z]+)`,\s*"
+                          r"(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}) \((\d+)M\)\s*through\s*"
+                          r"(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}) \((\d+)M\)", "the target sentence")
+        self.check("target: count, width, steps",
+                   [int(m.group(1)), int(m.group(2)), m.group(7), m.group(10)],
+                   [tgt["distinct_steps"], tgt["actor_obs_width"],
+                    tgt["first_step"] // 1_000_000, tgt["last_step"] // 1_000_000], places=0)
+        self.assertEqual([m.group(3), m.group(4)], [tgt["env_version"], tgt["task_phase"]],
+                         "the env revision or phase the prose names is not the checkpoint's")
+        self.assertEqual(m.group(5) + " " + m.group(6), tgt["first_written"].replace("T", " ")[:16])
+        self.assertEqual(m.group(8) + " " + m.group(9), tgt["last_written"].replace("T", " ")[:16])
+
+    def test_the_mid_run_stage_change_is_pinned_to_two_files(self):
+        switches = self.runs["walker_target_v1"]["target_forward_velocity_switches"]
+        self.assertEqual(len(switches), 1, "the prose describes one restart with a new speed")
+        s = switches[0]
+        m = self.sentence(r"nominal walking speed recorded in the checkpoints is \*\*([\d.]+) m/s at "
+                          r"the\s*([\d,]+)-step file \((\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}):\d{2}\) and "
+                          r"([\d.]+) m/s at\s*([\d,]+) \((\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}):\d{2}\)\*\*",
+                          "the stage-change sentence")
+        self.check("the switch: speeds and steps",
+                   [m.group(1), int(m.group(2).replace(",", "")), m.group(5),
+                    int(m.group(6).replace(",", ""))],
+                   [s["from_velocity"], s["from_step"], s["to_velocity"], s["to_step"]], places=1)
+        self.assertEqual([m.group(3), m.group(4), m.group(7), m.group(8)],
+                         [s["from_written"][:10], s["from_written"][11:16],
+                          s["to_written"][:10], s["to_written"][11:16]],
+                         "the restart's clock times are not the files' mtimes")
+        self.assertLess(s["from_velocity"], s["to_velocity"],
+                        "the prose says the speed was raised; the metadata says otherwise")
+        self.assertGreater(datetime.datetime.fromisoformat(s["to_written"])
+                           - datetime.datetime.fromisoformat(s["from_written"]),
+                           datetime.timedelta(hours=6),
+                           "the prose calls it a night's gap; the mtimes do not")
+
+    def test_the_widening_is_three_columns_and_the_zero_fill_is_in_the_code(self):
+        widths = self.art["order"]["widths"]
+        self.assertEqual(widths["walker_target_v1"] - widths["walker_recovery_v1"], 3,
+                         "the prose says three new target columns; the widths say otherwise")
+        with open(os.path.join(ROOT, "train_walker.py"), encoding="utf-8") as handle:
+            source = handle.read()
+        self.assertIn("target_value.data.zero_()", source,
+                      "load_state_dict_with_expanded_input no longer zero-fills the new columns")
+        self.sentence(r"copies the overlapping columns and zero-fills the three new\s*ones, and "
+                      r"`adapt_obs_rms` pads the\s*normalizer statistics", "the widening sentence")
+
+    def test_the_prose_does_not_claim_more_than_the_metadata_shows(self):
+        """The one sentence that must stay a hedge: order is proven, initialization is not."""
+        self.sentence(r"They do not establish that target was initialized \*from\* recovery",
+                      "the limit-of-the-evidence sentence")
+        self.assertIn("Phase 3 now points here", self.flat,
+                      "the Phase-3 correction was removed but its old ordering claim may be back")
+        with open(README, encoding="utf-8") as handle:
+            readme = handle.read()
+        start = readme.index("**The Transfer Learning Curriculum")
+        phase3 = re.sub(r"\s+", " ", readme[start:start + 2600])
+        self.assertNotIn("recovery agent was fine-tuned from the walking agent", phase3,
+                         "Phase 3 still states the reversed lineage that the checkpoint dates refute")
 
 if __name__ == "__main__":
     unittest.main()

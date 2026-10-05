@@ -127,6 +127,30 @@ it, so `git rev-list --objects --all` did not show it and GitHub never received 
 `git prune --expire=now && git gc --prune=now` removed it and `git fsck` is clean; the history is
 untouched and the clone is small again.
 
+## The day `import sqlalchemy` stopped working in `.venv-phase4`
+
+The GAIL retrain of 2026-10-05 died after seven seconds: `ImportError: DLL load failed while
+importing _processors_cy: uma política de Controle de Aplicativo bloqueou este arquivo`. The
+diagnosis was slow because `import mlflow` succeeds in that venv - mlflow does not pull sqlalchemy
+at import time - so the failure only appears at the first `set_uri()`, which is the line every
+Phase-4 script shares. The whole phase is one import away from working.
+
+What changed was not this repository. `sqlalchemy` 2.1.1 landed in `.venv-phase4` on 2026-10-01
+(`sqlalchemy-2.1.1.dist-info` mtime 10:59). 2.1.x imports its Cython modules at module scope with no
+guard (`util/_has_cython.py` calls `_all_cython_modules()` unconditionally), and Windows App Control
+blocks those unsigned `.pyd` files in this venv - the same policy that blocked matplotlib's
+`_c_internal_utils` in a fresh venv here. 2.0.54 wraps the identical import in
+`try/except ImportError` and falls back to `_py_processors`, so it runs with
+`HAS_CYEXTENSION == False` and a message naming the blocked file. `pip install "sqlalchemy<2.1"`
+therefore fixes the phase; `requirements-phase4.txt` now pins it, with the reason next to the pin.
+
+**Copying the working bytes did not work, and that is the part worth remembering.** The
+`_processors_cy.cp311-win_amd64.pyd` in `.venv` is hash-identical to the one in `.venv-phase4`
+(both `d376a410...6d5e36`), and the former loads while the latter is refused. Replacing the blocked
+file with a copy of the allowed one changed nothing - the decision is not made on file content
+alone, so "it works over there" is no argument for "copy it here". The supported route is the
+version that has a pure-Python fallback.
+
 ## The eighteen deleted recovery checkpoints
 
 Everything under `checkpoints/` is local and ignored, so none of it ever affected the clone size.

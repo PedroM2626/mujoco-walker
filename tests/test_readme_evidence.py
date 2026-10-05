@@ -2271,5 +2271,128 @@ class TestReadmeTrainingRateCells(ReadmeGate, unittest.TestCase):
                    [min(rates), max(rates)], places=0)
 
 
+class TestReadmeUnifiedPhaseCells(unittest.TestCase):
+    """The "would one run do everything?" answer, against the environment and trainer source.
+
+    The block's claim is that the target phase already *is* the unified task, and that what blocks a
+    phase changing mid-run is the observation width. Both are structural facts about the code, so
+    both are checked by constructing the thing rather than by reading a comment - including the
+    curriculum hooks the block calls dead, which are the part most likely to be finished by someone
+    who then finds this paragraph stale.
+    """
+
+    START = "**Would one run that does everything beat the phase split?"
+    END = "The scale of that table matters"
+    POSTURE = os.path.join(ROOT, "benchmarks", "phase1_posture_probe.json")
+
+    def setUp(self):
+        with open(README, encoding="utf-8") as handle:
+            readme = handle.read()
+        start = readme.index(self.START)
+        self.flat = re.sub(r"\s+", " ", readme[start:readme.index(self.END, start)])
+
+    def test_the_phase_decides_the_width_and_the_width_is_three(self):
+        import gymnasium as gym
+        import envs.walker_ragdoll_env  # noqa: F401  registers WalkerRagdoll-v0
+        shapes, envs_made = {}, []
+        for phase in ("recovery", "balance", "walk", "target"):
+            env = gym.make("WalkerRagdoll-v0", task_phase=phase)
+            envs_made.append(env)
+            shapes[phase] = env.observation_space.shape[0]
+            env.close()
+        self.assertEqual(shapes, {"recovery": 46, "balance": 46, "walk": 46, "target": 49},
+                         "the observation width per phase is not what the block states")
+        m = re.search(r"`observation_size = 49 if task_phase == \"target\" else\s*46`", self.flat)
+        self.assertIsNotNone(m, "the width expression was reworded or the code moved")
+        with open(os.path.join(ROOT, "envs", "walker_ragdoll_env.py"), encoding="utf-8") as handle:
+            self.assertIn("observation_size = 49 if task_phase == \"target\" else 46", handle.read())
+
+    def test_the_three_extra_components_are_the_target(self):
+        import numpy as np
+        import gymnasium as gym
+        import envs.walker_ragdoll_env  # noqa: F401
+        env = gym.make("WalkerRagdoll-v0", task_phase="target", reset_mode="mixed")
+        try:
+            obs, _ = env.reset(seed=11)
+            rel_x, rel_y, distance = env.unwrapped._get_target_obs()
+            np.testing.assert_allclose(np.asarray(obs)[-3:], [rel_x, rel_y, distance], rtol=0,
+                                       atol=1e-12)
+            self.assertLessEqual(distance, 5.0, "the distance component is documented as clipped")
+        finally:
+            env.close()
+
+    def test_only_the_target_phase_terminates_on_a_fall(self):
+        import train_walker
+        args = lambda phase: type("A", (), {"reset_mode": "mixed", "fixed_reset_probability": 0.25,
+                                            "upright_reset_probability": 0.15,
+                                            "fallen_velocity_scale": 0.35, "task_phase": phase,
+                                            "target_forward_velocity": 0.8})()
+        got = {p: train_walker.env_common_kwargs(args(p))["terminate_when_unhealthy"]
+               for p in ("recovery", "balance", "walk", "target")}
+        self.assertEqual(got, {"recovery": False, "balance": False, "walk": False, "target": True},
+                         "the block says target is the only phase the trainers terminate on a fall")
+
+    def test_the_mixed_reset_proportions_are_the_constructor_s_defaults(self):
+        import inspect
+        from envs.walker_ragdoll_env import WalkerRagdollEnv
+        params = inspect.signature(WalkerRagdollEnv.__init__).parameters
+        fixed = params["fixed_reset_probability"].default
+        upright = params["upright_reset_probability"].default
+        m = re.search(r"which is (\d+)% fixed-fallen, (\d+)% upright and (\d+)% randomized-fallen",
+                      self.flat)
+        self.assertIsNotNone(m, "the reset-mixture sentence was reworded")
+        self.assertEqual([int(m.group(i)) for i in (1, 2, 3)],
+                         [round(100 * fixed), round(100 * upright),
+                          round(100 * (1.0 - fixed - upright))])
+
+    def test_the_in_env_curriculum_is_still_dead(self):
+        """If someone finishes these hooks, this test fails and the paragraph gets rewritten."""
+        import gymnasium as gym
+        import envs.walker_ragdoll_env  # noqa: F401
+        env = gym.make("WalkerRagdoll-v0", task_phase="target", reset_mode="mixed",
+                       target_curriculum_streak=3)
+        try:
+            self.assertFalse(hasattr(env.unwrapped, "_target_curriculum_streak"),
+                             "target_curriculum_streak is now stored, so it is no longer dead")
+            self.assertTrue(hasattr(env.unwrapped, "_target_fixed_until_curriculum"),
+                            "the unused flag the block names has been removed - update the sentence")
+            obs, info = env.reset(seed=11)
+            for _ in range(3):
+                obs, reward, terminated, truncated, info = env.step(env.action_space.sample() * 0.0)
+            self.assertEqual(info.get("target_success_streak"), 0,
+                             "target_success_streak is no longer hard-coded to 0")
+        finally:
+            env.close()
+
+    def test_the_target_resampling_range_is_what_the_block_says(self):
+        import inspect
+        from envs.walker_ragdoll_env import WalkerRagdollEnv
+        lo, hi = inspect.signature(WalkerRagdollEnv.__init__).parameters[
+            "target_distance_range"].default
+        m = re.search(r"target resampling - (\d+)-(\d+) m away, within ±([\d.]+) rad", self.flat)
+        self.assertIsNotNone(m, "the resampling sentence was reworded")
+        self.assertEqual([float(m.group(1)), float(m.group(2))], [lo, hi])
+        with open(os.path.join(ROOT, "envs", "walker_ragdoll_env.py"), encoding="utf-8") as handle:
+            source = handle.read()
+        self.assertIn(f"self.np_random.uniform(-{m.group(3)}, {m.group(3)})", source,
+                      "the angle bound the block quotes is not the one the env samples from")
+
+    def test_the_two_rows_the_argument_rests_on(self):
+        with open(self.POSTURE, encoding="utf-8") as handle:
+            posture = json.load(handle)["models"]
+        m = re.search(r"the difference between those two rows is ([\d.]+)% against ([\d.]+)%",
+                      self.flat)
+        self.assertIsNotNone(m, "the closing comparison was reworded")
+        self.assertAlmostEqual(float(m.group(1)), posture["sac_40m"]["mean_pct_steps_in_band"],
+                               places=2)
+        self.assertAlmostEqual(float(m.group(2)), posture["dreamer_v3_1m"]["mean_pct_steps_in_band"],
+                               places=2)
+        m = re.search(r"cleared the standing rung on it \(([\d.]+)% of its steps\s*in the band\)",
+                      self.flat)
+        self.assertIsNotNone(m, "the standing-rung sentence was reworded")
+        self.assertAlmostEqual(float(m.group(1)), posture["sac_40m"]["mean_pct_steps_in_band"],
+                               places=2)
+
+
 if __name__ == "__main__":
     unittest.main()

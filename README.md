@@ -1587,12 +1587,12 @@ Three facts to keep in mind:
 
 The suite is plain `unittest` (no pytest required) and covers the environment contract, the
 golden reward rollouts, the parallel/serial vector-env parity, checkpointing and the race
-harness — **194 tests, 170 s in this window** (`Ran 194 tests in 170.304s ... OK
+harness — **201 tests, 170 s in this window** (`Ran 201 tests in 170.391s ... OK
 (skipped=7)` under `.venv`). Windows of this suite have measured 176.3 s at 102 tests, 269.995 s
 at 121, 261.1 s at 127, 329.964 s at 128, 319.168 s at 130, 184.716 s, 203.108 s and 306.976 s at
-140, 144.678 s at 147, 230.268 s at 157 and 171.016 s and 170.304 s at 194 - the last two are the
-same commit run twice minutes apart, 0.4% apart, where the 147 and 157 windows an afternoon earlier
-were 1.6x apart for ten more tests. The
+140, 144.678 s at 147, 230.268 s at 157, 171.016 s and 170.304 s at 194, and 174.008 s and
+170.391 s at 201 - each pair is the same commit run twice minutes apart and agrees to 2%, where the
+147 and 157 windows an afternoon earlier were 1.6x apart for ten more tests. The
 duration belongs to the machine's state, the
 count does not, and a gate checks the count so it cannot go stale quietly):
 
@@ -1645,7 +1645,7 @@ that they ran - see Phase 4, item 6. How each of those states was found, with th
 ## 🔬 Reproducing and measuring
 
 ```bash
-python -m unittest discover -s tests -t .   # 194 tests in .venv, 170 s; see "Running the tests"
+python -m unittest discover -s tests -t .   # 201 tests in .venv, 170 s; see "Running the tests"
 python bench_env.py --seconds 4             # env throughput, physics vs Python split
 python bench_mjx.py --sizes 32,128          # MJX/JAX batched stepping
 python verify.py                            # Phase-2 artifact check (exits 2 when missing)

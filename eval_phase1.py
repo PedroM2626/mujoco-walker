@@ -33,7 +33,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import gymnasium as gym  # noqa: E402
 import envs.walker_ragdoll_env  # noqa: E402,F401  (registers WalkerRagdoll-v0)
 from envs.reward_shaping import TRAINING_REWARD_KWARGS, reward_kwargs_for  # noqa: E402
-from envs.walker_ragdoll_env import ENV_VERSION  # noqa: E402
+from envs.walker_ragdoll_env import ENV_VERSION, PHYSICS_PRESETS  # noqa: E402
 from envs import normalize_compat  # noqa: F401,E402  pickle shim for obs_rms
 from evaluate_merging import EPSILON, CLIP, _policy_input  # noqa: E402
 from train_walker import SACAgent  # noqa: E402
@@ -168,15 +168,19 @@ def build_policy(path, device):
 
 
 def score(policy, episodes, seed, task_phase, steps=EPISODE_STEPS, reset_mode="mixed",
-          on_episode_start=_noop_reset, reward_kwargs=None):
+          on_episode_start=_noop_reset, reward_kwargs=None, physics_preset="v9"):
     """Run `episodes` seeded episodes and return (reward, falls, standing, telemetry).
 
     The telemetry row answers the question the return value cannot: did the robot actually
     get to the target, how close did it come, and how many of the 1000 available env steps
     did it need.
     """
+    # Only pass the preset when it is not the default: `--env-commit` aliases an older revision of
+    # the env module in as `envs.walker_ragdoll_env`, and that revision has no `physics_preset`
+    # parameter, so an unconditional kwarg would break every re-score of a published number.
+    preset_kwargs = {} if physics_preset == "v9" else {"physics_preset": physics_preset}
     env = gym.make("WalkerRagdoll-v0", reset_mode=reset_mode, task_phase=task_phase,
-                   **(reward_kwargs or {}))
+                   **(reward_kwargs or {}), **preset_kwargs)
     radius = float(env.unwrapped._target_radius)
     rewards, falls, standing, tele = [], [], [], []
     try:
@@ -276,10 +280,20 @@ def main():
                    help="auto = a recompensa gravada no checkpoint (ou a do train_walker para "
                         "checkpoints SAC antigos); training/env-default forcam um dos dois")
     p.add_argument("--steps", type=int, default=EPISODE_STEPS)
+    p.add_argument("--physics-preset", default="v9", choices=PHYSICS_PRESETS,
+                   help="which compiled world to score in. 'v9' is the published one; 'euler' and "
+                        "'fast' are screening worlds with different dynamics, so a checkpoint "
+                        "trained in one is only scored in the same one - the mismatch note below "
+                        "compares against this.")
     p.add_argument("--env-commit", default=None, metavar="REV",
                    help="avalia contra a versao do ambiente nesse commit (re-executa o script)")
     p.add_argument("--out", default=os.path.join("benchmarks", "phase1_results.json"))
     args = p.parse_args()
+    if args.env_commit and args.physics_preset != "v9":
+        # An aliased revision of the env module predates the presets, so there is no world to score
+        # in there. Refusing beats scoring in v9 while the command line claims otherwise.
+        p.error("--env-commit aliases an older env revision that has no --physics-preset; "
+                "choose one or the other")
 
     if args.env_commit and not os.environ.get(ALIAS_MARK):
         raise SystemExit(_relaunch_with_env(args.env_commit, sys.argv[1:]))
@@ -310,9 +324,11 @@ def main():
             if rinfo["target_forward_velocity"] is not None:
                 rkw["target_forward_velocity"] = float(rinfo["target_forward_velocity"])
             rsrc = f"forced --reward-weights={args.reward_weights}"
-        if rinfo["env_version"] and rinfo["env_version"] != ENV_VERSION:
+        running_version = (ENV_VERSION if args.physics_preset == "v9"
+                           else f"{ENV_VERSION}_{args.physics_preset}")
+        if rinfo["env_version"] and rinfo["env_version"] != running_version:
             print(f"[NOTE] {name}: checkpoint salvo com env_version={rinfo['env_version']!r}, "
-                  f"este repo e {ENV_VERSION!r}; os retornos abaixo sao da env atual. Para o MDP "
+                  f"este repo e {running_version!r}; os retornos abaixo sao da env atual. Para o MDP "
                   f"nativo use --env-commit <rev>.")
         task_phase = args.task_phase or phase or "target"
         # The Dreamer actor samples its stochastic state, so scoring it twice gives two numbers
@@ -325,7 +341,8 @@ def main():
                   f"{task_phase} (use --task-phase para mudar)")
         rewards, falls, standing, tele = score(policy, args.num_episodes, args.seed, task_phase,
                                                args.steps, args.reset_mode, on_episode_start=reset,
-                                               reward_kwargs=rkw)
+                                               reward_kwargs=rkw,
+                                               physics_preset=args.physics_preset)
         arr = np.asarray(rewards, dtype=float)
         step_match = re.search(r"(\d+)(?:\.\d+)?\.pt$", os.path.basename(path))
         step = int(step_match.group(1)) if step_match else None
@@ -365,6 +382,11 @@ def main():
                      f"one env.step per action, checkpoint obs_rms applied, deterministic; "
                      "same protocol as the Phase-3 table)"),
         "env_version": sys.modules["envs.walker_ragdoll_env"].ENV_VERSION,
+        "physics_preset": args.physics_preset,
+        "scored_in_version": (sys.modules["envs.walker_ragdoll_env"].ENV_VERSION
+                              if args.physics_preset == "v9" else
+                              f"{sys.modules['envs.walker_ragdoll_env'].ENV_VERSION}"
+                              f"_{args.physics_preset}"),
         "env_commit": args.env_commit,
         # A return from this script is not reproducible from the command line alone: the policies
         # whose actions come from a network round differently on cpu and cuda, and in a chaotic

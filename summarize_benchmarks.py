@@ -337,6 +337,121 @@ def gail_retrain(out="benchmarks/phase4_gail_retrain.json"):
     }, out
 
 
+def _curve_rows(data):
+    """Every per-episode telemetry row of a curve artifact, as a sorted comparable tuple.
+
+    Sorted because the two files name their arms differently (`s1M` in the published curve,
+    `s1000000` in the new one) and the comparison that matters is the set of episodes, not the key.
+    """
+    return sorted(
+        (row["steps"], row["min_target_distance"], bool(row["reached_target"]),
+         round(float(row["mean_x_velocity"]), 6))
+        for key, rows in data["per_episode"].items() if key.endswith("__telemetry") for row in rows
+    )
+
+
+def target_from_scratch_paired(out="benchmarks/target_learning_curve_from_scratch_paired.json"):
+    """Compare the from-scratch target run to the curriculum run episode by episode.
+
+    The two curves share everything that a comparison needs: the same ten checkpoint budgets, the
+    same 20 resets (episode *i* is seeded `11+i` in both), the same env version, the same device and
+    thread pin, because chain14 re-scored the curriculum arm in the same session rather than trusting
+    the published curve, whose device was never recorded. So the difference is a paired sample and not
+    two means, and the honest statistic is per-episode: how often did one arm get closer to the
+    target than the other, on the same initial state.
+    """
+    scratch = json.load(open(os.path.join(ROOT, "benchmarks",
+                                          "target_learning_curve_from_scratch_v9.json"),
+                              encoding="utf-8"))
+    curric = json.load(open(os.path.join(ROOT, "benchmarks",
+                                         "target_learning_curve_curriculum_rescored_v9.json"),
+                             encoding="utf-8"))
+    arms = sorted((k for k in scratch["per_episode"] if not k.endswith("__telemetry")),
+                  key=lambda k: int(k[1:]))
+    deltas, reached = [], {"both": 0, "scratch_only": 0, "curriculum_only": 0, "neither": 0}
+    scratch_dist, curric_dist = [], []
+    for arm in arms:
+        rows_s = scratch["per_episode"][arm + "__telemetry"]
+        rows_c = curric["per_episode"][arm + "__telemetry"]
+        if len(rows_s) != len(rows_c):
+            raise SystemExit(f"{arm}: {len(rows_s)} scratch episodes vs {len(rows_c)} curriculum")
+        for a, b in zip(rows_s, rows_c):
+            deltas.append(a["min_target_distance"] - b["min_target_distance"])
+            scratch_dist.append(a["min_target_distance"])
+            curric_dist.append(b["min_target_distance"])
+            if a["reached_target"] and b["reached_target"]:
+                reached["both"] += 1
+            elif a["reached_target"]:
+                reached["scratch_only"] += 1
+            elif b["reached_target"]:
+                reached["curriculum_only"] += 1
+            else:
+                reached["neither"] += 1
+
+    def dist(values):
+        arr = np.asarray(values, dtype=float)
+        return {"median": round(float(np.median(arr)), 3), "mean": round(float(arr.mean()), 3),
+                "min": round(float(arr.min()), 3)}
+
+    arr = np.asarray(deltas, dtype=float)
+    return {
+        "protocol": ("paired per-episode comparison of benchmarks/target_learning_curve_"
+                     "from_scratch_v9.json against benchmarks/target_learning_curve_"
+                     f"curriculum_rescored_v9.json: {len(arms)} matched checkpoint budgets x "
+                     f"{len(arr) // len(arms)} seeded resets, negative delta = the from-scratch arm "
+                     "came closer"),
+        "instrument": {
+            "scratch": {"device": scratch.get("device"), "torch_threads": scratch.get("torch_threads"),
+                        "env_version": scratch.get("env_version")},
+            "curriculum": {"device": curric.get("device"), "torch_threads": curric.get("torch_threads"),
+                           "env_version": curric.get("env_version")},
+        },
+        # Recorded rather than derived: `checkpoints/` and `mlruns.db` are both gitignored, so the
+        # only durable statement of what produced the left column is this block plus the checkpoint
+        # files themselves. Verified at build time when the directory is present.
+        "from_scratch_run": {
+            "run_id": "sac_target_from_scratch_40m",
+            "config": {"algo": "sac", "seed": 7, "num_envs": 32, "total_timesteps": 40000000,
+                       "task_phase": "target", "reset_mode": "mixed",
+                       "target_forward_velocity": 1.2, "init_from": None,
+                       "checkpoint_interval": 1000000},
+            "wall_clock": "2026-10-05 13:46:54 -> 18:58:31 = 5 h 11 min 37 s",
+            "wall_clock_seconds": 5 * 3600 + 11 * 60 + 37,
+            "sustained_env_steps_per_s": 2145,
+            "checkpoints_present": len(arms),
+        },
+        # The published curriculum curve, re-scored in the same session: identical telemetry is what
+        # licenses the paired column. Without this the comparison would be cuda-against-unknown.
+        "curriculum_rescore_matches_published": {
+            "episodes_compared": len(_curve_rows(curric)),
+            "identical": _curve_rows(curric) == _curve_rows(json.load(open(
+                os.path.join(ROOT, "benchmarks", "target_learning_curve_v9_trainreward.json"),
+                encoding="utf-8"))),
+        },
+        "pairs": int(arr.size),
+        "scratch_closer": int((arr < -0.005).sum()),
+        "curriculum_closer": int((arr > 0.005).sum()),
+        "within_5mm": int((np.abs(arr) <= 0.005).sum()),
+        "median_delta_m": round(float(np.median(arr)), 3),
+        "mean_delta_m": round(float(arr.mean()), 3),
+        "closest_approach": {"scratch": dist(scratch_dist), "curriculum": dist(curric_dist)},
+        "reached_target": dict(reached, total_pairs=int(arr.size)),
+        "per_budget": {
+            arm: {
+                "scratch_checkpoint": scratch["models"][arm]["checkpoint"],
+                "curriculum_checkpoint": curric["models"][arm]["checkpoint"],
+                "scratch": {k: scratch["models"][arm][k] for k in
+                            ("mean", "reached_target_pct", "mean_min_target_distance",
+                             "mean_x_velocity", "standing_at_end_pct", "falls_per_episode")},
+                "curriculum": {k: curric["models"][arm][k] for k in
+                               ("mean", "reached_target_pct", "mean_min_target_distance",
+                                "mean_x_velocity", "standing_at_end_pct", "falls_per_episode")},
+            }
+            for arm in arms
+        },
+    }, out
+
+
 TEACHER_EVENTS = os.path.join("openai_walker", "sac_walker_tensorboard", "SAC_2",
                               "events.out.tfevents.1780843517.pedro.36828.0")
 
@@ -413,6 +528,9 @@ BENCHMARKS = [
     # A second 1M-step GAIL run against the June one, so the width of the anomaly is measured
     # rather than argued: evaluation spread within a run, and run-to-run spread of the mean.
     gail_retrain,
+    # The 40M from-scratch target run vs the curriculum run, paired per seeded episode, both
+    # scored in one session on one device because the published curve never recorded its device.
+    target_from_scratch_paired,
     # The teacher's own 100-episode evaluations, mined from its committed TensorBoard log: the only
     # pre-retraction evaluation series in the repo, and an independent protocol.
     teacher_eval_curve,

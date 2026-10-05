@@ -19,6 +19,56 @@ DEFAULT_CAMERA_CONFIG = {
 ENV_VERSION = "standup_balance_walk_curriculum_v9"
 FOOT_BODIES = {"left_foot", "right_foot"}
 
+# Physics presets: cheaper worlds for screening, never a replacement for a published number.
+#
+#   v9     - exactly what walker_ragdoll.xml compiles: RK4 at dt=0.002, every geom pair tested.
+#            This is the world every committed artifact in this repository was measured in.
+#   euler  - Euler instead of RK4, same dt. Four force evaluations per step become one, so the
+#            simulation time an action covers is unchanged and only the integrator's cost moves.
+#   fast   - Euler plus self-collision dropped: body geoms stop initiating contact pairs but keep
+#            their affinity, so every geom still collides with the floor and nothing collides with
+#            another part of the robot. That is the pair set the task actually reads - the standing
+#            gate counts foot-vs-floor and penalises any other body on the floor - and it is what
+#            made MJX lose here, because its collision pipeline is dense.
+#
+# `fast` and `euler` are different MDPs, so a run in one is not comparable to a run in the other
+# and the env version says so: `env_version` becomes the base string plus the preset, and the
+# trainers record that, so a checkpoint can never be scored in a world it was not trained in
+# without eval_phase1.py noticing.
+PHYSICS_PRESETS = ("v9", "euler", "fast")
+
+
+def apply_physics_preset(model, preset):
+    """Rewrite a compiled model's integrator and collision masks for a preset, in place.
+
+    Both are numeric fields of an already-compiled `MjModel`, so nothing is re-parsed and the
+    geometry, bodies, actuators and sensor layout stay identical to `walker_ragdoll.xml`. This is a
+    module function rather than a method because `bench_env.py` times a bare `MjModel` that has no
+    env around it, and the two must not be allowed to drift into different worlds.
+
+    Dropping self-collision is done by clearing `contype` on every body geom while leaving its
+    `conaffinity` set: a pair forms when either side initiates, so body-vs-body - which needs a
+    `contype` on one side - never fires, while floor-vs-body still fires through the floor's own
+    `contype`. That keeps the two contact counts the reward reads (feet on the floor, and any other
+    body on the floor) exactly as the standing gate expects.
+    """
+    if preset == "v9":
+        return model
+    if preset not in PHYSICS_PRESETS:
+        raise ValueError(f"unknown physics_preset {preset!r}, expected one of {list(PHYSICS_PRESETS)}")
+    model.opt.integrator = mujoco.mjtIntegrator.mjINT_EULER
+    if preset == "fast":
+        floor = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, "floor")
+        for gid in range(model.ngeom):
+            if gid == floor:
+                continue
+            # A geom the model already made inert (the target marker) must stay inert: raising its
+            # affinity would recruit a decorative sphere into the collision set.
+            participates = model.geom_contype[gid] != 0 or model.geom_conaffinity[gid] != 0
+            model.geom_contype[gid] = 0
+            model.geom_conaffinity[gid] = 1 if participates else 0
+    return model
+
 RESET_MODES = {"fixed", "mixed", "fallen", "upright"}
 TASK_PHASES = {"recovery", "balance", "walk", "target"}
 
@@ -82,6 +132,7 @@ class WalkerRagdollEnv(MujocoEnv, gym.utils.EzPickle):
         upright_reset_probability: float = 0.15,
         fallen_velocity_scale: float = 0.35,
         task_phase: str = "recovery",
+        physics_preset: str = "v9",
         **kwargs,
     ):
         if xml_file is None:
@@ -132,6 +183,13 @@ class WalkerRagdollEnv(MujocoEnv, gym.utils.EzPickle):
             raise ValueError(
                 f"task_phase must be one of {sorted(TASK_PHASES)}, got {task_phase!r}"
             )
+        if physics_preset not in PHYSICS_PRESETS:
+            raise ValueError(
+                f"physics_preset must be one of {list(PHYSICS_PRESETS)}, got {physics_preset!r}"
+            )
+        self._physics_preset = physics_preset
+        self._env_version = (ENV_VERSION if physics_preset == "v9"
+                             else f"{ENV_VERSION}_{physics_preset}")
         self._task_phase = task_phase
         self._target_xy = np.array([3.0, 0.0], dtype=np.float64)
         self._target_fixed_until_curriculum = True
@@ -149,6 +207,7 @@ class WalkerRagdollEnv(MujocoEnv, gym.utils.EzPickle):
             default_camera_config=default_camera_config,
             **kwargs,
         )
+        self._apply_physics_preset()
 
         gym.utils.EzPickle.__init__(
             self,
@@ -183,6 +242,7 @@ class WalkerRagdollEnv(MujocoEnv, gym.utils.EzPickle):
             upright_reset_probability,
             fallen_velocity_scale,
             task_phase,
+            physics_preset,
             **kwargs,
         )
 
@@ -211,6 +271,10 @@ class WalkerRagdollEnv(MujocoEnv, gym.utils.EzPickle):
         # Scratch buffers so _get_obs allocates once per step instead of four times.
         self._scalar_buf = np.empty(1, dtype=np.float64)
         self._target_obs_buf = np.empty(3, dtype=np.float64)
+
+    def _apply_physics_preset(self):
+        """Rewrite the compiled model for this preset. See `apply_physics_preset`."""
+        apply_physics_preset(self.model, self._physics_preset)
 
     @property
     def upright_factor(self):
@@ -701,3 +765,17 @@ gym.register(
     entry_point="envs.walker_ragdoll_env:WalkerRagdollEnv",
     max_episode_steps=1000,
 )
+
+
+def env_version_of(env):
+    """The env version string a checkpoint should record for this environment.
+
+    `ENV_VERSION` is the module constant, and it is what every committed artifact in benchmarks/
+    carries - but a physics preset is a different world with the same module, so a trainer that
+    records the constant would stamp an `euler` or `fast` run as the published v9 MDP. Reads the
+    instance when there is one and falls back to the constant for callers that only have a spec.
+    """
+    if env is None:
+        return ENV_VERSION
+    unwrapped = getattr(env, "unwrapped", env)
+    return getattr(unwrapped, "_env_version", ENV_VERSION)

@@ -1,0 +1,264 @@
+{
+  "protocol": "paired per-episode comparison of benchmarks/target_learning_curve_from_scratch_v9.json against benchmarks/target_learning_curve_curriculum_rescored_v9.json: 10 matched checkpoint budgets x 20 seeded resets, negative delta = the from-scratch arm came closer",
+  "instrument": {
+    "scratch": {
+      "device": "cuda",
+      "torch_threads": 24,
+      "env_version": "standup_balance_walk_curriculum_v9"
+    },
+    "curriculum": {
+      "device": "cuda",
+      "torch_threads": 24,
+      "env_version": "standup_balance_walk_curriculum_v9"
+    }
+  },
+  "from_scratch_run": {
+    "run_id": "sac_target_from_scratch_40m",
+    "config": {
+      "algo": "sac",
+      "seed": 7,
+      "num_envs": 32,
+      "total_timesteps": 40000000,
+      "task_phase": "target",
+      "reset_mode": "mixed",
+      "target_forward_velocity": 1.2,
+      "init_from": null,
+      "checkpoint_interval": 1000000
+    },
+    "wall_clock": "2026-10-05 13:46:54 -> 18:58:31 = 5 h 11 min 37 s",
+    "wall_clock_seconds": 18697,
+    "sustained_env_steps_per_s": 2145,
+    "checkpoints_present": 10
+  },
+  "curriculum_rescore_matches_published": {
+    "episodes_compared": 200,
+    "identical": true
+  },
+  "pairs": 200,
+  "scratch_closer": 154,
+  "curriculum_closer": 38,
+  "within_5mm": 8,
+  "median_delta_m": -0.527,
+  "mean_delta_m": -0.768,
+  "closest_approach": {
+    "scratch": {
+      "median": 2.367,
+      "mean": 2.327,
+      "min": 0.038
+    },
+    "curriculum": {
+      "median": 3.075,
+      "mean": 3.095,
+      "min": 0.313
+    }
+  },
+  "reached_target": {
+    "both": 0,
+    "scratch_only": 17,
+    "curriculum_only": 2,
+    "neither": 181,
+    "total_pairs": 200
+  },
+  "per_budget": {
+    "s1000000": {
+      "scratch_checkpoint": "checkpoints/sac_target_from_scratch_40m/sac_actor_1000000.pt",
+      "curriculum_checkpoint": "checkpoints/walker_target_v1/sac_actor_1000000.pt",
+      "scratch": {
+        "mean": 8222.05,
+        "reached_target_pct": 5.0,
+        "mean_min_target_distance": 2.837,
+        "mean_x_velocity": -0.0088,
+        "standing_at_end_pct": 0.0,
+        "falls_per_episode": 0.3
+      },
+      "curriculum": {
+        "mean": 30384.13,
+        "reached_target_pct": 0.0,
+        "mean_min_target_distance": 2.996,
+        "mean_x_velocity": 0.0507,
+        "standing_at_end_pct": 10.0,
+        "falls_per_episode": 0.55
+      }
+    },
+    "s2000000": {
+      "scratch_checkpoint": "checkpoints/sac_target_from_scratch_40m/sac_actor_2000000.pt",
+      "curriculum_checkpoint": "checkpoints/walker_target_v1/sac_actor_2000000.pt",
+      "scratch": {
+        "mean": 18382.69,
+        "reached_target_pct": 0.0,
+        "mean_min_target_distance": 2.46,
+        "mean_x_velocity": 0.0686,
+        "standing_at_end_pct": 0.0,
+        "falls_per_episode": 0.65
+      },
+      "curriculum": {
+        "mean": 32798.26,
+        "reached_target_pct": 0.0,
+        "mean_min_target_distance": 2.804,
+        "mean_x_velocity": 0.0989,
+        "standing_at_end_pct": 0.0,
+        "falls_per_episode": 0.75
+      }
+    },
+    "s3000000": {
+      "scratch_checkpoint": "checkpoints/sac_target_from_scratch_40m/sac_actor_3000000.pt",
+      "curriculum_checkpoint": "checkpoints/walker_target_v1/sac_actor_3000000.pt",
+      "scratch": {
+        "mean": 18611.41,
+        "reached_target_pct": 0.0,
+        "mean_min_target_distance": 2.926,
+        "mean_x_velocity": -0.03,
+        "standing_at_end_pct": 5.0,
+        "falls_per_episode": 0.95
+      },
+      "curriculum": {
+        "mean": 13169.55,
+        "reached_target_pct": 5.0,
+        "mean_min_target_distance": 3.072,
+        "mean_x_velocity": 0.0239,
+        "standing_at_end_pct": 5.0,
+        "falls_per_episode": 0.75
+      }
+    },
+    "s5000000": {
+      "scratch_checkpoint": "checkpoints/sac_target_from_scratch_40m/sac_actor_5000000.pt",
+      "curriculum_checkpoint": "checkpoints/walker_target_v1/sac_actor_5000000.pt",
+      "scratch": {
+        "mean": 26250.88,
+        "reached_target_pct": 20.0,
+        "mean_min_target_distance": 2.238,
+        "mean_x_velocity": 0.1046,
+        "standing_at_end_pct": 5.0,
+        "falls_per_episode": 1.2
+      },
+      "curriculum": {
+        "mean": 14603.0,
+        "reached_target_pct": 0.0,
+        "mean_min_target_distance": 3.237,
+        "mean_x_velocity": 0.0106,
+        "standing_at_end_pct": 0.0,
+        "falls_per_episode": 0.55
+      }
+    },
+    "s8000000": {
+      "scratch_checkpoint": "checkpoints/sac_target_from_scratch_40m/sac_actor_8000000.pt",
+      "curriculum_checkpoint": "checkpoints/walker_target_v1/sac_actor_8000000.pt",
+      "scratch": {
+        "mean": 33219.29,
+        "reached_target_pct": 15.0,
+        "mean_min_target_distance": 1.755,
+        "mean_x_velocity": 0.2344,
+        "standing_at_end_pct": 5.0,
+        "falls_per_episode": 1.5
+      },
+      "curriculum": {
+        "mean": 19205.05,
+        "reached_target_pct": 0.0,
+        "mean_min_target_distance": 3.301,
+        "mean_x_velocity": 0.0182,
+        "standing_at_end_pct": 0.0,
+        "falls_per_episode": 0.75
+      }
+    },
+    "s10000000": {
+      "scratch_checkpoint": "checkpoints/sac_target_from_scratch_40m/sac_actor_10000000.pt",
+      "curriculum_checkpoint": "checkpoints/walker_target_v1/sac_actor_10000000.pt",
+      "scratch": {
+        "mean": 19755.48,
+        "reached_target_pct": 5.0,
+        "mean_min_target_distance": 2.3,
+        "mean_x_velocity": 0.1255,
+        "standing_at_end_pct": 0.0,
+        "falls_per_episode": 0.85
+      },
+      "curriculum": {
+        "mean": 18869.08,
+        "reached_target_pct": 5.0,
+        "mean_min_target_distance": 3.072,
+        "mean_x_velocity": 0.0242,
+        "standing_at_end_pct": 0.0,
+        "falls_per_episode": 0.5
+      }
+    },
+    "s15000000": {
+      "scratch_checkpoint": "checkpoints/sac_target_from_scratch_40m/sac_actor_15000000.pt",
+      "curriculum_checkpoint": "checkpoints/walker_target_v1/sac_actor_15000000.pt",
+      "scratch": {
+        "mean": 22101.99,
+        "reached_target_pct": 10.0,
+        "mean_min_target_distance": 2.126,
+        "mean_x_velocity": 0.1811,
+        "standing_at_end_pct": 0.0,
+        "falls_per_episode": 1.1
+      },
+      "curriculum": {
+        "mean": 27303.12,
+        "reached_target_pct": 0.0,
+        "mean_min_target_distance": 2.882,
+        "mean_x_velocity": 0.0451,
+        "standing_at_end_pct": 0.0,
+        "falls_per_episode": 1.0
+      }
+    },
+    "s20000000": {
+      "scratch_checkpoint": "checkpoints/sac_target_from_scratch_40m/sac_actor_20000000.pt",
+      "curriculum_checkpoint": "checkpoints/walker_target_v1/sac_actor_20000000.pt",
+      "scratch": {
+        "mean": 27061.03,
+        "reached_target_pct": 15.0,
+        "mean_min_target_distance": 2.148,
+        "mean_x_velocity": 0.1574,
+        "standing_at_end_pct": 0.0,
+        "falls_per_episode": 1.2
+      },
+      "curriculum": {
+        "mean": 26754.27,
+        "reached_target_pct": 0.0,
+        "mean_min_target_distance": 3.03,
+        "mean_x_velocity": 0.0236,
+        "standing_at_end_pct": 0.0,
+        "falls_per_episode": 0.75
+      }
+    },
+    "s30000000": {
+      "scratch_checkpoint": "checkpoints/sac_target_from_scratch_40m/sac_actor_30000000.pt",
+      "curriculum_checkpoint": "checkpoints/walker_target_v1/sac_actor_30000000.pt",
+      "scratch": {
+        "mean": 26742.83,
+        "reached_target_pct": 15.0,
+        "mean_min_target_distance": 2.05,
+        "mean_x_velocity": 0.1767,
+        "standing_at_end_pct": 0.0,
+        "falls_per_episode": 1.1
+      },
+      "curriculum": {
+        "mean": 17053.11,
+        "reached_target_pct": 0.0,
+        "mean_min_target_distance": 3.236,
+        "mean_x_velocity": -0.008,
+        "standing_at_end_pct": 0.0,
+        "falls_per_episode": 0.45
+      }
+    },
+    "s40000000": {
+      "scratch_checkpoint": "checkpoints/sac_target_from_scratch_40m/sac_actor_40000000.pt",
+      "curriculum_checkpoint": "checkpoints/walker_target_v1/sac_actor_40000000.pt",
+      "scratch": {
+        "mean": 23886.94,
+        "reached_target_pct": 0.0,
+        "mean_min_target_distance": 2.429,
+        "mean_x_velocity": 0.1278,
+        "standing_at_end_pct": 0.0,
+        "falls_per_episode": 0.8
+      },
+      "curriculum": {
+        "mean": 16748.35,
+        "reached_target_pct": 0.0,
+        "mean_min_target_distance": 3.315,
+        "mean_x_velocity": 0.0015,
+        "standing_at_end_pct": 0.0,
+        "falls_per_episode": 0.4
+      }
+    }
+  }
+}

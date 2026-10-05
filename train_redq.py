@@ -33,6 +33,7 @@ from train_walker import (
     get_rng_state,
     set_rng_state,
     ENV_VERSION,
+    env_version_of,
     start_mlflow_run,
     log_mlflow_metrics,
     log_mlflow_artifact,
@@ -153,7 +154,7 @@ def save_redq_checkpoint(
     # Save full state
     state = {
         "algo": "redq",
-        "env_version": ENV_VERSION,
+        "env_version": env_version_of(envs),
         "global_step": global_step,
         "actor_state_dict": actor.state_dict(),
         "q_ensemble_state_dict": ensemble_state_dict(q_ensemble),

@@ -25,6 +25,7 @@ from train_walker import (
     wrap_normalize_observation,
     wrap_transform_observation,
     ENV_VERSION,
+    env_version_of,
     start_mlflow_run,
     log_mlflow_metrics,
     log_mlflow_artifact,
@@ -656,7 +657,7 @@ def save_dreamer_checkpoint(
     # Save full state
     state = {
         "algo": "dreamer",
-        "env_version": ENV_VERSION,
+        "env_version": env_version_of(envs),
         "global_step": global_step,
         "model_state_dict": model.state_dict(),
         "actor_state_dict": actor.state_dict(),

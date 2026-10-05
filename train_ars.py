@@ -16,6 +16,7 @@ from train_walker import (
     get_rng_state,
     set_rng_state,
     ENV_VERSION,
+    current_env_version,
     start_mlflow_run,
     log_mlflow_metrics,
     log_mlflow_artifact,
@@ -92,11 +93,12 @@ def run_episode(env, weights, bias, normalizer, max_steps=1000, update_normalize
         
     return total_reward, steps
 
-def save_ars_checkpoint(ckpt_path, global_step, weights, bias, normalizer, task_phase, target_forward_velocity):
+def save_ars_checkpoint(ckpt_path, global_step, weights, bias, normalizer, task_phase,
+                        target_forward_velocity, env_version=ENV_VERSION):
     os.makedirs(os.path.dirname(ckpt_path), exist_ok=True)
     state = {
         "algo": "ars",
-        "env_version": ENV_VERSION,
+        "env_version": env_version,
         "global_step": global_step,
         "weights": weights,
         "bias": bias,
@@ -247,7 +249,8 @@ def train_ars():
             # Checkpoint saving
             if global_step >= next_checkpoint_step:
                 ckpt_path = os.path.join(ckpt_dir, f"ars_ckpt_{global_step}.pt")
-                save_ars_checkpoint(ckpt_path, global_step, weights, bias, normalizer, args.task_phase, args.target_forward_velocity)
+                save_ars_checkpoint(ckpt_path, global_step, weights, bias, normalizer, args.task_phase,
+                                    args.target_forward_velocity, current_env_version(args))
                 log_mlflow_artifact(mlf_run, ckpt_path, "ars", global_step)
                 next_checkpoint_step += args.checkpoint_interval
 
@@ -255,7 +258,8 @@ def train_ars():
         print("\n[TRAIN] Interrupted by user. Saving checkpoint...")
     finally:
         final_checkpoint_path = os.path.join(ckpt_dir, f"ars_ckpt_{global_step}.pt")
-        save_ars_checkpoint(final_checkpoint_path, global_step, weights, bias, normalizer, args.task_phase, args.target_forward_velocity)
+        save_ars_checkpoint(final_checkpoint_path, global_step, weights, bias, normalizer,
+                            args.task_phase, args.target_forward_velocity, current_env_version(args))
         log_mlflow_artifact(mlf_run, final_checkpoint_path, "ars", global_step)
         end_mlflow_run(mlf_run)
         env.close()

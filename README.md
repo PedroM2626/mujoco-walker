@@ -345,6 +345,63 @@ and the 40M SAC policy is the only thing that ever cleared the standing rung on 
 in the band). The 1M Dreamer is the same unified task with a smaller budget and a different algorithm,
 and the difference between those two rows is 14.73% against 0.19% - not a difference in task setup.
 
+**One phrase in that paragraph was doing more work than it could carry.** The 40M SAC policy it names
+is `walker_target_v1`, and the manual curriculum seeded it from the recovery expert
+(`benchmarks/curriculum_provenance.json`): that is one run on the unified task, but it is not a run
+from zero on it. The arm that was missing now exists - `sac_target_from_scratch_40m`, seed 7,
+`num_envs=32`, `target_forward_velocity=1.2`, `reset_mode=mixed`, no `--init-from-run-id`, 40M steps
+in 5 h 11 min 37 s at 2,145 env-steps/s sustained. Its ten checkpoint budgets are compared with the
+curriculum arm's ten checkpoints **per seeded episode**, not as two means, in
+`benchmarks/target_learning_curve_from_scratch_paired.json`.
+
+Re-scoring the curriculum arm was not ceremony. Its committed curve predates `eval_phase1.py`
+recording the device, and the same checkpoint scored cpu against cuda is not the same measurement -
+but here all 200 telemetry rows came back identical to that artifact
+(`curriculum_rescore_matches_published`), so this arm is device-insensitive and the pairing holds
+either way. Both columns were run in one session, `cuda`, 24 torch threads, env v9.
+
+| Over the 200 matched episodes | from scratch | curriculum (`walker_target_v1`) |
+|:---|---:|---:|
+| episodes that got closer to the target | 154 | 38 (8 pairs within 5 mm) |
+| median closest approach | 2.367 m | 3.075 m |
+| best single episode | 0.038 m | 0.313 m |
+| episodes ending inside the radius | 17 | 2 (never the same episode) |
+
+Median advantage 0.527 m, mean 0.768 m. So the phase split is not what was keeping the agent from
+walking to the target: starting from zero on the unified task does it more often, and no later. What
+the extra budget did not buy is reliability. Reach rate by checkpoint (1M, 2M, 3M, 5M, 8M, 10M, 15M,
+20M, 30M, 40M) is 5.0, 0.0, 0.0, 20.0, 15.0, 5.0, 10.0, 15.0, 15.0, 0.0 percent - the run's last
+checkpoint is the least goal-directed of its second half and its best is at 5M. A longer budget moves
+this curve; it does not straighten it.
+
+The standing rung splits the other way, and only the instrument that measures the torso can say so.
+On `bench_posture.py` at the settings the published posture table uses (50 seeded episodes, seed 11,
+`cuda`, torch threads pinned to 1) the curriculum row reproduced its committed number exactly -
+14.73%, 23/50 episodes ever in band, mean peak 0.864 m - which is what licenses the three rows under
+it.
+
+| checkpoint | % of steps in the standing band | episodes ever in band | mean peak torso z | best peak |
+|:---|---:|---:|---:|---:|
+| from scratch, 8M | 9.73 | 39/50 | 1.387 m | 2.069 m |
+| from scratch, 20M | 8.43 | 35/50 | 1.357 m | 2.160 m |
+| from scratch, 40M | 8.65 | 36/50 | 1.317 m | 2.056 m |
+| `walker_target_v1`, 40M (control) | 14.73 | 23/50 | 0.864 m | 1.525 m |
+
+Neither arm wins this criterion; they answer different questions about it. The curriculum arm holds
+the band for a larger share of every episode (14.73% against 8.43-9.73%), but its *mean* peak torso
+height, 0.864 m, does not reach the band's floor at 1.0 m and it gets into the band in 23 of 50
+episodes. The from-zero arm is in the band in 35-39 of 50, peaks at 1.317-1.387 m on average - above
+the floor - and reaches 2.160 m at best. "The only thing that ever cleared the standing rung" was
+true of the arms measured when it was written; measured against a from-zero run at the same budget,
+the honest statement is that the arm fine-tuned from a recovery expert stands for longer when it
+stands, and the arm trained from zero on everything gets up more often and higher. Neither does both.
+
+One caveat that applies to both tables: the episode *returns* of the two arms are not comparable,
+because the curriculum checkpoint records `target_forward_velocity` 10.0 and the from-scratch
+checkpoints record 1.2 - two reward functions for one task speed. Closest approach, reaching the
+radius and every torso measurement do not depend on the reward, which is why the comparison is built
+out of those and not out of returns.
+
 What the phase split does cost is that a phase cannot change mid-run. `task_phase` is read once in the
 constructor and decides the observation width - `observation_size = 49 if task_phase == "target" else
 46`, the three extra components being the target's relative x, y and clipped distance - and that width
@@ -1689,11 +1746,12 @@ Three facts to keep in mind:
 
 The suite is plain `unittest` (no pytest required) and covers the environment contract, the
 golden reward rollouts, the parallel/serial vector-env parity, checkpointing and the race
-harness — **214 tests, 170 s in this window** (`Ran 214 tests in 169.919s ... OK
+harness — **237 tests, 162 s in this window** (`Ran 237 tests in 161.829s ... OK
 (skipped=7)` under `.venv`). Windows of this suite have measured 176.3 s at 102 tests, 269.995 s
 at 121, 261.1 s at 127, 329.964 s at 128, 319.168 s at 130, 184.716 s, 203.108 s and 306.976 s at
 140, 144.678 s at 147, 230.268 s at 157, 171.016 s and 170.304 s at 194, and 174.008 s,
-170.391 s, 175.036 s, 168.775 s, 168.986 s and 166.606 s at 201/205/210, and 169.919 s at 214 -
+170.391 s, 175.036 s, 168.775 s, 168.986 s and 166.606 s at 201/205/210, 169.919 s at 214,
+and 163.920 s and 161.829 s at 237 -
 consecutive runs of one commit agree to 4%, where the
 147 and 157 windows an afternoon earlier were 1.6x apart for ten more tests. The
 duration belongs to the machine's state, the
@@ -1750,7 +1808,7 @@ that they ran - see Phase 4, item 6. How each of those states was found, with th
 ## 🔬 Reproducing and measuring
 
 ```bash
-python -m unittest discover -s tests -t .   # 214 tests in .venv, 170 s; see "Running the tests"
+python -m unittest discover -s tests -t .   # 237 tests in .venv, 162 s; see "Running the tests"
 python bench_env.py --seconds 4             # env throughput, physics vs Python split
 python bench_mjx.py --sizes 32,128          # MJX/JAX batched stepping
 python verify.py                            # Phase-2 artifact check (exits 2 when missing)

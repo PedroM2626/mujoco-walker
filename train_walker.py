@@ -24,7 +24,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 import envs.walker_ragdoll_env
 from envs.reward_shaping import TRAINING_REWARD_KWARGS
-from envs.walker_ragdoll_env import ENV_VERSION
+from envs.walker_ragdoll_env import ENV_VERSION, PHYSICS_PRESETS, env_version_of
 from utils.checkpoint import force_delete_run, get_checkpoint_dir, get_run_dir
 
 
@@ -49,6 +49,7 @@ ENV_VARS = {
     "UPRIGHT_RESET_PROBABILITY": "0.15",
     "FALLEN_VELOCITY_SCALE": "0.35",
     "TASK_PHASE": "recovery",
+    "PHYSICS_PRESET": "v9",
     "TARGET_FORWARD_VELOCITY": "0.8",
     "INIT_FROM_RUN_ID": "",
     "INIT_FROM_CHECKPOINT_STEP": "",
@@ -287,6 +288,12 @@ def parse_args():
     add_device_arg(parser)
 
     parser.add_argument("--allow-mismatched-env-version", action="store_true", default=False)
+    parser.add_argument("--physics-preset", choices=PHYSICS_PRESETS,
+                       default=ENV_VARS["PHYSICS_PRESET"],
+                       help="Which compiled world to train in. 'v9' is the published one "
+                            "(RK4, every collision pair). 'euler' and 'fast' are cheaper worlds "
+                            "for screening and are different MDPs, so their checkpoints record a "
+                            "version string that says so and cannot be scored as v9.")
     parser.add_argument("--use-supervisor-in-training", action="store_true", default=False, help="Use recovery supervisor during target phase training")
     # PPO-specific arguments
     parser.add_argument("--num-steps", type=int, default=int(get_env_or_default("NUM_STEPS", ENV_VARS["NUM_STEPS"])), help="PPO rollout length per env.")
@@ -318,6 +325,7 @@ def make_env(
     task_phase="recovery",
     target_forward_velocity=0.8,
     terminate_when_unhealthy=False,
+    physics_preset="v9",
 ):
     def thunk():
         env_kwargs = {
@@ -328,6 +336,7 @@ def make_env(
             "task_phase": task_phase,
             "target_forward_velocity": target_forward_velocity,
             "terminate_when_unhealthy": terminate_when_unhealthy,
+            "physics_preset": physics_preset,
             # Reward shaping for stable 1M-step walking, in one place shared with the
             # evaluators (envs.reward_shaping.TRAINING_REWARD_KWARGS): scoring with the
             # environment defaults instead pays for postures training never rewarded.
@@ -356,7 +365,16 @@ def env_common_kwargs(args):
         "task_phase": args.task_phase,
         "target_forward_velocity": args.target_forward_velocity,
         "terminate_when_unhealthy": args.task_phase == "target",
+        # Read tolerantly: a caller that has no preset (an older harness, a test that assembles its
+        # own args namespace) must get the published world, not an AttributeError.
+        "physics_preset": getattr(args, "physics_preset", "v9"),
     }
+
+
+def current_env_version(args):
+    """The env version string this run's checkpoints should carry, and be checked against."""
+    preset = getattr(args, "physics_preset", "v9")
+    return ENV_VERSION if preset == "v9" else f"{ENV_VERSION}_{preset}"
 
 
 def build_vec_env(args, run_name, num_envs=None, capture_video=None):
@@ -984,7 +1002,7 @@ def save_sac_checkpoint(
     )
     checkpoint = {
             "algo": "sac",
-            "env_version": ENV_VERSION,
+            "env_version": env_version_of(envs),
             "task_phase": task_phase,
             "target_forward_velocity": target_forward_velocity,
             "reward_kwargs": dict(TRAINING_REWARD_KWARGS),
@@ -1027,7 +1045,7 @@ def save_sac_checkpoint(
     torch.save(
         {
             "algo": "sac_actor",
-            "env_version": ENV_VERSION,
+            "env_version": env_version_of(envs),
             "task_phase": task_phase,
             "target_forward_velocity": target_forward_velocity,
             "reward_kwargs": dict(TRAINING_REWARD_KWARGS),
@@ -1174,7 +1192,7 @@ def save_td3_checkpoint(path, global_step, agent, qf1, qf2, optimizer, q_optimiz
     os.makedirs(os.path.dirname(path), exist_ok=True)
     checkpoint = {
         "algo": "td3",
-        "env_version": ENV_VERSION,
+        "env_version": env_version_of(envs),
         "task_phase": task_phase,
         "target_forward_velocity": target_forward_velocity,
         "reward_kwargs": dict(TRAINING_REWARD_KWARGS),
@@ -1208,7 +1226,7 @@ def save_ppo_checkpoint(path, global_step, agent, optimizer, envs, task_phase=No
     os.makedirs(os.path.dirname(path), exist_ok=True)
     checkpoint = {
         "algo": "ppo",
-        "env_version": ENV_VERSION,
+        "env_version": env_version_of(envs),
         "task_phase": task_phase,
         "target_forward_velocity": target_forward_velocity,
         "reward_kwargs": dict(TRAINING_REWARD_KWARGS),
@@ -1530,10 +1548,10 @@ def train_td3(start_time=None):
             if checkpoint.get("algo") != "td3":
                 raise ValueError(f"Checkpoint {ckpt_path} is not a TD3 checkpoint.")
             checkpoint_env_version = checkpoint.get("env_version")
-            if checkpoint_env_version != ENV_VERSION and not args.allow_mismatched_env_version:
+            if checkpoint_env_version != current_env_version(args) and not args.allow_mismatched_env_version:
                 raise ValueError(
                     "Checkpoint environment version mismatch: "
-                    f"checkpoint={checkpoint_env_version!r} current={ENV_VERSION!r}."
+                    f"checkpoint={checkpoint_env_version!r} current={current_env_version(args)!r}."
                 )
             actor.load_state_dict(checkpoint["agent_state_dict"])
             qf1.load_state_dict(checkpoint["qf1_state_dict"])
@@ -1754,10 +1772,10 @@ def train(start_time=None):
             if checkpoint.get("algo") != "sac":
                 raise ValueError(f"Checkpoint {ckpt_path} is not a SAC checkpoint.")
             checkpoint_env_version = checkpoint.get("env_version")
-            if checkpoint_env_version != ENV_VERSION and not args.allow_mismatched_env_version:
+            if checkpoint_env_version != current_env_version(args) and not args.allow_mismatched_env_version:
                 raise ValueError(
                     "Checkpoint environment version mismatch: "
-                    f"checkpoint={checkpoint_env_version!r} current={ENV_VERSION!r}. "
+                    f"checkpoint={checkpoint_env_version!r} current={current_env_version(args)!r}. "
                     "Start a new run with --force, or pass --allow-mismatched-env-version "
                     "only if you intentionally want to fine-tune across a reward change."
                 )

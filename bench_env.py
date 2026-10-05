@@ -23,6 +23,7 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import envs.walker_ragdoll_env  # noqa: F401,E402  (registers WalkerRagdoll-v0)
+from envs.walker_ragdoll_env import PHYSICS_PRESETS, apply_physics_preset  # noqa: E402
 import gymnasium as gym  # noqa: E402
 import mujoco  # noqa: E402
 
@@ -45,10 +46,11 @@ def _time_fn(fn, make_args, seconds, warmup_steps=200):
     return len(samples) / total, total / len(samples) * 1e6
 
 
-def bench_physics(seconds, task_phase, reset_mode):
+def bench_physics(seconds, task_phase, reset_mode, physics_preset="v9"):
     """Raw MuJoCo cost: one mj_step per policy call, i.e. frame_skip substeps."""
     xml = os.path.join(os.path.dirname(os.path.abspath(__file__)), "walker_ragdoll.xml")
     model = mujoco.MjModel.from_xml_path(xml)
+    apply_physics_preset(model, physics_preset)
     data = mujoco.MjData(model)
     mujoco.mj_forward(model, data)
 
@@ -66,8 +68,9 @@ def bench_physics(seconds, task_phase, reset_mode):
     }
 
 
-def bench_single_env(seconds, task_phase, reset_mode):
-    env = gym.make("WalkerRagdoll-v0", task_phase=task_phase, reset_mode=reset_mode)
+def bench_single_env(seconds, task_phase, reset_mode, physics_preset="v9"):
+    env = gym.make("WalkerRagdoll-v0", task_phase=task_phase, reset_mode=reset_mode,
+                   physics_preset=physics_preset)
     env.reset(seed=0)
     action = np.zeros(env.action_space.shape, dtype=np.float32) + 0.1
 
@@ -80,9 +83,10 @@ def bench_single_env(seconds, task_phase, reset_mode):
     return result
 
 
-def bench_vec_env(seconds, n, task_phase, reset_mode, copy):
+def bench_vec_env(seconds, n, task_phase, reset_mode, copy, physics_preset="v9"):
     def thunk():
-        e = gym.make("WalkerRagdoll-v0", task_phase=task_phase, reset_mode=reset_mode)
+        e = gym.make("WalkerRagdoll-v0", task_phase=task_phase, reset_mode=reset_mode,
+                     physics_preset=physics_preset)
         e = gym.wrappers.FlattenObservation(e)
         return e
 
@@ -114,12 +118,13 @@ def bench_vec_env(seconds, n, task_phase, reset_mode, copy):
 
 
 def bench_parallel_vec(seconds, n, task_phase, reset_mode, sparse_info=False,
-                      envs_per_worker=None):
+                      envs_per_worker=None, physics_preset="v9"):
     from envs.parallel_vector_env import ParallelVectorEnv
 
     specs = [
         ("envs.parallel_vector_env", "make_walker_thunk", (), {
             "index": i, "task_phase": task_phase, "reset_mode": reset_mode, "flatten": True,
+            "env_kwargs": {"physics_preset": physics_preset},
         })
         for i in range(n)
     ]
@@ -176,6 +181,9 @@ def main():
                    help="Repetitions per measurement; reports the median and the spread.")
     p.add_argument("--task-phase", default="recovery", choices=["recovery", "balance", "walk", "target"])
     p.add_argument("--reset-mode", default="mixed", choices=["fixed", "mixed", "fallen", "upright"])
+    p.add_argument("--physics-preset", default="v9", choices=list(PHYSICS_PRESETS),
+                   help="which compiled world to time. 'v9' is the published one; 'euler' and "
+                        "'fast' are the screening presets.")
     p.add_argument("--json", type=str, default=None, help="Write results to this path.")
     p.add_argument("--envs-per-worker", type=int, default=None,
                    help="Group N envs into one worker process (default: auto).")
@@ -183,7 +191,8 @@ def main():
                    help="Sweep envs-per-worker 1..8 at --n and print the scaling curve.")
     args = p.parse_args()
 
-    common = dict(seconds=args.seconds, task_phase=args.task_phase, reset_mode=args.reset_mode)
+    common = dict(seconds=args.seconds, task_phase=args.task_phase, reset_mode=args.reset_mode,
+                  physics_preset=args.physics_preset)
     results = []
     run = lambda fn, **kw: _repeated(fn, args.reps, kw)
     if args.sweep:

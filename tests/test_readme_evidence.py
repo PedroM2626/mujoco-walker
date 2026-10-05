@@ -2615,6 +2615,155 @@ class TestReadmeUnifiedPhaseCells(unittest.TestCase):
 
 
 
+class TestReadmeTargetFromScratchCells(ReadmeGate, unittest.TestCase):
+    """The from-zero 40M target run against the curriculum run, cell by cell.
+
+    This is the arm the previous section did not have, and the block's whole point is a comparison -
+    so every figure in both tables, in the reach-rate series, in the wall clock and in the claim that
+    the control reproduced its own published row, is recomputed from the artifacts here. The two
+    artifacts are also the ones where a silent protocol change would be invisible: if the pairing
+    stopped being per-episode, or the posture control stopped reproducing, the prose would still read
+    the same while meaning something else.
+    """
+
+    PAIRED = os.path.join(ROOT, "benchmarks",
+                          "target_learning_curve_from_scratch_paired.json")
+    POSTURE = os.path.join(ROOT, "benchmarks", "posture_target_from_scratch_v9.json")
+    PUBLISHED_POSTURE = os.path.join(ROOT, "benchmarks", "phase1_posture_probe.json")
+    CURVE = os.path.join(ROOT, "benchmarks", "target_learning_curve_from_scratch_v9.json")
+    START = "**One phrase in that paragraph was doing more work than it could carry.**"
+    END = "What the phase split does cost is that a phase cannot change mid-run."
+
+    def setUp(self):
+        with open(README, encoding="utf-8") as handle:
+            readme = handle.read()
+        start = readme.index(self.START)
+        self.block = readme[start:readme.index(self.END, start)]
+        self.flat = re.sub(r"\s+", " ", self.block)
+        self.paired, self.posture, self.published, self.curve = self.read_artifacts(
+            self.PAIRED, self.POSTURE, self.PUBLISHED_POSTURE, self.CURVE)
+        self.bad = []
+        self.what = "target-from-scratch comparison"
+
+    def test_the_paired_table_is_the_paired_artifact(self):
+        rows = {
+            "episodes that got closer to the target":
+                [self.paired["scratch_closer"], self.paired["curriculum_closer"]],
+            "median closest approach":
+                [self.paired["closest_approach"]["scratch"]["median"],
+                 self.paired["closest_approach"]["curriculum"]["median"]],
+            "best single episode":
+                [self.paired["closest_approach"]["scratch"]["min"],
+                 self.paired["closest_approach"]["curriculum"]["min"]],
+            "episodes ending inside the radius":
+                [self.paired["reached_target"]["scratch_only"],
+                 self.paired["reached_target"]["curriculum_only"]],
+        }
+        for label, want in rows.items():
+            m = re.search(rf"\| {label} \| ([\d.]+)(?: m)? \| ([\d.]+)(?: m)?", self.block)
+            self.assertIsNotNone(m, f"the paired row {label!r} is gone")
+            self.check(label, [m.group(1), m.group(2)], want, places=3)
+        m = re.search(r"(\d+) pairs within 5 mm", self.flat)
+        self.assertIsNotNone(m, "the within-5mm count is gone from the paired table")
+        self.check("within 5 mm", m.group(1), self.paired["within_5mm"], places=0)
+
+    def test_the_delta_and_episode_counts_are_recomputed(self):
+        m = self.sentence(r"Median advantage ([\d.]+) m, mean ([\d.]+) m", "the paired delta")
+        self.check("paired delta", [m.group(1), m.group(2)],
+                   [abs(self.paired["median_delta_m"]), abs(self.paired["mean_delta_m"])], places=3)
+        m = self.sentence(r"Over the (\d+) matched episodes", "the pair count")
+        self.check("pair count", m.group(1), self.paired["pairs"], places=0)
+        self.assertEqual(self.paired["reached_target"]["both"], 0,
+                         "the block says the two arms never reach in the same episode")
+        m = self.sentence(r"all (\d+) telemetry rows came back identical.*?"
+                          r"\(`curriculum_rescore_matches_published`\)", "the reproduction claim")
+        self.check("telemetry rows compared", m.group(1),
+                   self.paired["curriculum_rescore_matches_published"]["episodes_compared"],
+                   places=0)
+        self.assertTrue(self.paired["curriculum_rescore_matches_published"]["identical"],
+                        "the re-scored curriculum arm no longer reproduces its committed curve, so "
+                        "the sentence that claims it does has to be rewritten")
+
+    def test_the_run_provenance_and_rate_are_the_recorded_ones(self):
+        run = self.paired["from_scratch_run"]
+        m = self.sentence(r"(\d+)M steps in (\d+) h (\d+) min (\d+) s at ([\d,]+) env-steps/s",
+                          "the run's wall clock")
+        self.check("steps", m.group(1), run["config"]["total_timesteps"] // 1_000_000, places=0)
+        typed = int(m.group(2)) * 3600 + int(m.group(3)) * 60 + int(m.group(4))
+        self.assertEqual(typed, run["wall_clock_seconds"],
+                         f"README says {m.group(2)} h {m.group(3)} min {m.group(4)} s, the artifact "
+                         f"records {run['wall_clock_seconds']} s")
+        self.check("sustained rate", m.group(5), run["sustained_env_steps_per_s"], places=0)
+        for key in ("seed", "num_envs", "target_forward_velocity"):
+            want = {"seed": 7, "num_envs": 32, "target_forward_velocity": 1.2}[key]
+            self.assertEqual(run["config"][key], want,
+                             f"the README names {key}={want}; the recorded run says "
+                             f"{run['config'][key]}")
+        self.assertIsNone(run["config"]["init_from"],
+                          "the arm is only 'from zero' while no checkpoint seeds it")
+
+    def test_the_reach_rate_series_is_the_curve_artifact(self):
+        m = self.sentence(r"Reach rate by checkpoint \(([^)]*)\) is ([\d., ]+) percent",
+                          "the reach-rate series")
+        budgets = [int(x.strip().rstrip("M")) for x in m.group(1).split(",")]
+        typed = [float(x.strip()) for x in m.group(2).split(",")]
+        arms = [f"s{b}000000" for b in budgets]
+        want = [self.curve["models"][a]["reached_target_pct"] for a in arms]
+        self.assertEqual(len(typed), len(want), "the reach-rate series lost or gained an entry")
+        self.check("reach rate", typed, want, places=1)
+
+    def test_the_posture_table_is_the_posture_artifact(self):
+        want = {
+            "from scratch, 8M": "scratch_8m", "from scratch, 20M": "scratch_20m",
+            "from scratch, 40M": "scratch_40m",
+            "`walker_target_v1`, 40M (control)": "curriculum_40m",
+        }
+        for label, key in want.items():
+            row = self.posture["models"][key]
+            cells = re.search(rf"\| {re.escape(label)} \| ([\d.]+) \| (\d+)/50 \| ([\d.]+) m \| "
+                              r"([\d.]+) m \|", self.block)
+            self.assertIsNotNone(cells, f"the posture row {label!r} is gone or reformatted")
+            self.check(label, [cells.group(1), cells.group(2), cells.group(3), cells.group(4)],
+                       [row["mean_pct_steps_in_band"], row["episodes_ever_in_band"],
+                        row["mean_max_z"], row["best_max_z_in_one_episode"]], places=3)
+
+    def test_the_posture_control_row_is_the_published_row(self):
+        """The three new rows are only comparable to the table because the control still reproduces."""
+        published = self.published["models"]["sac_40m"]
+        control = self.posture["models"]["curriculum_40m"]
+        for field in ("mean_pct_steps_in_band", "mean_max_z", "best_max_z_in_one_episode",
+                      "mean_falls_per_episode", "episodes_ever_in_band"):
+            self.assertEqual(control[field], published[field],
+                             f"the posture control no longer reproduces the published row on "
+                             f"{field}: {published[field]} against {control[field]}, so the four "
+                             "rows in this table are not in the same instrument")
+        self.assertEqual(self.posture["torch_threads"], self.published["torch_threads"],
+                         "the control changed its thread pin, which the published posture rows "
+                         "were measured with")
+
+    def test_the_standing_band_floor_is_the_environments_own_constant(self):
+        m = self.sentence(r"does not reach the band.s floor at ([\d.]+) m", "the band floor")
+        import inspect
+        from envs.walker_ragdoll_env import WalkerRagdollEnv
+        default = re.search(r"healthy_z_range: tuple = \(([\d.]+), ([\d.]+)\)",
+                            inspect.getsource(WalkerRagdollEnv.__init__))
+        self.assertIsNotNone(default, "the env no longer declares its healthy_z_range default")
+        self.check("band floor", m.group(1), float(default.group(1)), places=2)
+        stated = float(self.posture["protocol"].split("torso z in (")[1].split(",")[0].strip())
+        self.assertAlmostEqual(stated, float(default.group(1)), places=2,
+                               msg="the posture artifact measured a different band than the env "
+                                   "documents")
+
+    def test_the_return_caveat_names_both_task_speeds(self):
+        m = self.sentence(r"records `target_forward_velocity` ([\d.]+) and the from-scratch "
+                          r"checkpoints record ([\d.]+)", "the reward-function caveat")
+        self.check("task speeds", [float(m.group(1)), float(m.group(2))],
+                   [self.published["models"]["sac_40m"]["reward_kwargs_applied"]
+                    ["target_forward_velocity"],
+                    self.posture["models"]["scratch_40m"]["reward_kwargs_applied"]
+                    ["target_forward_velocity"]], places=1)
+
+
 class TestReadmeCurriculumProvenanceCells(ReadmeGate, unittest.TestCase):
     """The manual phase curriculum, gated against `benchmarks/curriculum_provenance.json`.
 

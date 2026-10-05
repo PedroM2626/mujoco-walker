@@ -1098,6 +1098,7 @@ class TestReadmeGailAnomalyCells(unittest.TestCase):
     """
 
     N1_ART = os.path.join(ROOT, "benchmarks", "phase4_n1_vs_50ep.json")
+    RETRAIN_ART = os.path.join(ROOT, "benchmarks", "phase4_gail_retrain.json")
     RETIRED_EARLIER = 1016.41  # the figure the README quoted before the retired table's 997.57
     START = "That distinction is what makes one retired figure stand out."
     END = "| Model Architecture | Final Score |"
@@ -1109,6 +1110,11 @@ class TestReadmeGailAnomalyCells(unittest.TestCase):
         self.block = re.sub(r"\s+", " ", readme[start:readme.index(self.END, start)])
         with open(self.N1_ART, encoding="utf-8") as handle:
             self.gail = json.load(handle)["models"]["GAIL"]
+        with open(self.RETRAIN_ART, encoding="utf-8") as handle:
+            art = json.load(handle)
+        self.art = art
+        self.arms = art["arms"]
+        self.cmp = art["comparison"]
 
     def find(self, pattern, what):
         m = re.search(pattern, self.block)
@@ -1140,6 +1146,76 @@ class TestReadmeGailAnomalyCells(unittest.TestCase):
                        "true_env_reward"):
             self.assertIn(needle, src, f"the trainer no longer contains {needle!r}; the reward"
                                        "-bookkeeping elimination has to be restated")
+
+    def test_the_retrain_table_is_the_artifact_s_two_arms(self):
+        found = re.findall(
+            r"\| (June 2026|Retrain), [^|]*\| ([\d.]+) \| ([\d.]+) \| ([\d.]+) / ([\d.]+) \| "
+            r"([\d.]+) \|", self.block)
+        rows = {label: cells for label, *cells in found}
+        self.assertEqual(set(rows), {"June 2026", "Retrain"},
+                         "the two-arm GAIL table lost or renamed a row")
+        want = {"June 2026": "june_control", "Retrain": "fresh_retrain"}
+        for label, key in want.items():
+            mean, std, mn, mx, train_max = rows[label]
+            ev, tr = self.arms[key]["evaluation"], self.arms[key]["training_episodes"]
+            self.assertEqual((float(mean), float(std), float(mn), float(mx), float(train_max)),
+                             (ev["mean"], ev["std"], ev["min"], ev["max"], tr["max"]),
+                             f"the {label} row is not what {key}'s artifact says")
+
+    def test_the_retrain_arithmetic_sentences_subtract_out(self):
+        m = self.find(r"mean ([\d.]+), std ([\d.]+), min ([\d.]+), max ([\d.]+) - so nothing in "
+                      r"the harness moved", "the control reproduction")
+        published = self.art["control_reproduces_published"]
+        self.assertEqual([float(x) for x in m.groups()],
+                         [published["measured"][k] for k in ("mean", "std", "min", "max")],
+                         "the control row quoted in prose is not the control's measured row")
+        self.assertTrue(published["exact"], "the control no longer reproduces the published row, "
+                                            "so the sentence claiming it reproduced it exactly "
+                                            "has to be rewritten")
+        m = self.find(r"1016\.41 is \*\*([\d.]+) above the best episode the retrain",
+                      "the gap above the retrain")
+        self.assertAlmostEqual(float(m.group(1)), self.cmp["retired_above_fresh_max"], places=2)
+        m = self.find(r"the mean moves ([\d.]+) points and the band goes from ([\d.]+) to "
+                      r"([\d.]+) - ([\d.]+) times wider", "the run-to-run spread")
+        self.assertAlmostEqual(float(m.group(1)), self.cmp["mean_delta_june_minus_fresh"], places=2)
+        self.assertEqual([float(m.group(2)), float(m.group(3))],
+                         [self.arms["june_control"]["evaluation"]["band"],
+                          self.arms["fresh_retrain"]["evaluation"]["band"]])
+        self.assertAlmostEqual(float(m.group(4)), self.cmp["band_ratio_fresh_over_june"], places=2)
+        m = self.find(r"([\d]+ h [\d]+ min)", "the retrain's wall clock")
+        seconds = self.arms["fresh_retrain"]["training_run"]["wall_clock_seconds"]
+        self.assertEqual(m.group(1), f"{seconds // 3600} h {seconds % 3600 // 60} min",
+                         "the quoted training time is not the recorded wall clock")
+
+    def test_the_training_print_candidate_is_the_june_run_s_own_series(self):
+        m = self.find(r"\*\*([\d]+) of its logged episodes sit at or above 1016\.41\*\*, the "
+                      r"nearest being ([\d.]+) at step ([\d,]+), which is ([\d.]+) away",
+                      "the candidate cause")
+        nearest = self.cmp["nearest_june_training_episode"]
+        self.assertEqual(int(m.group(1)), self.cmp["june_training_episodes_at_or_above_retired"])
+        self.assertAlmostEqual(float(m.group(2)), nearest["value"], places=2)
+        self.assertEqual(int(m.group(3).replace(",", "")), nearest["step"])
+        self.assertAlmostEqual(float(m.group(4)), nearest["delta"], places=2)
+        self.assertEqual(self.cmp["fresh_training_episodes_at_or_above_retired"], 0,
+                         "the retrain now has episodes above the retired figure too, so the "
+                         "asymmetry the paragraph rests on has to be restated")
+        m = self.find(r"the retrain's best episode \(([\d.]+)\) and its last-20-episode mean "
+                      r"\(([\d.]+), against June's ([\d.]+)\)", "the training-side comparison")
+        fresh, june = (self.arms[k]["training_episodes"] for k in ("fresh_retrain", "june_control"))
+        self.assertEqual([float(m.group(1)), float(m.group(2)), float(m.group(3))],
+                         [fresh["max"], fresh["mean_of_last_20"], june["mean_of_last_20"]])
+
+    def test_the_weights_behind_both_arms_are_the_ones_recorded(self):
+        # The .pt files are gitignored, so a machine without them cannot check the bytes; it can
+        # still check that the artifact was written against the pair the prose names.
+        for key, named in (("june_control", "gail_model.pt"),
+                           ("fresh_retrain", "gail_model_retrain_2026-10-05.pt")):
+            spec = self.arms[key]["weights"]
+            self.assertTrue(spec["file"].endswith(named),
+                            f"{key}'s artifact names {spec['file']}, the prose says {named}")
+            if spec["present"]:
+                self.assertEqual(spec["sha256_on_disk"], spec["sha256"],
+                                 f"{named} on disk is not the policy this artifact scored")
 
 
 class TestReadmeStackedReplicationCells(ReadmeGate, unittest.TestCase):

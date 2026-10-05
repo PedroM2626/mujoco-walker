@@ -1,0 +1,109 @@
+{
+  "protocol": "evaluate_all.py --episodes 50 --seed 2026 (headless, seeded per episode), run once per policy in the same session",
+  "std_convention": "population std, the same one evaluate_all.py prints and the README table quotes",
+  "retired_figure": 1016.41,
+  "arms": {
+    "june_control": {
+      "evaluation": {
+        "episodes": 50,
+        "mean": 998.07,
+        "median": 998.1,
+        "std": 0.37,
+        "min": 997.31,
+        "max": 998.74,
+        "q25": 997.82,
+        "q75": 998.29,
+        "band": 1.43
+      },
+      "training_episodes": {
+        "window_from_step": 10000,
+        "episodes_logged": 1394,
+        "last_step": 999033,
+        "max": 1092.62,
+        "mean_of_last_20": 902.18
+      },
+      "training_run": {
+        "run_id": "493f329f9e75412f8ee220d9f16c12f6",
+        "wall_clock_seconds": 12126,
+        "params": {
+          "algorithm": "GAIL",
+          "max_steps": "1000000",
+          "batch_size": "256"
+        }
+      },
+      "weights": {
+        "file": "openai_walker/gail_model.pt",
+        "sha256": "01380EDB3A7759B4F314E029785E4A9072436509AD7E0744F5566D6ECC049DA6",
+        "written": "2026-06-10 19:03",
+        "present": true,
+        "sha256_on_disk": "01380EDB3A7759B4F314E029785E4A9072436509AD7E0744F5566D6ECC049DA6",
+        "mtime_on_disk": "2026-06-10 19:03"
+      }
+    },
+    "fresh_retrain": {
+      "evaluation": {
+        "episodes": 50,
+        "mean": 979.35,
+        "median": 979.96,
+        "std": 2.3,
+        "min": 971.41,
+        "max": 981.95,
+        "q25": 978.89,
+        "q75": 980.82,
+        "band": 10.54
+      },
+      "training_episodes": {
+        "window_from_step": 10000,
+        "episodes_logged": 1424,
+        "last_step": 999481,
+        "max": 1001.56,
+        "mean_of_last_20": 870.31
+      },
+      "training_run": {
+        "wall_clock_seconds": 11897,
+        "wall_clock_source": "mlruns.db run 95f7940d8c944425a398a59291d56837 (local and gitignored): 2026-10-05 08:08:35 -> 11:26:52",
+        "params": {
+          "algorithm": "GAIL",
+          "max_steps": "1000000",
+          "batch_size": "256"
+        }
+      },
+      "weights": {
+        "file": "openai_walker/gail_model_retrain_2026-10-05.pt",
+        "sha256": "C6CF60D517F11ED539E4A3668CC1029A34DA4CD765BF598CE27706A5C1A7E85E",
+        "written": "2026-10-05 11:26",
+        "present": true,
+        "sha256_on_disk": "C6CF60D517F11ED539E4A3668CC1029A34DA4CD765BF598CE27706A5C1A7E85E",
+        "mtime_on_disk": "2026-10-05 11:26"
+      }
+    }
+  },
+  "control_reproduces_published": {
+    "published": {
+      "mean": 998.07,
+      "std": 0.37,
+      "min": 997.31,
+      "max": 998.74
+    },
+    "measured": {
+      "mean": 998.07,
+      "std": 0.37,
+      "min": 997.31,
+      "max": 998.74
+    },
+    "exact": true
+  },
+  "comparison": {
+    "mean_delta_june_minus_fresh": 18.72,
+    "band_ratio_fresh_over_june": 7.37,
+    "retired_above_fresh_max": 34.46,
+    "retired_above_june_max": 17.67,
+    "june_training_episodes_at_or_above_retired": 8,
+    "fresh_training_episodes_at_or_above_retired": 0,
+    "nearest_june_training_episode": {
+      "step": 593171,
+      "value": 1016.53,
+      "delta": 0.12
+    }
+  }
+}

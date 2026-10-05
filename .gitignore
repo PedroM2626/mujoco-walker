@@ -37,6 +37,10 @@ htmlcov/
 !dreamer_smoke.log
 !redq_evidence.log
 !dreamer_n16_250k_evidence.log
+# The GAIL retrain's stdout is the training-side record summarize_benchmarks.py parses for
+# benchmarks/phase4_gail_retrain.json; the June run's equivalent survives only as its mlflow
+# record, which is exported into benchmarks/gail_june_run_true_env_reward.json.
+!openai_walker/gail_retrain_2026-10-05.log
 runs/
 checkpoints/
 *.pt

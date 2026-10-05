@@ -638,7 +638,10 @@ that can average.
 Re-run with `evaluate_all.py --episodes 50 --seed 2026` (episode *i* resets with `2026+i`).
 Evidence: `openai_walker/final_results_50ep_seed2026.txt`, the per-episode returns in
 `openai_walker/final_episodes_50ep_seed2026.json`, and `benchmarks/phase4_race_50ep.json`; a
-20-episode run at seed 123 gave the same ordering, so the picture is stable. Regenerate with
+20-episode run at seed 123 gave the same ordering, so the picture is stable. The GAIL retrain below
+was scored twice more under this protocol and kept in
+`openai_walker/final_episodes_50ep_seed2026_gail_{retrain,june_control}.json`, summarised together
+with both runs' training-side episodes into `benchmarks/phase4_gail_retrain.json`. Regenerate with
 `python summarize_benchmarks.py`.
 
 Because episode *i* is the same initial state for every model, neighbouring rows can be
@@ -759,9 +762,9 @@ the default). So episode luck cannot move GAIL by more than about a point and a
 half. The earlier version of this README quoted 1016.41 for it: **17.67 above the best of the 50
 seeded episodes**, which is outside anything this protocol produces. The checkpoint on disk
 predates the commit that quoted that figure by twenty minutes, so if it was rewritten inside that
-window nothing records what it held. It is listed among the unsupported figures above, and this
-is the one of them whose gap has no candidate cause on record - BC's retired 3837.80, by
-contrast, is +0.47 sigma inside its own distribution and needed no explanation at all.
+window nothing records what it held. It is listed among the unsupported figures above. What it
+lacked was a candidate cause - BC's retired 3837.80, by contrast, is +0.47 sigma inside its own
+distribution and needed no explanation at all - and a second run of the recipe below supplies one.
 
 Two more candidates have since been closed by reading rather than by measuring. It is not a
 comparison across two policies: `evaluate_all.py` loads `gail_model.pt` straight out of
@@ -773,6 +776,34 @@ environment's own reward (`next_state, reward, terminated, truncated, _ = env.st
 reaches that number, so the retired figure and the seeded protocol measure the same quantity. What
 is left is the twenty-minute window in which nothing records what the file held, or a hand-typed
 figure.
+
+**A second 1M-step run of the same recipe puts the gap in perspective.** `train_irl_gail.py` seeds
+nothing, so this is a fresh draw rather than a reproduction: 1,000,000 steps, batch 256, 3 h 18 min,
+scored at the published protocol (50 episodes, seed 2026) with the June weights re-scored in the same
+session as the control. The control reproduced the published row exactly - mean 998.07, std 0.37,
+min 997.31, max 998.74 - so nothing in the harness moved between the two captures. The fresh draw
+did not reach the June policy's level.
+
+| GAIL policy (1M steps each) | Eval mean | Eval std | Worst / best episode | Best training episode |
+|:---|---:|---:|---:|---:|
+| June 2026, `gail_model.pt` | 998.07 | 0.37 | 997.31 / 998.74 | 1092.62 |
+| Retrain, 2026-10-05 | 979.35 | 2.30 | 971.41 / 981.95 | 1001.56 |
+
+Two things follow. The first is arithmetic: 1016.41 is **34.46 above the best episode the retrain
+produces**, and 17.67 above the best the June policy produces, so a second independent draw of the
+recipe does not reach it either. The second is the candidate cause. `true_env_reward` - what the
+trainer prints per completed episode - is not the seeded evaluation mean, and the June run's own
+episodes reached 1092.62: **8 of its logged episodes sit at or above 1016.41**, the nearest being
+1016.53 at step 593,171, which is 0.12 away. So the retired figure is exactly the size of a number
+copied off the training print of the run that produced the checkpoint, which is a quantity this
+protocol never reports as a score. It is not that number itself: no logged episode is 1016.41, and
+the retrain's best episode (1001.56) and its last-20-episode mean (870.31, against June's 902.18)
+both sit below it. The cause is therefore attributed, not identified.
+
+This also refines what "near-zero variance" measured. That is variance *within one policy* over 50
+resets of fixed weights. Across two runs of the recipe the mean moves 18.72 points and the band goes
+from 1.43 to 10.54 - 7.37 times wider - so a plateau "near 1000" has a run-to-run spread of its own,
+and one GAIL number carries both.
 
 | Model Architecture | Final Score |
 |:---|---:|
@@ -798,7 +829,8 @@ score table can carry:
   effect: nothing here separates under-training from the variance a Return-To-Go policy has anyway.
 - **GAIL was trained to 1,000,000 steps and plateaued near 1000** - the dataset was too
   deterministic, the discriminator became a perfect judge, and the actor starved. That plateau, not
-  a bad evaluation, is what its near-zero variance measures.
+  a bad evaluation, is what its near-zero variance measures - and the plateau is per run: the second
+  1M-step draw above sits at 979.35 where this one scores 998.07.
 - **AIRL was rebuilt once**: the first version produced `NaN` gradients where deterministic dataset
   actions hit the `atanh` limits, and came back with spectral normalisation, action clipping
   ($\pm 0.95$) and an $h(s)$ shaping baseline. It still sits at -6, the measured value, where the
@@ -1657,12 +1689,12 @@ Three facts to keep in mind:
 
 The suite is plain `unittest` (no pytest required) and covers the environment contract, the
 golden reward rollouts, the parallel/serial vector-env parity, checkpointing and the race
-harness — **210 tests, 167 s in this window** (`Ran 210 tests in 166.606s ... OK
+harness — **214 tests, 170 s in this window** (`Ran 214 tests in 169.919s ... OK
 (skipped=7)` under `.venv`). Windows of this suite have measured 176.3 s at 102 tests, 269.995 s
 at 121, 261.1 s at 127, 329.964 s at 128, 319.168 s at 130, 184.716 s, 203.108 s and 306.976 s at
 140, 144.678 s at 147, 230.268 s at 157, 171.016 s and 170.304 s at 194, and 174.008 s,
-170.391 s, 175.036 s, 168.775 s and 168.986 s at 201/205 and 166.606 s at 210 - consecutive
-runs of one commit agree to 4%, where the
+170.391 s, 175.036 s, 168.775 s, 168.986 s and 166.606 s at 201/205/210, and 169.919 s at 214 -
+consecutive runs of one commit agree to 4%, where the
 147 and 157 windows an afternoon earlier were 1.6x apart for ten more tests. The
 duration belongs to the machine's state, the
 count does not, and a gate checks the count so it cannot go stale quietly):
@@ -1718,7 +1750,7 @@ that they ran - see Phase 4, item 6. How each of those states was found, with th
 ## 🔬 Reproducing and measuring
 
 ```bash
-python -m unittest discover -s tests -t .   # 210 tests in .venv, 167 s; see "Running the tests"
+python -m unittest discover -s tests -t .   # 214 tests in .venv, 170 s; see "Running the tests"
 python bench_env.py --seconds 4             # env throughput, physics vs Python split
 python bench_mjx.py --sizes 32,128          # MJX/JAX batched stepping
 python verify.py                            # Phase-2 artifact check (exits 2 when missing)

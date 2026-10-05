@@ -3,9 +3,11 @@
 Reads the run logs, so the published numbers cannot drift from what was executed.
 Re-run after a benchmark to refresh benchmarks/*.json.
 """
+import hashlib
 import json
 import os
 import re
+from datetime import datetime as dt
 
 import numpy as np
 
@@ -199,6 +201,142 @@ def phase4_n1_reassessment(out="benchmarks/phase4_n1_vs_50ep.json"):
     return out_data, out
 
 
+GAIL_RETIRED_FIGURE = 1016.41  # the score the README carried before the seeded table's 998.07
+GAIL_WEIGHTS = {
+    # The two policies this comparison scores. Their bytes are gitignored (everything `*.pt` is), so
+    # the hashes and mtimes below are recorded captures; the builder verifies them whenever the
+    # files are present on the machine it runs on, and fails rather than quietly re-label them.
+    "june_control": {"file": "openai_walker/gail_model.pt",
+                     "sha256": "01380EDB3A7759B4F314E029785E4A9072436509AD7E0744F5566D6ECC049DA6",
+                     "written": "2026-06-10 19:03"},
+    "fresh_retrain": {"file": "openai_walker/gail_model_retrain_2026-10-05.pt",
+                      "sha256": "C6CF60D517F11ED539E4A3668CC1029A34DA4CD765BF598CE27706A5C1A7E85E",
+                      "written": "2026-10-05 11:26"},
+}
+
+
+def _train_series(path, pattern):
+    text = open(os.path.join(ROOT, path), encoding="utf-8", errors="replace").read()
+    return [(int(s), float(v)) for s, v in re.findall(pattern, text, re.M)]
+
+
+def _train_stats(rows, from_step=10000):
+    """Episode-return statistics over the window both records can see.
+
+    `start_steps` is 10000 in the trainer: those first steps are uniform-random and mlflow never
+    logs their episode returns (`if t >= start_steps`), while a stdout capture prints every episode.
+    Taking both series from step 10000 onwards is what makes "the June run" and "the retrain" the
+    same measurement rather than two different denominators.
+    """
+    rows = [r for r in rows if r[0] > from_step]
+    values = [v for _, v in rows]
+    return {
+        "window_from_step": from_step,
+        "episodes_logged": len(values),
+        "last_step": rows[-1][0],
+        "max": round(max(values), 2),
+        "mean_of_last_20": round(sum(values[-20:]) / min(20, len(values)), 2),
+    }
+
+
+def gail_retrain(out="benchmarks/phase4_gail_retrain.json"):
+    """The 2026-10-05 GAIL retrain, scored against the June policy it was set beside.
+
+    The README's GAIL anomaly rested on arithmetic over one checkpoint: 1016.41 sits above anything
+    the 50 seeded resets of `gail_model.pt` produce. A single policy cannot say whether that band is
+    a property of GAIL or of that particular run, so a second 1M-step run was trained with the same
+    recipe (unseeded, so this is a fresh draw and not a reproduction) and scored under the published
+    protocol, with the June weights re-scored in the same session as the control. The training-side
+    series is here too, because that is where the retired figure actually lands inside a range:
+    `true_env_reward` is the environment return the trainer prints per episode, and it is a
+    different quantity from the seeded evaluation mean.
+    """
+    def eval_arm(name):
+        data = json.load(open(os.path.join(ROOT, "openai_walker", name), encoding="utf-8"))
+        values = data["models"]["GAIL"]
+        stats = _stats(values)
+        stats["band"] = round(stats["max"] - stats["min"], 2)
+        return stats
+
+    def weights(label):
+        spec = GAIL_WEIGHTS[label]
+        entry = dict(spec, present=False)
+        path = os.path.join(ROOT, *spec["file"].split("/"))
+        if os.path.exists(path):
+            entry["present"] = True
+            entry["sha256_on_disk"] = hashlib.sha256(open(path, "rb").read()).hexdigest().upper()
+            if entry["sha256_on_disk"] != spec["sha256"]:
+                raise SystemExit(f"{spec['file']}: hash {entry['sha256_on_disk']} is not the "
+                                 f"{spec['sha256']} this artifact was written against")
+            entry["mtime_on_disk"] = dt.fromtimestamp(
+                os.path.getmtime(path)).strftime("%Y-%m-%d %H:%M")
+        return entry
+
+    fresh = eval_arm("final_episodes_50ep_seed2026_gail_retrain.json")
+    control = eval_arm("final_episodes_50ep_seed2026_gail_june_control.json")
+    published = json.load(open(os.path.join(ROOT, "benchmarks", "phase4_race_50ep.json"),
+                               encoding="utf-8"))["models"]["GAIL"]
+
+    fresh_rows = _train_series(
+        os.path.join("openai_walker", "gail_retrain_2026-10-05.log"),
+        r"^Step (\d+) \| Episode \d+ \| True Env Reward: (-?[\d.]+)$")
+    fresh_train = _train_stats(fresh_rows)
+    june_record = json.load(open(os.path.join(ROOT, "benchmarks",
+                                              "gail_june_run_true_env_reward.json"),
+                                 encoding="utf-8"))
+    june_rows = [(e["step"], e["true_env_reward"]) for e in june_record["episodes"]]
+    june_train = _train_stats(june_rows)
+
+    above = [e for e in june_record["episodes"] if e["true_env_reward"] >= GAIL_RETIRED_FIGURE]
+    nearest = min(june_record["episodes"],
+                  key=lambda e: abs(e["true_env_reward"] - GAIL_RETIRED_FIGURE))
+    fresh_above = [r for r in fresh_rows if r[1] >= GAIL_RETIRED_FIGURE]
+
+    return {
+        "protocol": "evaluate_all.py --episodes 50 --seed 2026 (headless, seeded per episode), "
+                    "run once per policy in the same session",
+        "std_convention": "population std, the same one evaluate_all.py prints and the README "
+                          "table quotes",
+        "retired_figure": GAIL_RETIRED_FIGURE,
+        "arms": {
+            "june_control": {"evaluation": control, "training_episodes": june_train,
+                             "training_run": {"run_id": june_record["run_id"],
+                                              "wall_clock_seconds": june_record["wall_clock_seconds"],
+                                              "params": june_record["params"]},
+                             "weights": weights("june_control")},
+            "fresh_retrain": {"evaluation": fresh, "training_episodes": fresh_train,
+                              "training_run": {"wall_clock_seconds": 11897,
+                                               "wall_clock_source": "mlruns.db run "
+                                                   "95f7940d8c944425a398a59291d56837 (local and "
+                                                   "gitignored): 2026-10-05 08:08:35 -> 11:26:52",
+                                               "params": {"algorithm": "GAIL",
+                                                          "max_steps": "1000000",
+                                                          "batch_size": "256"}},
+                              "weights": weights("fresh_retrain")},
+        },
+        # The control is the same weights, the same seed and the same code path as the published
+        # table, so any difference here is a change in the harness, not in the policy.
+        "control_reproduces_published": {
+            "published": {k: published[k] for k in ("mean", "std", "min", "max")},
+            "measured": {k: control[k] for k in ("mean", "std", "min", "max")},
+            "exact": all(control[k] == published[k] for k in ("mean", "std", "min", "max")),
+        },
+        "comparison": {
+            "mean_delta_june_minus_fresh": round(control["mean"] - fresh["mean"], 2),
+            "band_ratio_fresh_over_june": round(fresh["band"] / control["band"], 2),
+            "retired_above_fresh_max": round(GAIL_RETIRED_FIGURE - fresh["max"], 2),
+            "retired_above_june_max": round(GAIL_RETIRED_FIGURE - control["max"], 2),
+            # The retired figure is outside both evaluations and inside the June run's training
+            # episodes, which is what a number read off the wrong column would look like.
+            "june_training_episodes_at_or_above_retired": len(above),
+            "fresh_training_episodes_at_or_above_retired": len(fresh_above),
+            "nearest_june_training_episode": {
+                "step": nearest["step"], "value": nearest["true_env_reward"],
+                "delta": round(abs(nearest["true_env_reward"] - GAIL_RETIRED_FIGURE), 2)},
+        },
+    }, out
+
+
 TEACHER_EVENTS = os.path.join("openai_walker", "sac_walker_tensorboard", "SAC_2",
                               "events.out.tfevents.1780843517.pedro.36828.0")
 
@@ -272,6 +410,9 @@ BENCHMARKS = [
     # Where each retired single-episode draw sits inside the distribution the same weights
     # produce today, so "the old table was a poor estimator" can be said per model.
     phase4_n1_reassessment,
+    # A second 1M-step GAIL run against the June one, so the width of the anomaly is measured
+    # rather than argued: evaluation spread within a run, and run-to-run spread of the mean.
+    gail_retrain,
     # The teacher's own 100-episode evaluations, mined from its committed TensorBoard log: the only
     # pre-retraction evaluation series in the repo, and an independent protocol.
     teacher_eval_curve,

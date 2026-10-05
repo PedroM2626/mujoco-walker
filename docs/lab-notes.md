@@ -151,6 +151,30 @@ file with a copy of the allowed one changed nothing - the decision is not made o
 alone, so "it works over there" is no argument for "copy it here". The supported route is the
 version that has a pure-Python fallback.
 
+## Retraining a policy whose checkpoint the README measures
+
+The 2026-10-05 GAIL retrain wrote over the file the published Phase-4 table was measured on:
+`train_irl_gail.py` saves to `gail_model.pt`, and that exact name is what `evaluate_all.py` scores.
+It ran inside a wrapper that hashed the three files at risk (`gail_model.pt`,
+`final_results_50ep_seed2026.txt`, `final_episodes_50ep_seed2026.json`), copied them aside, trained,
+scored the fresh weights, restored the June weights and scored them again as the control, then put
+all three back and re-hashed. All three came back identical
+(`01380edb…`, `6b4a53d5…`, `e52a217d…`), the fresh policy is kept under its own name as
+`gail_model_retrain_2026-10-05.pt`, and the control reproduced the published row to the last digit -
+which is the check that the wrap worked rather than a claim about the policy.
+
+**The reports are the fragile half.** `evaluate_all.py` names its outputs after the protocol only -
+episodes and seed - so scoring one model at 50 episodes and seed 2026 replaces the tracked
+thirteen-model capture with a one-model file. Nothing in the repository warns about that, and the
+ignore rules do not cover it either, because those files are tracked. A single-model capture at a
+published protocol is therefore only safe with the copy-aside step, and the two GAIL captures this
+session produced are committed under names that say which policy each scored.
+
+The trainer also gained a checkpoint every 100k steps during this work. It had exactly one write,
+after the final step, which is the pattern that already cost this repository an 84k-step Dreamer run
+(above); the retrain was three hours and eighteen minutes, and losing it at 950k would have been the
+same accident.
+
 ## The eighteen deleted recovery checkpoints
 
 Everything under `checkpoints/` is local and ignored, so none of it ever affected the clone size.

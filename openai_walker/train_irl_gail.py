@@ -277,6 +277,13 @@ def train_gail():
                     mlflow.log_metric("critic_loss", critic_loss.item(), step=t)
                     mlflow.log_metric("irl_reward_mean", r_irl.mean().item(), step=t)
 
+                # Durability, not a feature. This loop wrote exactly one file, after the last step,
+                # so a long run that dies at 900k steps leaves nothing (docs/lab-notes.md, "Losing a
+                # long run to a shared GPU"). The step is in the name so an interim policy can never
+                # be mistaken for the final one.
+                if t % 100000 == 0:
+                    torch.save(actor.state_dict(), f"gail_model_ckpt_{t + 1}.pt")
+
             if done:
                 print(f"Step {t+1} | Episode {episode_num+1} | True Env Reward: {episode_reward:.2f}")
                 if t >= start_steps:

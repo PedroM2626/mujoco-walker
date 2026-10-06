@@ -1701,6 +1701,16 @@ would replace. Neither is arithmetic - the loop is 195 MFLOP and the card measur
 what dominates is per-step overhead, which fusion does not delete either. Two caveats that matter:
 the torch figure was taken on the Windows host and the JAX one in WSL2, so this is a bound and not
 a paired A/B; and the prototype is the rollout, not the world model, the losses or the optimizers.
+
+The probe was run again a week later in a fresh WSL2 venv, and it moved the answer the wrong way for
+a port. Same script, same GPU, jax 0.11.2 where the numbers above came from 0.10.2: the rollout
+costs **1.741 ms** forward-only and **8.354 ms** with `value_and_grad` - the gradient path is now
+**2.6x** the captured torch loop it would replace, against 1.6x in the first probe. The GPU was not
+more busy: the fp32 matmul floor measured *faster*, **19.5 TFLOP/s** against 15.2, putting the
+arithmetic floor at **0.01 ms** and 0.58% of the loop. A device with more headroom and a loop with
+less speed is what dispatch-bound looks like from the outside, and it is the second time this
+particular port has measured against itself (`benchmarks/jax_rssm_imagination_wsl_jax0112.json`,
+committed beside the original rather than over it - a jax version is not the same instrument).
 Together with the table above, there is currently no measured case for a JAX port here.
 
 `Dockerfile.mjx` is the third route: an `nvidia/cuda` base so these numbers can be reproduced
@@ -1828,12 +1838,12 @@ Three facts to keep in mind:
 
 The suite is plain `unittest` (no pytest required) and covers the environment contract, the
 golden reward rollouts, the parallel/serial vector-env parity, checkpointing and the race
-harness — **251 tests, 163 s in this window** (`Ran 251 tests in 162.167s ... OK
+harness — **252 tests, 163 s in this window** (`Ran 252 tests in 163.434s ... OK
 (skipped=7)` under `.venv`). Windows of this suite have measured 176.3 s at 102 tests, 269.995 s
 at 121, 261.1 s at 127, 329.964 s at 128, 319.168 s at 130, 184.716 s, 203.108 s and 306.976 s at
 140, 144.678 s at 147, 230.268 s at 157, 171.016 s and 170.304 s at 194, and 174.008 s,
 170.391 s, 175.036 s, 168.775 s, 168.986 s and 166.606 s at 201/205/210, 169.919 s at 214,
-and 163.920 s and 161.829 s at 237, 165.360 s and 164.902 s at 243, 161.647 s and 162.674 s at 250, and 162.726 s and 162.167 s at 251 -
+and 163.920 s and 161.829 s at 237, 165.360 s and 164.902 s at 243, 161.647 s and 162.674 s at 250, 162.726 s and 162.167 s at 251, and 171.616 s and 163.434 s at 252 -
 consecutive runs of one commit agree to 4%, where the
 147 and 157 windows an afternoon earlier were 1.6x apart for ten more tests. The
 duration belongs to the machine's state, the
@@ -1890,7 +1900,7 @@ that they ran - see Phase 4, item 6. How each of those states was found, with th
 ## 🔬 Reproducing and measuring
 
 ```bash
-python -m unittest discover -s tests -t .   # 251 tests in .venv, 163 s; see "Running the tests"
+python -m unittest discover -s tests -t .   # 252 tests in .venv, 163 s; see "Running the tests"
 python bench_env.py --seconds 4             # env throughput, physics vs Python split
 python bench_mjx.py --sizes 32,128          # MJX/JAX batched stepping
 python verify.py                            # Phase-2 artifact check (exits 2 when missing)
@@ -1908,7 +1918,12 @@ python summarize_training_rate.py               # every run's real rate, from it
 python summarize_curriculum_provenance.py       # the manual curriculum's order, widths and stage change
 python -m utils.gpu_window                    # the GPU window a long run would start into
 python bench_jax_update.py                    # JAX imagination rollout, fwd + fwd/rev (needs a
-                                              # CUDA jaxlib: WSL2, see the MJX section)
+                                              # CUDA jaxlib: WSL2, see the MJX section). The 0.11.2
+                                              # re-run is in a venv there, not over the committed
+                                              # 0.10.2 capture:
+                                              #   wsl: XLA_PYTHON_CLIENT_MEM_FRACTION=0.3 \
+                                              #     ~/.venvs/jaxlab/bin/python bench_jax_update.py \
+                                              #     --out benchmarks/jax_rssm_imagination_wsl_jax0112.json
 ```
 
 `verify.py` currently exits non-zero because `dataset.csv` is not in the repository — see the

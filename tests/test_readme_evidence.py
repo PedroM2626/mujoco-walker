@@ -888,6 +888,37 @@ class TestReadmeJaxProbeCells(unittest.TestCase):
         self.assertEqual(float(m.group(2)),
                          round(self.marg["imag_horizon_captured"] * horizon, 2))
 
+    def test_the_second_probe_is_gated_against_its_own_artifact(self):
+        rerun_path = os.path.join(ROOT, "benchmarks", "jax_rssm_imagination_wsl_jax0112.json")
+        with open(rerun_path, encoding="utf-8") as handle:
+            rerun = json.load(handle)
+        m = self.find(r"the rollout costs \*\*([\d.]+) ms\*\* forward-only and \*\*([\d.]+) ms\*\* "
+                      r"with `value_and_grad`", "the second probe")
+        self.assertEqual(float(m.group(1)), rerun["jax_loop_ms"],
+                         "the forward-only figure is not the re-run's")
+        self.assertEqual(float(m.group(2)), rerun["jax_forward_backward_ms"],
+                         "the gradient figure is not the re-run's")
+        ratio = rerun["jax_forward_backward_ms"] / round(
+            self.marg["imag_horizon_captured"] * 15, 2)
+        m = self.find(r"the gradient path is now\s*\*\*([\d.]+)x\*\* the captured torch loop",
+                      "the re-run's ratio")
+        self.assertAlmostEqual(float(m.group(1)), ratio, places=1,
+                               msg="the multiple over the torch loop no longer divides out")
+        m = self.find(r"\*\*([\d.]+) TFLOP/s\*\* against 15\.2, putting the\s*"
+                      r"arithmetic floor at \*\*([\d.]+) ms\*\* and ([\d.]+)% of the loop",
+                      "the re-run's floor")
+        self.assertAlmostEqual(float(m.group(1)), rerun["gpu_fp32_tflops_measured"], places=1)
+        self.assertEqual(float(m.group(2)), rerun["arithmetic_floor_ms"])
+        self.assertAlmostEqual(float(m.group(3)),
+                               100.0 * rerun["fraction_of_time_that_is_arithmetic"], places=1)
+        self.assertGreater(rerun["gpu_fp32_tflops_measured"], self.jax["gpu_fp32_tflops_measured"],
+                           "the paragraph's point is that the card was faster while the loop was "
+                           "slower; if the floor no longer exceeds the first probe's, say so")
+        self.assertGreater(rerun["jax_loop_ms"], self.jax["jax_loop_ms"],
+                           "the same claim is made about the loop; it no longer holds")
+        self.assertNotEqual(rerun["protocol"], self.jax["protocol"],
+                            "the two captures have to be distinguishable as different instruments")
+
     def test_the_gradient_number_is_the_one_that_changed_the_conclusion(self):
         m = self.find(r"with `value_and_grad` the same loop costs \*\*([\d.]+) ms\*\*",
                       "forward+backward")

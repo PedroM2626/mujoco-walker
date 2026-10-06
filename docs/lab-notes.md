@@ -161,16 +161,25 @@ the same interpreter had finished a green 251-test run; and `.venv-phase4`'s `mu
 began the same, after that venv had stepped MuJoCo physics for a 5M-step SAC run at 01:36-01:51.
 
 **The blocks are per file and they are complementary, which is what makes the box unable to run
-anything end to end.** Measured three times in a row, stable, not flaky: `.venv` = numpy ok, mujoco
-ok, torch blocked; `.venv-phase4` = numpy ok, torch ok (CUDA visible), mujoco blocked; `.venv-mjx`
-= mujoco ok, no torch. No single Windows interpreter on this machine has both a working tensor
-library and a working physics library, which is exactly the pair every Phase-1 trainer needs.
+anything end to end.** Measured three times in a row over several minutes, they did not waver:
+`.venv` = numpy ok, mujoco ok, torch blocked; `.venv-phase4` = numpy ok, torch ok (CUDA visible),
+mujoco blocked; `.venv-mjx` = mujoco ok, no torch. No single Windows interpreter on this machine had
+both a working tensor library and a working physics library, which is exactly the pair every
+Phase-1 trainer needs.
+
+**About fifty minutes later both lifted by themselves** - same files, same paths, nothing reinstalled
+and no policy edited here, and the suite then ran green at 252 tests. So the accurate description is
+not "a file got blacklisted" but "the verdict is re-evaluated at load time and can say no for a
+while", and that changes the right first response: when a compiled extension of a venv that has been
+working all night suddenly refuses to load, wait and retry before touching the environment.
+Reinstalling would have replaced files that were about to work again, and the pinned pair
+(`torch 2.4.1+cu121`, `mujoco 3.2.3`) is what the golden-reward tests are calibrated against.
 
 Nothing published moved: the runs that produced the numbers of that night completed before the blocks
 landed, and their artifacts are committed. What stopped is the ability to *verify* a new number -
-`unittest discover` cannot import the suite, so a README claim added after 02:25 could not be gated
-against a measured run, and that is the rule this repository is built on. The work held out of the
-tree for that reason is the JAX re-measurement paragraph, whose numbers are otherwise complete.
+`unittest discover` cannot import the suite, so a README claim added after 02:25 cannot be gated
+against a measured run, and that is the rule this repository is built on. The JAX re-measurement
+paragraph waited for the retry above rather than going in on the strength of the numbers alone.
 
 Two escape routes, both of which change the instrument rather than fixing it. WSL2 has no such
 policy: it ran `jax 0.11.2` on a `CudaDevice` in minutes (`nvidia-smi` works inside it, the driver is

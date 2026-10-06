@@ -163,11 +163,17 @@ def main():
     p.add_argument("--allow-cpu", action="store_true",
                    help="run even if JAX has no CUDA device (the artifact then is not comparable "
                         "to the committed one)")
+    p.add_argument("--out", default=OUT, help="where to write the measurement; the default is the "
+                                              "committed artifact, so a re-run under a different jax "
+                                              "or host should name its own file")
     args = p.parse_args()
 
     devices = jax.devices()
     print("jax", jax.__version__, "devices", devices)
-    if devices[0].platform != "cuda" and not args.allow_cpu:
+    # jax names its CUDA platform "gpu" from 0.11, and "cuda" in the 0.10 build that produced the
+    # committed artifact; both mean the device is the RTX, and anything else means the numbers would
+    # be CPU ones written over a GPU measurement.
+    if devices[0].platform not in ("cuda", "gpu") and not args.allow_cpu:
         raise SystemExit(
             f"the first JAX device is {devices[0].platform}, not cuda: this would overwrite "
             "benchmarks/jax_rssm_imagination.json - a GPU measurement - with CPU numbers. Run it "
@@ -227,11 +233,11 @@ def main():
                         "same RTX 4070 Laptop under Windows. Different host, so this is a bound on "
                         "what a port could win, not a paired A/B.",
     }
-    os.makedirs(os.path.dirname(OUT), exist_ok=True)
-    with open(OUT, "w", encoding="utf-8") as handle:
+    os.makedirs(os.path.dirname(args.out), exist_ok=True)
+    with open(args.out, "w", encoding="utf-8") as handle:
         json.dump(payload, handle, indent=2)
     print(json.dumps(payload, indent=2))
-    print("wrote", os.path.relpath(OUT, ROOT).replace(os.sep, "/"))
+    print("wrote", os.path.relpath(args.out, ROOT).replace(os.sep, "/"))
 
 
 if __name__ == "__main__":

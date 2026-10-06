@@ -151,6 +151,42 @@ file with a copy of the allowed one changed nothing - the decision is not made o
 alone, so "it works over there" is no argument for "copy it here". The supported route is the
 version that has a pure-Python fallback.
 
+## App Control escalated mid-session, twice, to the trainer stacks themselves
+
+On the night of 2026-10-05/06 the same policy that had blocked `sqlalchemy` 2.1.1's Cython modules in
+`.venv-phase4` started blocking two more files, and the timing was in the middle of running work:
+`.venv`'s `torch/lib/torch_python.dll` (16 MB, installed 2026-10-01 17:57) began refusing to load
+with "uma política de Controle de Aplicativo bloqueou este arquivo" at ~02:25, twenty minutes after
+the same interpreter had finished a green 251-test run; and `.venv-phase4`'s `mujoco/_functions`
+began the same, after that venv had stepped MuJoCo physics for a 5M-step SAC run at 01:36-01:51.
+
+**The blocks are per file and they are complementary, which is what makes the box unable to run
+anything end to end.** Measured three times in a row, stable, not flaky: `.venv` = numpy ok, mujoco
+ok, torch blocked; `.venv-phase4` = numpy ok, torch ok (CUDA visible), mujoco blocked; `.venv-mjx`
+= mujoco ok, no torch. No single Windows interpreter on this machine has both a working tensor
+library and a working physics library, which is exactly the pair every Phase-1 trainer needs.
+
+Nothing published moved: the runs that produced the numbers of that night completed before the blocks
+landed, and their artifacts are committed. What stopped is the ability to *verify* a new number -
+`unittest discover` cannot import the suite, so a README claim added after 02:25 could not be gated
+against a measured run, and that is the rule this repository is built on. The work held out of the
+tree for that reason is the JAX re-measurement paragraph, whose numbers are otherwise complete.
+
+Two escape routes, both of which change the instrument rather than fixing it. WSL2 has no such
+policy: it ran `jax 0.11.2` on a `CudaDevice` in minutes (`nvidia-smi` works inside it, the driver is
+shared), which is why the learner probe could be re-measured at all while Windows could not run the
+suite - but a Linux run of the test suite is a different platform for the tests that pin rewards to
+1e-9, so it cannot certify the Windows numbers. GitHub CI is the other one: it runs the same tree on
+Linux with its own environment, and it prints the `Ran N tests in X s` line the README quotes, at a
+duration belonging to a runner rather than to this laptop.
+
+Reinstalling the blocked packages is the obvious third move and probably not the right one: the
+previous incident showed the verdict is not made on file content alone (a byte-identical copy of a
+`.pyd` that loads in one venv was refused in another), so re-downloading the same wheel rebuilds the
+same hashes, and installing a *different* version to get different bytes is what broke `sqlalchemy`
+in the first place and would here move the pinned `torch 2.4.1+cu121` / `mujoco 3.2.3` pair that the
+golden-reward tests are calibrated against.
+
 ## Retraining a policy whose checkpoint the README measures
 
 The 2026-10-05 GAIL retrain wrote over the file the published Phase-4 table was measured on:

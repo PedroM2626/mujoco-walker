@@ -149,7 +149,22 @@ class TestTrainingIntegration(unittest.TestCase):
         self.assertEqual(result.returncode, 0, f"PPO training failed: {result.stderr}")
         ckpt_dir = os.path.join("checkpoints", self.run_id)
         self.assertTrue(os.path.exists(ckpt_dir), "Checkpoint directory not created")
-        self.assertTrue(any(f.startswith("ppo_ckpt_") for f in os.listdir(ckpt_dir)), "No PPO checkpoint files found")
+        ppo_ckpts = [f for f in os.listdir(ckpt_dir) if f.startswith("ppo_ckpt_")]
+        self.assertTrue(ppo_ckpts, "No PPO checkpoint files found")
+
+        # A trainer that produces a checkpoint the scorers cannot read has produced nothing. PPO
+        # stores its network under `agent_state_dict`, which the shared actor branch does not look
+        # for, and the scorer's own comment used to claim otherwise.
+        import eval_phase1
+        from envs.walker_ragdoll_env import ENV_VERSION
+        path = os.path.join(ckpt_dir, sorted(ppo_ckpts)[-1])
+        label, phase, width, policy, reset, reward_info = eval_phase1.build_policy(path, "cpu")
+        self.assertEqual(label, "ppo")
+        action = policy(torch.zeros(width, dtype=torch.float64).numpy())
+        self.assertEqual(action.shape, (17,), "the PPO policy must return one action per dim")
+        # No bound asserted on the value: PPO's deterministic action is the raw mean head, and the
+        # environment clips it, so a trained policy can and does hand back |a| > 1.
+        self.assertEqual(reward_info["env_version"], ENV_VERSION)
 
 
     def test_short_td3_training(self):

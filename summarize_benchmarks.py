@@ -503,6 +503,142 @@ def physics_preset_screens(out="benchmarks/physics_presets_screen_paired.json"):
     }, out
 
 
+PRESET_SCREEN_5M_WALL_CLOCK = {
+    # Recorded, not derived: chain18's launcher log, the same two arms back to back in one window.
+    "v9": {"seconds": 8992, "window": "2026-10-05 21:05:04 -> 23:34:56"},
+    "fast": {"seconds": 7299, "window": "2026-10-05 23:34:56 -> 2026-10-06 01:36:35"},
+}
+
+
+def physics_preset_screens_5m(out="benchmarks/physics_presets_screen5m_paired.json"):
+    """The same screen at the smallest budget where the behaviour is visible: 5M, both worlds.
+
+    The 1M pair could not answer the question - neither world reached the target in any of 20
+    episodes, and the 40M curve only starts reaching between 5M and 30M. At 5M both worlds do reach,
+    which is the result that makes the cheap one usable for this task: the arm trained in `fast`
+    reaches in 2 of 20 episodes at 4M and 2 of 20 at 5M while the published world reaches at 5M, so
+    the qualitative answer agrees, and the wall clock says what it costs to get it. One draw per arm:
+    the two runs differ in world, not in seed, and nothing here separates world from luck.
+    """
+    arms = {}
+    for preset in ("v9", "fast"):
+        data = json.load(open(os.path.join(ROOT, "benchmarks",
+                                           f"physics_presets_screen5m_{preset}.json"),
+                               encoding="utf-8"))
+        clock = PRESET_SCREEN_5M_WALL_CLOCK[preset]
+        arms[preset] = {
+            "device": data.get("device"), "torch_threads": data.get("torch_threads"),
+            "scored_in_version": data.get("scored_in_version"),
+            "wall_clock_seconds": clock["seconds"], "wall_clock_window": clock["window"],
+            "seconds_per_1m": round(clock["seconds"] / 5.0, 1),
+            "by_budget": {
+                arm: {k: model[k] for k in ("mean", "std", "reached_target_pct",
+                                             "mean_min_target_distance", "mean_x_velocity",
+                                             "standing_at_end_pct", "falls_per_episode")}
+                for arm, model in sorted(data["models"].items(), key=lambda kv: int(kv[0][1:]))
+            },
+        }
+    faster = arms["v9"]["wall_clock_seconds"] / arms["fast"]["wall_clock_seconds"]
+    return {
+        "protocol": ("SAC 5M, seed 7, num_envs=8, task_phase=target, reset_mode=mixed, "
+                     "target_forward_velocity=1.2, one run per world, checkpointed every 1M; each "
+                     "arm scored with eval_phase1.py --num-episodes 20 --seed 11 in the world it "
+                     "trained in"),
+        "arms": arms,
+        "end_to_end_speedup_fast_vs_v9": round(faster, 3),
+        "window_caveat": ("the 1M pair of this same comparison measured 1.148x in its own window and "
+                          "this pair measures 1.232x in this one; the v9 arm alone ran 1,345 s per 1M "
+                          "there and 1,798.4 s per 1M here, which is the machine's state and not the "
+                          "worlds - only the ratios inside a pair are reusable"),
+    }, out
+
+
+TRAINER_PAIR_WALL_CLOCK = {
+    # Recorded from the launcher logs of chains 19 and 20, which ran back to back on an idle
+    # machine: PPO v9 at 01:42:06 -> 01:46:48, PPO fast at 01:46:48 -> 01:50:52, SAC at n=32 at
+    # 01:57:13 -> 02:07:07. `collected_steps` is what the trainer actually reached: PPO checkpoints
+    # only at rollout boundaries, so its 1M budget ends at 983,040 steps (15 rollouts of 2048x32).
+    "ppo_v9": {"seconds": 282, "collected_steps": 983040, "checkpoint":
+               "checkpoints/screen_ppo_v9_1m/ppo_ckpt_983040.pt",
+               "scored_at": 983040},
+    "ppo_fast": {"seconds": 244, "collected_steps": 983040, "checkpoint":
+                 "checkpoints/screen_ppo_fast_1m/ppo_ckpt_983040.pt",
+                 "scored_at": 983040},
+    "sac_v9": {"seconds": 594, "collected_steps": 1000000, "checkpoint":
+               "checkpoints/screen_sac_v9_1m_n32/sac_actor_1000000.pt",
+               "scored_at": 1000000},
+}
+
+
+def trainer_pair_ppo_sac(out="benchmarks/trainer_pair_ppo_sac.json"):
+    """Is PPO a faster way to train this task than SAC? Both halves of the question, measured.
+
+    PPO is faster per environment step and it is not closer to the behaviour, and the two facts have
+    to be said in the same breath or the first one reads as a recommendation. Same config for both
+    trainers (32 envs, target phase, mixed resets, seed 7, cuda), scored at the published protocol.
+    The earlier budget pair is kept as well, because PPO's second-best checkpoint is within 5% of
+    SAC's 500k one and the ordering is the same at both.
+    """
+    arms = {}
+    for key, spec in TRAINER_PAIR_WALL_CLOCK.items():
+        preset = "fast" if key.endswith("fast") else "v9"
+        budget = spec["scored_at"]
+        if key.startswith("sac"):
+            data = json.load(open(os.path.join(ROOT, "benchmarks", "trainer_pair_sac_n32.json"),
+                                  encoding="utf-8"))
+            model = data["models"]["sac1m"]
+        else:
+            data = json.load(open(os.path.join(ROOT, "benchmarks",
+                                               f"ppo_screen_{preset}_{budget}.json"),
+                                  encoding="utf-8"))
+            model = data["models"][f"ppo{budget}"]
+        arms[key] = {
+            "seconds": spec["seconds"], "collected_steps": spec["collected_steps"],
+            "env_steps_per_second": round(spec["collected_steps"] / spec["seconds"], 1),
+            "seconds_per_1m_env_steps": round(spec["seconds"] * 1e6 / spec["collected_steps"], 1),
+            "checkpoint": spec["checkpoint"], "algo": model["algo"],
+            "device": data.get("device"), "torch_threads": data.get("torch_threads"),
+            "scored_in_version": data.get("scored_in_version"),
+            "mean": model["mean"], "std": model["std"],
+            "reached_target_pct": model["reached_target_pct"],
+            "mean_min_target_distance": model["mean_min_target_distance"],
+            "mean_x_velocity": model["mean_x_velocity"],
+            "standing_at_end_pct": model["standing_at_end_pct"],
+            "falls_per_episode": model["falls_per_episode"],
+        }
+    ppo, sac = arms["ppo_v9"], arms["sac_v9"]
+    # The earlier budget of the same night, kept in this artifact so "the ordering is not an artefact
+    # of one checkpoint" is a checkable statement rather than a aside in prose.
+    ppo_data = json.load(open(os.path.join(ROOT, "benchmarks", "ppo_screen_v9_524288.json"),
+                              encoding="utf-8"))["models"]["ppo524288"]
+    sac_data = json.load(open(os.path.join(ROOT, "benchmarks", "trainer_pair_sac_n32.json"),
+                              encoding="utf-8"))["models"]["sac500k"]
+    earlier = {
+        "ppo_524288": {"steps": ppo_data["global_step"], "mean": ppo_data["mean"],
+                       "mean_min_target_distance": ppo_data["mean_min_target_distance"],
+                       "falls_per_episode": ppo_data["falls_per_episode"],
+                       "reached_target_pct": ppo_data["reached_target_pct"],
+                       "checkpoint": "checkpoints/screen_ppo_v9_1m/ppo_ckpt_524288.pt"},
+        "sac_500000": {"steps": sac_data["global_step"], "mean": sac_data["mean"],
+                       "mean_min_target_distance": sac_data["mean_min_target_distance"],
+                       "falls_per_episode": sac_data["falls_per_episode"],
+                       "reached_target_pct": sac_data["reached_target_pct"],
+                       "checkpoint": "checkpoints/screen_sac_v9_1m_n32/sac_actor_500000.pt"},
+    }
+    return {
+        "protocol": ("both trainers at num_envs=32, task_phase=target, reset_mode=mixed, seed 7, "
+                     "target_forward_velocity=1.2, cuda, ~1M env-step budget; scored with "
+                     "eval_phase1.py --num-episodes 20 --seed 11 in the world each was trained in"),
+        "arms": arms,
+        "earlier_budget": earlier,
+        "ppo_steps_per_second_over_sac": round(ppo["env_steps_per_second"]
+                                               / sac["env_steps_per_second"], 3),
+        "note": ("PPO reaches 983,040 steps, not 1,000,000: it checkpoints at rollout boundaries "
+                 "(15 rollouts of 2048x32), so the two budgets are within 1.7% of each other and "
+                 "the rate is quoted per collected step, not per nominal step"),
+    }, out
+
+
 TEACHER_EVENTS = os.path.join("openai_walker", "sac_walker_tensorboard", "SAC_2",
                               "events.out.tfevents.1780843517.pedro.36828.0")
 
@@ -585,6 +721,12 @@ BENCHMARKS = [
     # The same SAC screen trained in the published world and in the cheap preset: what a 2.7x
     # cheaper env step is worth inside a real loop, and what a 1M screen cannot see.
     physics_preset_screens,
+    # The pair re-run at 5M, the smallest budget where the target is actually reached in either
+    # world - the only arm that can say whether the cheap world tracks the published one.
+    physics_preset_screens_5m,
+    # PPO against SAC at the same config: what each costs per environment step, and what that buys
+    # in behaviour. The two answers point in opposite directions, so they live in one artifact.
+    trainer_pair_ppo_sac,
     # The teacher's own 100-episode evaluations, mined from its committed TensorBoard log: the only
     # pre-retraction evaluation series in the repo, and an independent protocol.
     teacher_eval_curve,

@@ -36,7 +36,7 @@ from envs.reward_shaping import TRAINING_REWARD_KWARGS, reward_kwargs_for  # noq
 from envs.walker_ragdoll_env import ENV_VERSION, PHYSICS_PRESETS  # noqa: E402
 from envs import normalize_compat  # noqa: F401,E402  pickle shim for obs_rms
 from evaluate_merging import EPSILON, CLIP, _policy_input  # noqa: E402
-from train_walker import SACAgent  # noqa: E402
+from train_walker import PPOAgent, SACAgent  # noqa: E402
 
 ACTION_SPACE = gym.spaces.Box(-1.0, 1.0, shape=(17,))
 EPISODE_STEPS = 1000
@@ -151,7 +151,27 @@ def build_policy(path, device):
             return action.squeeze(0).cpu().numpy()
         return algo, phase, obs_dim, dreamer_policy, reset, reward_info_for(ck)
 
-    # sac / redq / td3 / ppo-style actor: either a full state dict or a checkpoint holding one
+    if algo == "ppo":
+        # PPOAgent carries the actor inside `agent_state_dict` (critic, backbone and the mean head
+        # in one module), so the generic actor branch below cannot read it - it would fall through
+        # to the whole checkpoint and fail on the width lookup. Deterministic action, same choice
+        # play.py makes for the same checkpoints.
+        sd = ck["agent_state_dict"]
+        width = _width_from(sd)
+        # PPOAgent's second argument is an action dimension, not a space: passing the Box reaches
+        # torch.empty with a dtype it cannot read, which is what this line did before.
+        agent = PPOAgent(width, int(np.prod(ACTION_SPACE.shape))).to(device)
+        agent.load_state_dict(sd)
+        agent.eval()
+        rms = ck.get("obs_rms")
+
+        def ppo_policy(obs):
+            tensor = _policy_input(agent, obs, rms, width, device)
+            with torch.no_grad():
+                return agent.get_deterministic_action(tensor)[0].cpu().numpy().reshape(-1)
+        return algo, phase, width, ppo_policy, _noop_reset, reward_info_for(ck)
+
+    # sac / redq / td3 -style actor: either a full state dict or a checkpoint holding one
     sd = ck.get("actor_state_dict", ck)
     agent = SACAgent(_width_from(sd), ACTION_SPACE).to(device)
     agent.load_state_dict(sd)

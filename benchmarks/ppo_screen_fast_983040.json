@@ -1,0 +1,188 @@
+{
+  "protocol": "eval_phase1.py --num-episodes 20 --seed 11 (WalkerRagdoll-v0, reset_mode=mixed, one env.step per action, checkpoint obs_rms applied, deterministic; same protocol as the Phase-3 table)",
+  "env_version": "standup_balance_walk_curriculum_v9",
+  "physics_preset": "fast",
+  "scored_in_version": "standup_balance_walk_curriculum_v9_fast",
+  "env_commit": null,
+  "device": "cuda",
+  "torch_threads": 24,
+  "models": {
+    "ppo983040": {
+      "checkpoint": "checkpoints/screen_ppo_fast_1m/ppo_ckpt_983040.pt",
+      "algo": "ppo",
+      "task_phase": "target",
+      "obs_width": 49,
+      "global_step": 983040,
+      "episodes": 20,
+      "reward_source": "checkpoint",
+      "reward_kwargs": {
+        "standing_reward": 0.0,
+        "target_direction_reward_weight": 200.0,
+        "target_progress_reward_weight": 300.0,
+        "stand_height_reward_weight": 100.0,
+        "stability_reward_weight": 20.0,
+        "stillness_penalty_weight": 5.0,
+        "lateral_drift_penalty_weight": 3.0,
+        "target_forward_velocity": 1.2
+      },
+      "checkpoint_env_version": "standup_balance_walk_curriculum_v9",
+      "mean": -508.89,
+      "median": 1733.45,
+      "std": 5788.51,
+      "min": -12858.17,
+      "max": 9238.16,
+      "falls_per_episode": 0.1,
+      "standing_at_end_pct": 0.0,
+      "mean_episode_steps": 1000.0,
+      "reached_target_pct": 0.0,
+      "mean_min_target_distance": 3.155,
+      "mean_x_velocity": 0.0081
+    }
+  },
+  "per_episode": {
+    "ppo983040": [
+      9238.162874835924,
+      5653.170122008905,
+      -2662.555407960356,
+      -8532.79093446465,
+      -12858.167182990506,
+      3039.7920672131067,
+      -6207.373753354183,
+      -4422.353641999893,
+      1974.2149832026516,
+      2290.767020412547,
+      1573.7657459525826,
+      2459.6352142480714,
+      -1121.8786215355467,
+      1893.1409255565397,
+      4235.207147678765,
+      -11025.834123153121,
+      -6183.201036009459,
+      1126.2707583861184,
+      4995.306814651569,
+      4356.875255796299
+    ],
+    "ppo983040__telemetry": [
+      {
+        "steps": 1000,
+        "min_target_distance": 3.827,
+        "reached_target": false,
+        "mean_x_velocity": 0.073
+      },
+      {
+        "steps": 1000,
+        "min_target_distance": 3.31,
+        "reached_target": false,
+        "mean_x_velocity": -0.0138
+      },
+      {
+        "steps": 1000,
+        "min_target_distance": 4.397,
+        "reached_target": false,
+        "mean_x_velocity": 0.0098
+      },
+      {
+        "steps": 1000,
+        "min_target_distance": 2.661,
+        "reached_target": false,
+        "mean_x_velocity": -0.031
+      },
+      {
+        "steps": 1000,
+        "min_target_distance": 2.824,
+        "reached_target": false,
+        "mean_x_velocity": -0.0267
+      },
+      {
+        "steps": 1000,
+        "min_target_distance": 2.169,
+        "reached_target": false,
+        "mean_x_velocity": -0.0233
+      },
+      {
+        "steps": 1000,
+        "min_target_distance": 2.212,
+        "reached_target": false,
+        "mean_x_velocity": 0.0146
+      },
+      {
+        "steps": 1000,
+        "min_target_distance": 3.728,
+        "reached_target": false,
+        "mean_x_velocity": 0.02
+      },
+      {
+        "steps": 1000,
+        "min_target_distance": 1.829,
+        "reached_target": false,
+        "mean_x_velocity": 0.051
+      },
+      {
+        "steps": 1000,
+        "min_target_distance": 4.445,
+        "reached_target": false,
+        "mean_x_velocity": -0.0292
+      },
+      {
+        "steps": 1000,
+        "min_target_distance": 3.712,
+        "reached_target": false,
+        "mean_x_velocity": -0.0125
+      },
+      {
+        "steps": 1000,
+        "min_target_distance": 2.676,
+        "reached_target": false,
+        "mean_x_velocity": 0.1429
+      },
+      {
+        "steps": 1000,
+        "min_target_distance": 4.095,
+        "reached_target": false,
+        "mean_x_velocity": -0.0299
+      },
+      {
+        "steps": 1000,
+        "min_target_distance": 2.6,
+        "reached_target": false,
+        "mean_x_velocity": -0.0349
+      },
+      {
+        "steps": 1000,
+        "min_target_distance": 1.635,
+        "reached_target": false,
+        "mean_x_velocity": 0.0562
+      },
+      {
+        "steps": 1000,
+        "min_target_distance": 3.92,
+        "reached_target": false,
+        "mean_x_velocity": 0.049
+      },
+      {
+        "steps": 1000,
+        "min_target_distance": 4.489,
+        "reached_target": false,
+        "mean_x_velocity": 0.0458
+      },
+      {
+        "steps": 1000,
+        "min_target_distance": 2.125,
+        "reached_target": false,
+        "mean_x_velocity": 0.0088
+      },
+      {
+        "steps": 1000,
+        "min_target_distance": 3.401,
+        "reached_target": false,
+        "mean_x_velocity": -0.097
+      },
+      {
+        "steps": 1000,
+        "min_target_distance": 3.049,
+        "reached_target": false,
+        "mean_x_velocity": -0.0107
+      }
+    ]
+  }
+}

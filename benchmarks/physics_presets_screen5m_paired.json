@@ -1,0 +1,117 @@
+{
+  "protocol": "SAC 5M, seed 7, num_envs=8, task_phase=target, reset_mode=mixed, target_forward_velocity=1.2, one run per world, checkpointed every 1M; each arm scored with eval_phase1.py --num-episodes 20 --seed 11 in the world it trained in",
+  "arms": {
+    "v9": {
+      "device": "cuda",
+      "torch_threads": 24,
+      "scored_in_version": "standup_balance_walk_curriculum_v9",
+      "wall_clock_seconds": 8992,
+      "wall_clock_window": "2026-10-05 21:05:04 -> 23:34:56",
+      "seconds_per_1m": 1798.4,
+      "by_budget": {
+        "s1000000": {
+          "mean": 2231.9,
+          "std": 5578.58,
+          "reached_target_pct": 0.0,
+          "mean_min_target_distance": 3.302,
+          "mean_x_velocity": -0.0157,
+          "standing_at_end_pct": 0.0,
+          "falls_per_episode": 0.15
+        },
+        "s2000000": {
+          "mean": 15328.48,
+          "std": 9885.49,
+          "reached_target_pct": 0.0,
+          "mean_min_target_distance": 2.814,
+          "mean_x_velocity": 0.039,
+          "standing_at_end_pct": 0.0,
+          "falls_per_episode": 0.7
+        },
+        "s3000000": {
+          "mean": 18014.0,
+          "std": 13835.07,
+          "reached_target_pct": 0.0,
+          "mean_min_target_distance": 2.605,
+          "mean_x_velocity": 0.078,
+          "standing_at_end_pct": 0.0,
+          "falls_per_episode": 0.8
+        },
+        "s4000000": {
+          "mean": 19065.03,
+          "std": 18605.03,
+          "reached_target_pct": 0.0,
+          "mean_min_target_distance": 2.435,
+          "mean_x_velocity": 0.1479,
+          "standing_at_end_pct": 0.0,
+          "falls_per_episode": 1.1
+        },
+        "s5000000": {
+          "mean": 18956.17,
+          "std": 12531.77,
+          "reached_target_pct": 10.0,
+          "mean_min_target_distance": 2.309,
+          "mean_x_velocity": 0.132,
+          "standing_at_end_pct": 0.0,
+          "falls_per_episode": 0.85
+        }
+      }
+    },
+    "fast": {
+      "device": "cuda",
+      "torch_threads": 24,
+      "scored_in_version": "standup_balance_walk_curriculum_v9_fast",
+      "wall_clock_seconds": 7299,
+      "wall_clock_window": "2026-10-05 23:34:56 -> 2026-10-06 01:36:35",
+      "seconds_per_1m": 1459.8,
+      "by_budget": {
+        "s1000000": {
+          "mean": 12415.53,
+          "std": 6592.62,
+          "reached_target_pct": 0.0,
+          "mean_min_target_distance": 2.735,
+          "mean_x_velocity": 0.0369,
+          "standing_at_end_pct": 0.0,
+          "falls_per_episode": 0.25
+        },
+        "s2000000": {
+          "mean": 14087.03,
+          "std": 11695.28,
+          "reached_target_pct": 0.0,
+          "mean_min_target_distance": 2.665,
+          "mean_x_velocity": 0.0516,
+          "standing_at_end_pct": 0.0,
+          "falls_per_episode": 0.6
+        },
+        "s3000000": {
+          "mean": 24941.79,
+          "std": 17321.73,
+          "reached_target_pct": 0.0,
+          "mean_min_target_distance": 2.101,
+          "mean_x_velocity": 0.114,
+          "standing_at_end_pct": 0.0,
+          "falls_per_episode": 1.25
+        },
+        "s4000000": {
+          "mean": 24593.68,
+          "std": 22005.36,
+          "reached_target_pct": 5.0,
+          "mean_min_target_distance": 2.14,
+          "mean_x_velocity": 0.1635,
+          "standing_at_end_pct": 5.0,
+          "falls_per_episode": 1.35
+        },
+        "s5000000": {
+          "mean": 38778.91,
+          "std": 18155.63,
+          "reached_target_pct": 10.0,
+          "mean_min_target_distance": 1.501,
+          "mean_x_velocity": 0.2352,
+          "standing_at_end_pct": 5.0,
+          "falls_per_episode": 1.65
+        }
+      }
+    }
+  },
+  "end_to_end_speedup_fast_vs_v9": 1.232,
+  "window_caveat": "the 1M pair of this same comparison measured 1.148x in its own window and this pair measures 1.232x in this one; the v9 arm alone ran 1,345 s per 1M there and 1,798.4 s per 1M here, which is the machine's state and not the worlds - only the ratios inside a pair are reusable"
+}

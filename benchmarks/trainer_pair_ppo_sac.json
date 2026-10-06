@@ -1,0 +1,79 @@
+{
+  "protocol": "both trainers at num_envs=32, task_phase=target, reset_mode=mixed, seed 7, target_forward_velocity=1.2, cuda, ~1M env-step budget; scored with eval_phase1.py --num-episodes 20 --seed 11 in the world each was trained in",
+  "arms": {
+    "ppo_v9": {
+      "seconds": 282,
+      "collected_steps": 983040,
+      "env_steps_per_second": 3486.0,
+      "seconds_per_1m_env_steps": 286.9,
+      "checkpoint": "checkpoints/screen_ppo_v9_1m/ppo_ckpt_983040.pt",
+      "algo": "ppo",
+      "device": "cuda",
+      "torch_threads": 24,
+      "scored_in_version": "standup_balance_walk_curriculum_v9",
+      "mean": -985.97,
+      "std": 7435.18,
+      "reached_target_pct": 0.0,
+      "mean_min_target_distance": 3.211,
+      "mean_x_velocity": 0.012,
+      "standing_at_end_pct": 0.0,
+      "falls_per_episode": 0.1
+    },
+    "ppo_fast": {
+      "seconds": 244,
+      "collected_steps": 983040,
+      "env_steps_per_second": 4028.9,
+      "seconds_per_1m_env_steps": 248.2,
+      "checkpoint": "checkpoints/screen_ppo_fast_1m/ppo_ckpt_983040.pt",
+      "algo": "ppo",
+      "device": "cuda",
+      "torch_threads": 24,
+      "scored_in_version": "standup_balance_walk_curriculum_v9_fast",
+      "mean": -508.89,
+      "std": 5788.51,
+      "reached_target_pct": 0.0,
+      "mean_min_target_distance": 3.155,
+      "mean_x_velocity": 0.0081,
+      "standing_at_end_pct": 0.0,
+      "falls_per_episode": 0.1
+    },
+    "sac_v9": {
+      "seconds": 594,
+      "collected_steps": 1000000,
+      "env_steps_per_second": 1683.5,
+      "seconds_per_1m_env_steps": 594.0,
+      "checkpoint": "checkpoints/screen_sac_v9_1m_n32/sac_actor_1000000.pt",
+      "algo": "sac_actor",
+      "device": "cuda",
+      "torch_threads": 24,
+      "scored_in_version": "standup_balance_walk_curriculum_v9",
+      "mean": 22020.06,
+      "std": 10172.99,
+      "reached_target_pct": 0.0,
+      "mean_min_target_distance": 2.325,
+      "mean_x_velocity": -0.0019,
+      "standing_at_end_pct": 0.0,
+      "falls_per_episode": 1.1
+    }
+  },
+  "earlier_budget": {
+    "ppo_524288": {
+      "steps": 524288,
+      "mean": 3150.48,
+      "mean_min_target_distance": 3.318,
+      "falls_per_episode": 0.1,
+      "reached_target_pct": 0.0,
+      "checkpoint": "checkpoints/screen_ppo_v9_1m/ppo_ckpt_524288.pt"
+    },
+    "sac_500000": {
+      "steps": 500000,
+      "mean": 13784.48,
+      "mean_min_target_distance": 2.77,
+      "falls_per_episode": 0.55,
+      "reached_target_pct": 0.0,
+      "checkpoint": "checkpoints/screen_sac_v9_1m_n32/sac_actor_500000.pt"
+    }
+  },
+  "ppo_steps_per_second_over_sac": 2.071,
+  "note": "PPO reaches 983,040 steps, not 1,000,000: it checkpoints at rollout boundaries (15 rollouts of 2048x32), so the two budgets are within 1.7% of each other and the rate is quoted per collected step, not per nominal step"
+}

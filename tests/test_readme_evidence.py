@@ -2775,6 +2775,7 @@ class TestReadmePhysicsPresetCells(ReadmeGate, unittest.TestCase):
 
     PRESETS = os.path.join(ROOT, "benchmarks", "physics_presets.json")
     SCREENS = os.path.join(ROOT, "benchmarks", "physics_presets_screen_paired.json")
+    SCREENS5M = os.path.join(ROOT, "benchmarks", "physics_presets_screen5m_paired.json")
     START = "**That sentence now has a number on it, because a cheaper world was built and measured.**"
     END = "### \U0001f9ee The learner side"
 
@@ -2784,7 +2785,8 @@ class TestReadmePhysicsPresetCells(ReadmeGate, unittest.TestCase):
         start = readme.index(self.START)
         self.block = readme[start:readme.index(self.END, start)]
         self.flat = re.sub(r"\s+", " ", self.block)
-        self.presets, self.screens = self.read_artifacts(self.PRESETS, self.SCREENS)
+        self.presets, self.screens, self.screens5m = self.read_artifacts(
+            self.PRESETS, self.SCREENS, self.SCREENS5M)
         self.bad = []
         self.what = "physics presets"
 
@@ -2878,6 +2880,156 @@ class TestReadmePhysicsPresetCells(ReadmeGate, unittest.TestCase):
                       "the refusal that the block describes is gone")
         self.assertIn('"physics_preset": args.physics_preset', src,
                       "the artifact stopped naming the preset it scored in")
+
+
+    def test_the_5m_pair_agrees_on_the_question_and_not_on_the_level(self):
+        arms = self.screens5m["arms"]
+        v9, fast = arms["v9"]["by_budget"], arms["fast"]["by_budget"]
+        m = self.sentence(r"each reaches the target in (\d+) of (\d+) episodes at (\d+)M",
+                          "the 5M agreement")
+        reached, total, budget = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        self.assertEqual(budget, 5)
+        for name, arm in (("v9", v9), ("fast", fast)):
+            pct = arm[f"s{budget}000000"]["reached_target_pct"]
+            self.assertEqual(reached, round(pct * total / 100.0),
+                             f"{name} at 5M: artifact gives {pct}% of {total} episodes, the README "
+                             f"says {reached}")
+        self.assertEqual([v9["s5000000"]["reached_target_pct"],
+                          fast["s5000000"]["reached_target_pct"]], [10.0, 10.0],
+                         "the two worlds no longer reach at the same rate at 5M")
+        m = self.sentence(r"the `fast` arm one checkpoint earlier \(([\d.]+)% at (\d+)M\)",
+                          "the earlier reach in fast")
+        self.check("fast 4M reach", m.group(1), fast["s4000000"]["reached_target_pct"],
+                   places=1)
+        self.assertEqual(int(m.group(2)), 4)
+        self.assertEqual(v9["s4000000"]["reached_target_pct"], 0.0,
+                         "the published arm now also reaches at 4M, so 'first reach there and the "
+                         "fast arm one earlier' is wrong")
+        m = self.sentence(r"\*\*(\d+) h (\d+) min (\d+) s in `v9` against (\d+) h (\d+) min "
+                          r"(\d+) s in `fast` - ([\d.]+)x\*\*", "the 5M wall clock")
+        typed_v9 = int(m.group(1)) * 3600 + int(m.group(2)) * 60 + int(m.group(3))
+        typed_fast = int(m.group(4)) * 3600 + int(m.group(5)) * 60 + int(m.group(6))
+        self.check("5M wall clocks", [typed_v9, typed_fast],
+                   [arms["v9"]["wall_clock_seconds"], arms["fast"]["wall_clock_seconds"]], places=0)
+        self.check("5M speedup", m.group(7),
+                   self.screens5m["end_to_end_speedup_fast_vs_v9"], places=3)
+
+    def test_the_window_caveat_names_the_two_v9_rates(self):
+        m = self.sentence(r"ran at ([\d,\.]+) s\s*per 1M where its sibling at 1M ran at ([\d,]+) s "
+                          r"per 1M", "the per-window caveat")
+        self.check("5M v9 per 1M", m.group(1).replace(",", ""),
+                   self.screens5m["arms"]["v9"]["seconds_per_1m"], places=1)
+        self.check("1M v9 per 1M", m.group(2),
+                   self.screens["arms"]["v9"]["wall_clock_seconds"], places=0)
+
+    def test_the_level_difference_is_named_as_one_draw(self):
+        arms = self.screens5m["arms"]
+        m = self.sentence(r"closest\s*approach ([\d.]+) m against ([\d.]+) m at 5M, falls ([\d.]+) "
+                          r"against ([\d.]+) per episode", "the level difference")
+        self.check("level cells", [m.group(1), m.group(2), m.group(3), m.group(4)],
+                   [arms["fast"]["by_budget"]["s5000000"]["mean_min_target_distance"],
+                    arms["v9"]["by_budget"]["s5000000"]["mean_min_target_distance"],
+                    arms["fast"]["by_budget"]["s5000000"]["falls_per_episode"],
+                    arms["v9"]["by_budget"]["s5000000"]["falls_per_episode"]], places=2)
+
+
+class TestReadmeTrainerPairCells(ReadmeGate, unittest.TestCase):
+    """PPO against SAC: the rate claim and the behaviour claim are gated together or not at all.
+
+    The danger in this pair is that one half gets quoted alone. "PPO is 2.071x faster" is true and
+    useless without "-985.97 against 22,020.06", and the reverse is true too, so the gate insists
+    both numbers are present, in the same section, from the same artifact.
+    """
+
+    PAIR = os.path.join(ROOT, "benchmarks", "trainer_pair_ppo_sac.json")
+    START = "| `train_walker.py --algo ppo` |"
+    END = "The Dreamer row was the whole story of the eager build"
+
+    def setUp(self):
+        with open(README, encoding="utf-8") as handle:
+            readme = handle.read()
+        start = readme.index(self.START)
+        self.block = readme[start:readme.index(self.END, start)]
+        self.flat = re.sub(r"\s+", " ", self.block)
+        self.art, = self.read_artifacts(self.PAIR)
+        self.bad = []
+        self.what = "PPO against SAC"
+
+    def test_the_two_table_rows_are_the_measured_rates(self):
+        arms = self.art["arms"]
+        m = re.search(r"\| `train_walker\.py --algo ppo` \|[^|]*\| ([\d,.]+) steps in (\d+) s = "
+                      r"([\d,.]+)/s \| ([\d.]+) min \|", self.block)
+        self.assertIsNotNone(m, "the PPO row of the trainer table is gone or reformatted")
+        self.check("PPO row", [m.group(1), m.group(2), m.group(3), m.group(4)],
+                   [arms["ppo_v9"]["collected_steps"], arms["ppo_v9"]["seconds"],
+                    arms["ppo_v9"]["env_steps_per_second"],
+                    arms["ppo_v9"]["seconds_per_1m_env_steps"] / 60], places=1)
+        m = re.search(r"\| `train_walker\.py --algo sac` \|[^|]*\| ([\d,.]+) steps in (\d+) s = "
+                      r"([\d,.]+)/s \| ([\d.]+) min \|", self.block)
+        self.assertIsNotNone(m, "the SAC row of the trainer table is gone or reformatted")
+        self.check("SAC row", [m.group(1), m.group(2), m.group(3), m.group(4)],
+                   [arms["sac_v9"]["collected_steps"], arms["sac_v9"]["seconds"],
+                    arms["sac_v9"]["env_steps_per_second"],
+                    arms["sac_v9"]["seconds_per_1m_env_steps"] / 60], places=1)
+
+    def test_the_speed_and_the_score_are_stated_together(self):
+        m = self.sentence(r"PPO collects ([\d.]+)[x×] the environment steps per second that SAC "
+                          r"does - ([\d,.]+)/s against ([\d,.]+)/s", "the rate claim")
+        self.check("rate ratio", m.group(1), self.art["ppo_steps_per_second_over_sac"], places=3)
+        self.check("rates", [m.group(2), m.group(3)],
+                   [self.art["arms"]["ppo_v9"]["env_steps_per_second"],
+                    self.art["arms"]["sac_v9"]["env_steps_per_second"]], places=0)
+        m = self.sentence(r"PPO averages \*\*(-?[\d.]+)\*\* where SAC averages \*\*([\d,.]+)\*\*, "
+                          r"its closest approach to the target is \*\*([\d.]+) m\*\* against SAC's "
+                          r"\*\*([\d.]+) m\*\*", "the behaviour claim")
+        ppo, sac = self.art["arms"]["ppo_v9"], self.art["arms"]["sac_v9"]
+        self.check("means and distances", [m.group(1), m.group(2), m.group(3), m.group(4)],
+                   [ppo["mean"], sac["mean"], ppo["mean_min_target_distance"],
+                    sac["mean_min_target_distance"]], places=2)
+        m = self.sentence(r"PPO's \*\*falls per episode are ([\d.]+) against SAC's ([\d.]+)\*\*",
+                          "the falls sentence")
+        self.check("falls", [m.group(1), m.group(2)],
+                   [ppo["falls_per_episode"], sac["falls_per_episode"]], places=2)
+        self.assertEqual(ppo["standing_at_end_pct"], 0.0,
+                         "the paragraph explains PPO's low fall count by 0% standing; that is no "
+                         "longer what the artifact says")
+        self.assertEqual(sac["standing_at_end_pct"], 0.0)
+
+    def test_the_rollout_boundary_is_stated_as_the_reason_for_983040(self):
+        m = self.sentence(r"its\s*\n?\"1M\" run ends at \*\*([\d,]+) steps\*\*, not ([\d,]+)",
+                          "the checkpoint-boundary caveat")
+        self.check("collected steps", m.group(1), self.art["arms"]["ppo_v9"]["collected_steps"],
+                   places=0)
+        self.assertEqual(int(m.group(2).replace(",", "")),
+                         self.art["arms"]["sac_v9"]["collected_steps"],
+                         "the nominal budget no longer matches the SAC arm's")
+        self.assertIn("rollout boundaries", self.flat,
+                      "the reason 983,040 is not a bug has to travel with the number")
+
+    def test_the_earlier_budget_pair_carries_the_same_sign(self):
+        earlier = self.art["earlier_budget"]
+        m = self.sentence(r"`ppo_524288` against `sac_500000`, puts PPO at \*\*([\d,.]+)\*\* mean "
+                          r"and \*\*([\d.]+) m\*\*\s*closest against SAC's \*\*([\d,.]+)\*\* and "
+                          r"\*\*([\d.]+) m\*\*", "the earlier-budget pair")
+        self.check("earlier pair", [m.group(1), m.group(2), m.group(3), m.group(4)],
+                   [earlier["ppo_524288"]["mean"], earlier["ppo_524288"]["mean_min_target_distance"],
+                    earlier["sac_500000"]["mean"],
+                    earlier["sac_500000"]["mean_min_target_distance"]], places=2)
+        self.assertLess(earlier["ppo_524288"]["mean"], earlier["sac_500000"]["mean"],
+                        "the README claims the ordering holds at 5% of budget too; it no longer "
+                        "does at this budget")
+        self.assertLess(self.art["arms"]["ppo_v9"]["mean"], self.art["arms"]["sac_v9"]["mean"])
+
+    def test_both_arms_were_scored_in_the_world_they_trained_in(self):
+        arms = self.art["arms"]
+        self.assertEqual(arms["ppo_v9"]["scored_in_version"],
+                         "standup_balance_walk_curriculum_v9")
+        self.assertEqual(arms["ppo_fast"]["scored_in_version"],
+                         "standup_balance_walk_curriculum_v9_fast")
+        self.assertEqual(arms["ppo_fast"]["env_steps_per_second"] >
+                         arms["ppo_v9"]["env_steps_per_second"], True,
+                         "the fast world is quoted as cheaper for PPO too; that has to stay true "
+                         "or the preset section's claim needs re-checking")
 
 
 class TestReadmeCurriculumProvenanceCells(ReadmeGate, unittest.TestCase):

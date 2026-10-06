@@ -1,0 +1,144 @@
+12:51:35 lock held by pid 54604
+12:52:36 machine clear, proceeding
+12:52:36 START second draw SAC 5M in v9
+12:55:48 lock held by pid 44136
+12:55:48 machine held by pid 50180, waiting
+12:56:48 machine held by pid 50180, waiting
+12:57:48 machine held by pid 50180, waiting
+12:58:48 machine held by pid 50180, waiting
+12:59:48 machine held by pid 50180, waiting
+13:00:48 machine held by pid 50180, waiting
+13:01:48 machine held by pid 50180, waiting
+13:02:48 machine held by pid 50180, waiting
+13:03:48 machine held by pid 50180, waiting
+13:04:48 machine held by pid 50180, waiting
+13:05:48 machine held by pid 50180, waiting
+13:06:48 machine held by pid 50180, waiting
+13:07:48 machine held by pid 50180, waiting
+13:08:48 machine held by pid 50180, waiting
+13:09:48 machine held by pid 50180, waiting
+13:10:48 machine held by pid 50180, waiting
+13:11:48 machine held by pid 50180, waiting
+13:12:48 machine held by pid 50180, waiting
+13:13:48 machine held by pid 50180, waiting
+13:14:48 machine held by pid 50180, waiting
+13:15:48 machine held by pid 50180, waiting
+13:16:48 machine held by pid 50180, waiting
+13:17:48 machine held by pid 50180, waiting
+13:18:48 machine held by pid 50180, waiting
+13:19:48 machine held by pid 50180, waiting
+13:20:48 machine held by pid 50180, waiting
+13:21:48 machine held by pid 50180, waiting
+13:22:48 machine held by pid 50180, waiting
+13:23:48 machine held by pid 50180, waiting
+13:24:48 machine held by pid 50180, waiting
+13:25:48 machine held by pid 50180, waiting
+13:26:48 machine held by pid 50180, waiting
+13:27:48 machine held by pid 50180, waiting
+13:28:48 machine held by pid 50180, waiting
+13:29:48 machine held by pid 50180, waiting
+13:30:48 machine held by pid 50180, waiting
+13:31:48 machine held by pid 50180, waiting
+13:32:48 machine held by pid 50180, waiting
+13:33:48 machine held by pid 50180, waiting
+13:34:48 machine held by pid 50180, waiting
+13:35:48 machine held by pid 50180, waiting
+13:36:48 machine held by pid 50180, waiting
+13:37:48 machine held by pid 50180, waiting
+13:38:49 machine held by pid 50180, waiting
+13:39:49 machine held by pid 50180, waiting
+13:40:49 machine held by pid 50180, waiting
+13:41:49 machine held by pid 50180, waiting
+13:42:49 machine held by pid 50180, waiting
+13:43:49 machine held by pid 50180, waiting
+13:44:49 machine held by pid 50180, waiting
+13:45:49 machine held by pid 50180, waiting
+13:46:49 machine held by pid 50180, waiting
+13:47:49 machine held by pid 50180, waiting
+13:48:49 machine held by pid 50180, waiting
+13:49:49 machine held by pid 50180, waiting
+13:50:49 machine held by pid 50180, waiting
+13:51:49 machine held by pid 50180, waiting
+13:52:49 machine held by pid 50180, waiting
+13:53:49 machine held by pid 50180, waiting
+13:54:49 machine held by pid 50180, waiting
+13:55:49 machine held by pid 50180, waiting
+13:56:49 machine held by pid 50180, waiting
+13:57:49 machine held by pid 50180, waiting
+13:58:49 machine held by pid 50180, waiting
+13:59:49 machine held by pid 50180, waiting
+14:00:49 machine held by pid 50180, waiting
+14:01:49 machine held by pid 50180, waiting
+14:02:49 machine held by pid 50180, waiting
+14:03:49 machine held by pid 50180, waiting
+14:04:49 machine held by pid 50180, waiting
+14:05:49 machine held by pid 50180, waiting
+14:06:49 machine held by pid 50180, waiting
+14:07:49 machine held by pid 50180, waiting
+14:08:49 machine held by pid 50180, waiting
+14:09:49 machine held by pid 50180, waiting
+14:10:49 machine held by pid 50180, waiting
+14:11:49 machine held by pid 50180, waiting
+14:12:49 machine held by pid 50180, waiting
+14:13:49 machine held by pid 50180, waiting
+14:14:49 machine held by pid 50180, waiting
+14:15:49 machine held by pid 50180, waiting
+14:16:49 machine held by pid 50180, waiting
+14:17:49 machine held by pid 50180, waiting
+14:18:49 machine held by pid 50180, waiting
+14:19:49 machine held by pid 50180, waiting
+14:20:49 machine held by pid 50180, waiting
+14:21:49 machine held by pid 50180, waiting
+14:22:49 machine held by pid 50180, waiting
+14:23:49 machine held by pid 50180, waiting
+14:24:49 machine held by pid 50180, waiting
+14:25:49 machine held by pid 50180, waiting
+14:26:49 machine held by pid 50180, waiting
+14:27:49 machine held by pid 50180, waiting
+14:28:49 machine held by pid 50180, waiting
+14:29:49 machine held by pid 50180, waiting
+14:30:50 machine held by pid 50180, waiting
+14:31:50 machine held by pid 50180, waiting
+14:32:50 machine held by pid 50180, waiting
+14:33:50 machine held by pid 50180, waiting
+14:34:50 machine held by pid 50180, waiting
+14:35:50 machine held by pid 50180, waiting
+14:36:50 machine held by pid 50180, waiting
+14:37:50 machine held by pid 50180, waiting
+14:38:50 machine held by pid 50180, waiting
+14:39:50 machine held by pid 50180, waiting
+14:40:50 machine held by pid 50180, waiting
+14:41:50 machine held by pid 50180, waiting
+14:42:50 machine held by pid 50180, waiting
+14:43:50 machine held by pid 50180, waiting
+14:44:50 machine held by pid 50180, waiting
+14:45:50 machine held by pid 50180, waiting
+14:46:50 machine held by pid 50180, waiting
+14:47:50 machine held by pid 50180, waiting
+14:48:50 machine held by pid 50180, waiting
+14:49:50 machine held by pid 50180, waiting
+14:50:50 machine held by pid 50180, waiting
+14:51:50 machine held by pid 50180, waiting
+14:52:50 machine held by pid 50180, waiting
+14:53:50 machine held by pid 50180, waiting
+14:54:50 machine held by pid 50180, waiting
+14:55:50 machine held by pid 50180, waiting
+14:56:50 machine held by pid 50180, waiting
+14:57:50 machine held by pid 50180, waiting
+14:58:50 machine held by pid 50180, waiting
+14:59:50 machine held by pid 50180, waiting
+15:00:50 machine held by pid 50180, waiting
+15:01:50 machine held by pid 50180, waiting
+15:02:50 machine held by pid 50180, waiting
+15:03:50 machine held by pid 50180, waiting
+15:04:50 machine claimed
+15:05:50 machine clear, proceeding
+15:05:50 START second draw SAC 5M in v9
+17:42:16 DONE  second draw SAC 5M in v9 (exit 0)
+17:42:16 START score the second draw in v9
+17:43:34 DONE  score the second draw in v9 (exit 0)
+17:43:34 START second draw SAC 5M in fast
+19:49:42 DONE  second draw SAC 5M in fast (exit 0)
+19:49:42 START score the second draw in fast
+19:50:34 DONE  score the second draw in fast (exit 0)
+19:50:34 chain23 complete

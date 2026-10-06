@@ -200,9 +200,11 @@ class TestWallClockProvenanceSurvivesTheLogs(unittest.TestCase):
     """Every training duration the artifacts record as a literal has to still match its log.
 
     A run's wall clock is the one number this repository cannot recompute: the checkpoints say what
-    was collected, not how long it took, and `mlruns.db` is gitignored. So the launcher logs are
-    committed as the primary source (`chainNN_evidence.log`) and this test re-derives the spans from
-    them. Without it the recorded seconds are a claim that decays the moment nobody can check it.
+    was collected, not how long it took, and `mlruns.db` - which is gitignored and holds no SAC run at
+    all, because `train_walker.py` defines the mlflow helpers and never calls them - cannot be queried
+    for it either. So the launcher logs are committed as the primary source
+    (`chainNN_evidence.log`) and this test re-derives the spans from them. Without it the recorded
+    seconds are a claim that decays the moment nobody can check it.
     """
 
     TMP_SPAN = re.compile(r"^(\d\d):(\d\d):(\d\d) START (.+)$")
@@ -293,6 +295,32 @@ class TestWallClockProvenanceSurvivesTheLogs(unittest.TestCase):
             start, end = self.parse_window(arm["window"])
             self.assertEqual(end, self.find_span(21, labels[preset], start))
             self.assertEqual(arm["seconds"], self.seconds_between(start, end))
+
+    def test_the_1m_triple_matches_chain22(self):
+        art = json.load(open(os.path.join(ROOT, "benchmarks", "physics_presets_sac1m_triple.json"),
+                             encoding="utf-8"))
+        labels = {"v9": "SAC 1M in v9", "euler": "SAC 1M in euler", "fast": "SAC 1M in fast"}
+        for preset, arm in art["arms"].items():
+            start, end = self.parse_window(arm["window"])
+            self.assertEqual(end, self.find_span(22, labels[preset], start))
+            self.assertEqual(arm["train_seconds"], self.seconds_between(start, end))
+
+    def test_the_second_draw_matches_chain23(self):
+        """Two worlds at a second seed, and the scorer's own clock, both from one launcher log."""
+        art = json.load(open(os.path.join(ROOT, "benchmarks",
+                                          "physics_presets_screen5m_draws.json"), encoding="utf-8"))
+        arms = art["draws"]["seed8"]["arms"]
+        labels = {"v9": "second draw SAC 5M in v9", "fast": "second draw SAC 5M in fast"}
+        for preset, arm in arms.items():
+            start, end = self.parse_window(arm["wall_clock_window"])
+            self.assertEqual(end, self.find_span(23, labels[preset], start))
+            self.assertEqual(arm["wall_clock_seconds"], self.seconds_between(start, end))
+        # The scoring spans carry no window in the artifact, so they are matched by label alone.
+        scored = {label: self.seconds_between(start, end)
+                  for label, start, end, code in self.spans(23)
+                  if code == 0 and start and label.startswith("score the second draw")}
+        self.assertEqual(scored["score the second draw in v9"], arms["v9"]["scoring_seconds"])
+        self.assertEqual(scored["score the second draw in fast"], arms["fast"]["scoring_seconds"])
 
     def test_the_gail_retrain_matches_chain13(self):
         art = json.load(open(os.path.join(ROOT, "benchmarks", "phase4_gail_retrain.json"),

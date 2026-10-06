@@ -245,3 +245,64 @@ irreversible of the two available choices. The same sweep remains open on the ot
 (`walker_target_v1` keeps 41 steps, each as `sac_actor_*` plus `sac_ckpt_*`), and the Phase-1 runs
 recorded in the README checkpoint every 200k steps so the analysis is possible on them from the
 start.
+
+## Asking the process table whether the machine is free is not a lock
+
+Two chains trained on this laptop at the same time on 2026-10-06, and two arms had to be thrown out.
+The launcher logs are the record: `chain22_evidence.log` has pid 37556 writing
+`12:52:36 machine clear, proceeding / START SAC 1M in v9`, and `chain23.log` has pid 54604 writing
+`12:52:36 machine clear, proceeding / START second draw SAC 5M in v9`. Same second, because both were
+launched at 12:51:35 and both pre-flight checks are the same loop - "sample the process table for a
+`train_*.py`/`eval_*`/`bench_*`/`pytest` command line, require two consecutive clear readings 30 s
+apart". At 12:52:36 neither chain had started its interpreter yet, so each one correctly reported an
+idle machine and then went on to occupy it. The scan cannot see a competitor that has not started, so
+two chains launched together do not race each other for the lock - they both pass, always.
+
+About three minutes of two SAC trainers on one box is what the two arms got before they were stopped,
+and both were discarded rather than repaired: the `v9` window published in
+`benchmarks/physics_presets_sac1m_triple.json` is `12:55:56 -> 13:46:40`, the restarted copy's, and
+the 12:52:36 arm exists only as two orphan log lines. Nothing in either arm's output shows the
+collision - both would have exited 0 with plausible numbers, at ratios that would have been wrong.
+
+**What licenses the published arm is its stdout, and not the argument I first believed.** Both copies
+of a chain redirect the trainer to the same path (`%TEMP%\c22_v9.txt`), and I read that as the second
+`Start-Process` being unable to open the file until the first interpreter exited. It is not: tested
+afterwards, Windows lets a second redirect open a file another process is still writing, so the
+redirect proves nothing about exclusivity. What the file shows is its own contents - one monotone
+stream from `global_step=176` to `global_step=999400`, no restart, no line out of order, nothing
+foreign written into it - which is the shape a single trainer from 12:55:56 leaves. That is weaker
+than exclusivity, and it is what the evidence supports. The discarded arms left no artifact either
+way: their checkpoint interval was 500k and they ran three minutes.
+
+**The fix is a lock held across the interval, and its first test is 129 minutes long.** A chain now
+announces its pid in one shared `%TEMP%\machine.lock` and holds it until it is done; the process scan
+survives only to clear a crashed predecessor. `chain23.log` shows the result: `machine held by pid
+50180, waiting` once a minute from 12:55:48 to 15:03:50, then `machine claimed` at 15:04:50 - 37 s
+after chain22's last evaluation finished. The same scan that had passed 2 h 9 min earlier would have
+let that chain start a second trainer next to a running one; the lock is what made it wait. One more
+hole stays open: a lock only binds the processes that take it, and the copy already running when the
+patch was written had parsed the unpatched script, so relaunching a chain is not the same as retiring
+the one before it.
+
+## The throughput knob was the optimisation-dose knob
+
+`--num-envs` is named for parallelism and reads like a pure throughput setting. In this SAC loop it is
+also the learning dose: there is one critic update per collection iteration
+(`train_walker.py:1902-1964`) and a collection iteration is `num_envs` environment steps, so the
+optimisation applied to each environment step is 1/`num_envs`. The screens in the physics-preset
+section run at 8 envs and the flagship 40M run at 32 - same step budget, four times the gradient
+steps. The rates say the same thing from the other side: 1,798.4 s per 1M at 8 envs against 467.4 s
+per 1M at 32 is 3.85x, which is the 4x update ratio arriving in the wall clock, not an engineering
+gain. Asking "why is 5M cheaper at 32 envs" has the answer "because it trains less per step", and any
+comparison of a small-`n` arm against a large-`n` one at equal environment steps is comparing two
+different amounts of training.
+
+The trainer now has the explicit knob (`--utd-ratio`, G updates per collection iteration, default 1 so
+every committed run is untouched), and two of the blocks that moved matter more than the loop itself.
+The Polyak target sync went **inside** it: a target network's lag is measured in gradient steps, so
+applying tau once per collection iteration at ratio 4 would leave the target four times further behind
+the critic than ratio 1 does - a second semantics change hidden inside the first, invisible at ratio 1
+where both readings are identical. The loss logging stayed **outside**, because its cadence is the
+tensorboard series the training-rate summaries read. REDQ already had this knob as `--utd-ratio 20`,
+and its loop carries the same comment about gating on `global_step` inside a UTD loop - the pattern
+was documented in one trainer and quietly absent from the two that ran most of the research.

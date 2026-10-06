@@ -1,0 +1,63 @@
+{
+  "protocol": "SAC 1M, seed 7, num_envs=8, task_phase=target, reset_mode=mixed, target_forward_velocity=1.2, one arm per physics preset in the same window (v9, euler, fast), each scored with eval_phase1.py --num-episodes 20 --seed 11 in the world it trained in",
+  "arms": {
+    "v9": {
+      "train_seconds": 3044,
+      "eval_seconds": 28,
+      "window": "2026-10-06 12:55:56 -> 13:46:40",
+      "steps": 1000000,
+      "env_steps_per_second": 328.5,
+      "scored_in_version": "standup_balance_walk_curriculum_v9",
+      "device": "cuda",
+      "torch_threads": 24,
+      "mean": 1153.71,
+      "std": 4315.35,
+      "reached_target_pct": 0.0,
+      "mean_min_target_distance": 3.057,
+      "falls_per_episode": 0.1,
+      "standing_at_end_pct": 0.0
+    },
+    "euler": {
+      "train_seconds": 2630,
+      "eval_seconds": 21,
+      "window": "2026-10-06 13:47:08 -> 14:30:58",
+      "steps": 1000000,
+      "env_steps_per_second": 380.2,
+      "scored_in_version": "standup_balance_walk_curriculum_v9_euler",
+      "device": "cuda",
+      "torch_threads": 24,
+      "mean": 5861.46,
+      "std": 8926.46,
+      "reached_target_pct": 0.0,
+      "mean_min_target_distance": 3.304,
+      "falls_per_episode": 0.2,
+      "standing_at_end_pct": 0.0
+    },
+    "fast": {
+      "train_seconds": 1960,
+      "eval_seconds": 14,
+      "window": "2026-10-06 14:31:19 -> 15:03:59",
+      "steps": 1000000,
+      "env_steps_per_second": 510.2,
+      "scored_in_version": "standup_balance_walk_curriculum_v9_fast",
+      "device": "cuda",
+      "torch_threads": 24,
+      "mean": 17690.5,
+      "std": 10881.15,
+      "reached_target_pct": 0.0,
+      "mean_min_target_distance": 2.557,
+      "falls_per_episode": 0.55,
+      "standing_at_end_pct": 5.0
+    }
+  },
+  "train_seconds_over_v9": {
+    "v9": 1.0,
+    "euler": 1.157,
+    "fast": 1.553
+  },
+  "step_ratio_measured_in_its_own_window": {
+    "euler": 2.547,
+    "fast": 2.707
+  },
+  "note": "the step ratio and the end-to-end ratio are different measurements of different things: the first is one vector step with the learner switched off, the second is a whole training run with it on, and the gap between 2.7x and 1.55x is the part of SAC's clock the preset cannot touch"
+}

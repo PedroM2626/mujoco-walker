@@ -453,9 +453,11 @@ def target_from_scratch_paired(out="benchmarks/target_learning_curve_from_scratc
 
 
 PRESET_SCREEN_WALL_CLOCK = {
-    # Recorded, not derived: the trainers' wall clock lives in the launcher's log and in mlruns.db,
-    # neither of which is committed. The two artifacts below are what the runs scored, and the
-    # checkpoints they name are the durable half of the story.
+    # Recorded, not derived: the launcher log is the only place a SAC run's wall clock exists.
+    # `train_walker.py` defines the mlflow helpers and never calls them, so mlruns.db holds the
+    # Dreamer and GAIL runs and none of these, and `checkpoints/` says what was collected rather than
+    # how long it took. The chain logs are committed as evidence; the artifacts below are what the
+    # runs scored, and the checkpoints they name are the durable half of the story.
     "v9": {"seconds": 1345, "window": "2026-10-05 19:30:16 -> 19:52:41"},
     "fast": {"seconds": 1172, "window": "2026-10-05 19:52:41 -> 20:12:13"},
 }
@@ -550,6 +552,78 @@ def physics_preset_screens_5m(out="benchmarks/physics_presets_screen5m_paired.js
                           "this pair measures 1.232x in this one; the v9 arm alone ran 1,345 s per 1M "
                           "there and 1,798.4 s per 1M here, which is the machine's state and not the "
                           "worlds - only the ratios inside a pair are reusable"),
+    }, out
+
+
+SECOND_DRAW_5M_WALL_CLOCK = {
+    # Recorded from chain23's launcher log, the same two worlds back to back in one window at the
+    # second seed. The log is committed (`chain23_evidence.log`) and a provenance test re-derives
+    # these spans from it, because a SAC run writes no mlflow record to check against.
+    "v9": {"seconds": 9386, "window": "2026-10-06 15:05:50 -> 17:42:16", "scoring_seconds": 78},
+    "fast": {"seconds": 7568, "window": "2026-10-06 17:43:34 -> 19:49:42", "scoring_seconds": 52},
+}
+
+
+def physics_preset_second_draw(out="benchmarks/physics_presets_screen5m_draws.json"):
+    """The 5M preset pair drawn twice, so the ordering can be told from the luck.
+
+    The first draw said the two worlds agree on the question (each reaches the target at 5M) and
+    could say nothing about level, because there was one run per world. Two draws per world at two
+    seeds separate the two claims, and they come out differently. The ordering replicates: the cheap
+    world is ahead at 9 of the 10 world-x-budget cells. The level does not: `v9` scored 18,956.17 at
+    one seed and -763.96 at the other, a swing bigger than the gap between the worlds it is being
+    compared across, and the reach column went from 10% to 0 of 20. A single 5M draw in the published
+    world can therefore produce a policy that never reaches the target at all.
+    """
+    draws = {}
+    for seed, files, clocks in (("seed7", "physics_presets_screen5m_%s.json", PRESET_SCREEN_5M_WALL_CLOCK),
+                                ("seed8", "physics_presets_screen5m_seed8_%s.json", SECOND_DRAW_5M_WALL_CLOCK)):
+        arms = {}
+        for preset in ("v9", "fast"):
+            data = json.load(open(os.path.join(ROOT, "benchmarks", files % preset), encoding="utf-8"))
+            clock = clocks[preset]
+            arms[preset] = {
+                "seed": 7 if seed == "seed7" else 8,
+                "checkpoint_run": data["models"]["s1000000"]["checkpoint"].split("/")[1],
+                "device": data.get("device"), "torch_threads": data.get("torch_threads"),
+                "scored_in_version": data.get("scored_in_version"),
+                "wall_clock_seconds": clock["seconds"], "wall_clock_window": clock["window"],
+                "seconds_per_1m": round(clock["seconds"] / 5.0, 1),
+                "scoring_seconds": clock.get("scoring_seconds"),
+                "by_budget": {
+                    budget: {k: model[k] for k in ("mean", "std", "reached_target_pct",
+                                                   "mean_min_target_distance", "mean_x_velocity",
+                                                   "standing_at_end_pct", "falls_per_episode")}
+                    for budget, model in sorted(data["models"].items(),
+                                                key=lambda kv: int(kv[0][1:]))
+                },
+            }
+        faster = (arms["v9"]["wall_clock_seconds"] / arms["fast"]["wall_clock_seconds"])
+        draws[seed] = {"arms": arms, "end_to_end_speedup_fast_vs_v9": round(faster, 3)}
+
+    budgets = [f"s{m}000000" for m in range(1, 6)]
+    ahead = sum(1 for seed in draws.values() for b in budgets
+                if seed["arms"]["fast"]["by_budget"][b]["mean"]
+                > seed["arms"]["v9"]["by_budget"][b]["mean"])
+    swing = {
+        preset: round(max(d["arms"][preset]["by_budget"]["s5000000"]["mean"] for d in draws.values())
+                      - min(d["arms"][preset]["by_budget"]["s5000000"]["mean"] for d in draws.values()), 2)
+        for preset in ("v9", "fast")}
+    return {
+        "protocol": ("SAC 5M, num_envs=8, task_phase=target, reset_mode=mixed, "
+                     "target_forward_velocity=1.2, one run per world per seed (7 and 8), "
+                     "checkpointed every 1M; each arm scored with eval_phase1.py --num-episodes 20 "
+                     "--seed 11 in the world it trained in. Same physics preset within a draw, so "
+                     "the two worlds differ only in the environment they were trained and scored in"),
+        "draws": draws,
+        "fast_ahead_cells_of_10": ahead,
+        "mean_swing_between_draws_at_5m": swing,
+        "reached_target_pct_at_5m": {
+            preset: [d["arms"][preset]["by_budget"]["s5000000"]["reached_target_pct"]
+                     for d in (draws["seed7"], draws["seed8"])] for preset in ("v9", "fast")},
+        "note": ("the ordering is the part that replicated and the level is the part that did not; "
+                 "the two wall-clock speedups (1.232x and 1.240x) are the part that was stable all "
+                 "along, because they are ratios measured inside one window"),
     }, out
 
 
@@ -686,6 +760,61 @@ def physics_preset_dreamer_pair(out="benchmarks/physics_presets_dreamer_pair.jso
     }, out
 
 
+SAC_1M_TRIPLE = {
+    # Wall clocks from chain22_evidence.log, three arms back to back in one window, and the scoring
+    # spans of the same window. The window matters: `v9` took 3,044 s here against 1,345 s in the
+    # window that produced the committed 1M pair, which is the machine's state, not the worlds.
+    "v9": {"train_seconds": 3044, "eval_seconds": 28, "window": "2026-10-06 12:55:56 -> 13:46:40"},
+    "euler": {"train_seconds": 2630, "eval_seconds": 21,
+              "window": "2026-10-06 13:47:08 -> 14:30:58"},
+    "fast": {"train_seconds": 1960, "eval_seconds": 14,
+             "window": "2026-10-06 14:31:19 -> 15:03:59"},
+}
+
+
+def physics_presets_sac_triple(out="benchmarks/physics_presets_sac1m_triple.json"):
+    """The three physics worlds trained end to end at 1M, the case the step ratio cannot speak for.
+
+    `euler` is the interesting arm: it drifts least from the published world (0.227 m of torso
+    height over a shared episode against 0.301 m) and until this run had never been trained in. The
+    question is whether being closer to v9 costs it the speed, and the answer is that it does lose
+    some - but the more arresting column is the last one. At 1M the three worlds do not tie, and
+    the ordering follows the price of the step, which is precisely why the second draw at 5M exists.
+    """
+    arms = {}
+    for preset, spec in SAC_1M_TRIPLE.items():
+        data = json.load(open(os.path.join(ROOT, "benchmarks",
+                                           f"physics_presets_sac1m_{preset}.json"),
+                              encoding="utf-8"))
+        model = data["models"][f"sac1m_{preset}"]
+        arms[preset] = dict(spec, steps=1000000,
+                            env_steps_per_second=round(1000000 / spec["train_seconds"], 1),
+                            scored_in_version=data.get("scored_in_version"),
+                            device=data.get("device"), torch_threads=data.get("torch_threads"),
+                            mean=model["mean"], std=model["std"],
+                            reached_target_pct=model["reached_target_pct"],
+                            mean_min_target_distance=model["mean_min_target_distance"],
+                            falls_per_episode=model["falls_per_episode"],
+                            standing_at_end_pct=model["standing_at_end_pct"])
+    base = arms["v9"]["train_seconds"]
+    return {
+        "protocol": ("SAC 1M, seed 7, num_envs=8, task_phase=target, reset_mode=mixed, "
+                     "target_forward_velocity=1.2, one arm per physics preset in the same window "
+                     "(v9, euler, fast), each scored with eval_phase1.py --num-episodes 20 --seed 11 "
+                     "in the world it trained in"),
+        "arms": arms,
+        "train_seconds_over_v9": {k: round(base / v["train_seconds"], 3) for k, v in arms.items()},
+        "step_ratio_measured_in_its_own_window": {
+            k: json.load(open(os.path.join(ROOT, "benchmarks", "physics_presets.json"),
+                               encoding="utf-8"))["throughput_ratio"][k]["env_step_n8_vs_v9"]
+            for k in ("euler", "fast")},
+        "note": ("the step ratio and the end-to-end ratio are different measurements of different "
+                 "things: the first is one vector step with the learner switched off, the second is "
+                 "a whole training run with it on, and the gap between 2.7x and 1.55x is the part "
+                 "of SAC's clock the preset cannot touch"),
+    }, out
+
+
 TEACHER_EVENTS = os.path.join("openai_walker", "sac_walker_tensorboard", "SAC_2",
                               "events.out.tfevents.1780843517.pedro.36828.0")
 
@@ -771,11 +900,16 @@ BENCHMARKS = [
     # The pair re-run at 5M, the smallest budget where the target is actually reached in either
     # world - the only arm that can say whether the cheap world tracks the published one.
     physics_preset_screens_5m,
+    # The same two worlds drawn a second time at a second seed, which is what separates the ordering
+    # of the worlds from the luck of one run.
+    physics_preset_second_draw,
     # PPO against SAC at the same config: what each costs per environment step, and what that buys
     # in behaviour. The two answers point in opposite directions, so they live in one artifact.
     trainer_pair_ppo_sac,
     # The preset on the update-dominated trainer: is the gain predictable from the loop split?
     physics_preset_dreamer_pair,
+    # All three physics worlds trained end to end at 1M, so the step ratio is not quoted alone.
+    physics_presets_sac_triple,
     # The teacher's own 100-episode evaluations, mined from its committed TensorBoard log: the only
     # pre-retraction evaluation series in the repo, and an independent protocol.
     teacher_eval_curve,

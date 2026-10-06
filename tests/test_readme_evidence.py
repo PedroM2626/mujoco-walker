@@ -2936,6 +2936,244 @@ class TestReadmePhysicsPresetCells(ReadmeGate, unittest.TestCase):
         self.assertAlmostEqual(ppo_gain, 1.156, places=3,
                                msg="the paragraph lists PPO's preset gain; it is not 1.156x")
 
+    def test_the_1m_triple_is_the_three_worlds_measured_in_one_window(self):
+        triple = json.load(open(os.path.join(ROOT, "benchmarks",
+                                             "physics_presets_sac1m_triple.json"), encoding="utf-8"))
+        arms = triple["arms"]
+        m = self.sentence(r"\*\*([\d,]+) s in `v9`, ([\d,]+) s in `euler`, ([\d,]+) s in\s*`fast`\*\* "
+                          r"- ([\d.]+)x and ([\d.]+)x", "the triple wall clocks")
+        self.check("triple seconds", m.groups()[:3],
+                   [arms["v9"]["train_seconds"], arms["euler"]["train_seconds"],
+                    arms["fast"]["train_seconds"]], places=0)
+        self.check("triple ratios", [m.group(4), m.group(5)],
+                   [triple["train_seconds_over_v9"]["euler"], triple["train_seconds_over_v9"]["fast"]],
+                   places=3)
+        m = self.sentence(r"mean return \*\*([\d,.]+)\*\* in `v9`, \*\*([\d,.]+)\*\* in `euler`, "
+                          r"\*\*([\d,.]+)\*\* in `fast`, with `fast` the only arm that ended any "
+                          r"episode standing \(([\d.]+)% against ([\d.]+)%\) and the only one that "
+                          r"got meaningfully closer to the target \(([\d.]+) m against ([\d.]+) m\), "
+                          r"while also falling most \(([\d.]+) per episode against ([\d.]+)",
+                          "the behavioural column")
+        self.check("means", m.groups()[:3],
+                   [arms["v9"]["mean"], arms["euler"]["mean"], arms["fast"]["mean"]], places=2)
+        self.check("standing", m.groups()[3:5],
+                   [arms["fast"]["standing_at_end_pct"], arms["v9"]["standing_at_end_pct"]], places=1)
+        self.check("approach", m.groups()[5:7],
+                   [arms["fast"]["mean_min_target_distance"], arms["v9"]["mean_min_target_distance"]],
+                   places=3)
+        self.check("falls", m.groups()[7:9],
+                   [arms["fast"]["falls_per_episode"], arms["v9"]["falls_per_episode"]], places=2)
+        m = self.sentence(r"evaluation of the three arms took (\d+) s, (\d+) s and\s*(\d+) s",
+                          "the scorer's own clock")
+        self.check("eval seconds", m.groups(),
+                   [arms["v9"]["eval_seconds"], arms["euler"]["eval_seconds"],
+                    arms["fast"]["eval_seconds"]], places=0)
+        self.assertEqual(triple["train_seconds_over_v9"]["fast"],
+                         round(arms["v9"]["train_seconds"] / arms["fast"]["train_seconds"], 3))
+
+    def test_the_two_1m_windows_of_one_recipe_disagree_about_which_world_leads(self):
+        """The level column at 1M is a second-hand measurement, and the second hand says "no"."""
+        triple = json.load(open(os.path.join(ROOT, "benchmarks",
+                                             "physics_presets_sac1m_triple.json"), encoding="utf-8"))
+        first = json.load(open(os.path.join(ROOT, "benchmarks",
+                                            "physics_presets_screen_paired.json"), encoding="utf-8"))
+        t, f = triple["arms"], first["arms"]
+        # The paragraph calls the two windows one recipe, so every instrument setting it names has to
+        # actually match: a CUDA arm compared against a CPU one would be a different claim.
+        for preset in ("v9", "fast"):
+            self.assertEqual(t[preset]["device"], f[preset]["device"],
+                             f"{preset}: the two windows are not the same device")
+            self.assertEqual(t[preset]["torch_threads"], f[preset]["torch_threads"])
+            self.assertEqual(t[preset]["scored_in_version"], f[preset]["scored_in_version"])
+        for art in (triple, first):
+            self.assertIn("seed 7", art["protocol"])
+            self.assertIn("num_envs=8", art["protocol"])
+            self.assertIn("target_forward_velocity=1.2", art["protocol"])
+        m = self.sentence(r"it found \*\*([\d,.]+)\*\* in `v9` against \*\*([\d,.]+)\*\* in `fast`, "
+                          r"where this window found\s*\*\*([\d,.]+)\*\* against \*\*([\d,.]+)\*\*",
+                          "the two windows' 1M means")
+        self.check("first window means", m.groups()[:2], [f["v9"]["mean"], f["fast"]["mean"]],
+                   places=2)
+        self.check("this window means", m.groups()[2:], [t["v9"]["mean"], t["fast"]["mean"]],
+                   places=2)
+        m = self.sentence(r"came down by a factor of ([\d.]+), the cheap one came up by ([\d.]+)",
+                          "the reversal factors")
+        self.check("reversal factors", [m.group(1), m.group(2)],
+                   [round(f["v9"]["mean"] / t["v9"]["mean"], 1),
+                    round(t["fast"]["mean"] / f["fast"]["mean"], 1)], places=1)
+        self.assertLess(t["v9"]["mean"], f["v9"]["mean"] / 3.0,
+                        "v9 no longer comes down by several-fold between the windows")
+        self.assertGreater(f["v9"]["mean"], f["fast"]["mean"],
+                           "the first window no longer has v9 ahead")
+        self.assertGreater(t["fast"]["mean"], t["v9"]["mean"],
+                           "this window no longer has fast ahead, so the ordering has not reversed")
+        m = self.sentence(r"\*\*(\d+) of (\d+)\*\* episodes reach the target in every arm of both "
+                          r"windows", "the replicated question")
+        self.assertEqual(m.group(1), "0", "the two windows no longer both fail to reach")
+        self.assertEqual(m.group(2), "20", "the eval protocol is no longer 20 episodes per arm")
+        for art in (triple, first):
+            self.assertIn("--num-episodes 20", art["protocol"])
+        reaches = [arm["reached_target_pct"] for arm in list(t.values()) + list(f.values())
+                   if "reached_target_pct" in arm]
+        self.assertEqual(len(reaches), 5)
+        self.assertEqual(set(reaches), {0.0},
+                         f"some arm of the two 1M windows reaches the target ({reaches}), so the "
+                         "question a 1M screen asks is no longer the only thing that replicated")
+
+    def test_the_screens_environment_count_is_also_their_optimisation_dose(self):
+        """1,798.4 against 467.4 s per 1M is the 4x update ratio, so the paragraph may call it that.
+
+        Both rates come from artifacts that record their own `num_envs`, and the citation points at
+        the loop lines, so this test also fails if the cited range stops being the UTD loop.
+        """
+        scratch = json.load(open(os.path.join(ROOT, "benchmarks",
+                                             "target_learning_curve_from_scratch_paired.json"),
+                                 encoding="utf-8"))
+        run = scratch["from_scratch_run"]
+        per_m_8 = self.screens5m["arms"]["v9"]["seconds_per_1m"]
+        per_m_32 = round(run["wall_clock_seconds"] / (run["config"]["total_timesteps"] / 1e6), 1)
+        self.check("s per 1M at 8 envs", self.sentence(
+            r"the `v9` arm of the 5M pair ran at \*\*([\d,.]+) s per 1M steps\*\* at (\d+) envs",
+            "the 8-env rate").group(1), per_m_8, places=1)
+        m = self.sentence(r"the `v9` arm of the 5M pair ran at \*\*([\d,.]+) s per 1M steps\*\* at "
+                          r"(\d+) envs while the 40M run at (\d+) envs sustained \*\*([\d,.]+) s per "
+                          r"1M\*\*, and [\d,.]+/[\d,.]+ is \*\*([\d.]+)x\*\*", "the two dose rates")
+        self.check("envs in the screens", m.group(2),
+                   int(self.screens5m["protocol"].split("num_envs=")[1].split(",")[0]), places=0)
+        self.check("envs in the 40M run", m.group(3), run["config"]["num_envs"], places=0)
+        self.check("s per 1M at 32 envs", m.group(4), per_m_32, places=1)
+        self.check("the rate ratio", m.group(5), round(per_m_8 / per_m_32, 2), places=2)
+        self.assertEqual(int(m.group(3)) // int(m.group(2)), 4,
+                         "the paragraph says the dose ratio is four; the recorded configs disagree")
+        # The default that licenses "no committed run moves". Read from the source rather than by
+        # importing the trainer: this whole file is a text-and-JSON gate and stays runnable while a
+        # training job owns the machine.
+        source = open(os.path.join(ROOT, "train_walker.py"), encoding="utf-8").read()
+        self.assertIn('"UTD_RATIO": "1",', source,
+                      "the shipped default is no longer one update per collection iteration")
+        lines = source.splitlines()
+        utd_lines = {i + 1 for i, text in enumerate(lines)
+                     if "for _utd in range(max(1, args.utd_ratio))" in text}
+        self.assertEqual(len(utd_lines), 2, "SAC and TD3 should each own one UTD loop")
+        cited = re.findall(r"\(`?train_walker\.py:(\d+)-(\d+)`?\)", self.block)
+        self.assertTrue(cited, "the paragraph no longer cites the loop it is describing")
+        for lo, hi in ((int(lo), int(hi)) for lo, hi in cited):
+            if any(lo <= n <= hi for n in utd_lines):
+                break
+        else:
+            self.fail(f"none of the cited ranges {cited} contains a UTD loop line "
+                      f"{sorted(utd_lines)}; the citation rotted with the edit that moved the loop")
+
+    def test_the_second_draw_is_two_worlds_at_two_seeds_and_the_ordering_holds(self):
+        """9 of 10 cells is a recomputed count, not a remembered one, and so is every figure."""
+        draws = json.load(open(os.path.join(ROOT, "benchmarks",
+                                            "physics_presets_screen5m_draws.json"), encoding="utf-8"))
+        d7, d8 = draws["draws"]["seed7"], draws["draws"]["seed8"]
+        m = self.sentence(r"ahead at \*\*(\d+) of the (\d+)\*\* world-by-budget cells, at 5M with "
+                          r"\*\*(-?[\d,.]+)\*\* against the published world's \*\*(-?[\d,.]+)\*\*, "
+                          r"reaching the target in (\d+) of (\d+) episodes against (\d+) of (\d+)",
+                          "the replicated ordering")
+        self.check("cells fast leads", m.group(1), draws["fast_ahead_cells_of_10"], places=0)
+        self.check("cells total", m.group(2), 2 * 5, places=0)
+        self.check("seed 8 means at 5M", [m.group(3), m.group(4)],
+                   [d8["arms"]["fast"]["by_budget"]["s5000000"]["mean"],
+                    d8["arms"]["v9"]["by_budget"]["s5000000"]["mean"]], places=2)
+        reach = {p: [dr["arms"][p]["by_budget"]["s5000000"]["reached_target_pct"]
+                     for dr in (d7, d8)] for p in ("v9", "fast")}
+        self.check("seed 8 reaches per arm", m.groups()[4:8],
+                   [reach["fast"][1] / 5.0, 20, reach["v9"][1] / 5.0, 20], places=0)
+        m = self.sentence(r"The one cell where `v9` leads \(seed (\d+) at (\d+)M, ([\d,.]+) against "
+                          r"([\d,.]+)\)", "the single crossing")
+        self.check("crossing seed", m.group(1), 7, places=0)
+        budget = f"s{int(m.group(2))}000000"
+        self.check("crossing means", [m.group(3), m.group(4)],
+                   [d7["arms"]["v9"]["by_budget"][budget]["mean"],
+                    d7["arms"]["fast"]["by_budget"][budget]["mean"]], places=2)
+        self.assertLess(d7["arms"]["v9"]["by_budget"][budget]["mean"],
+                        d7["arms"]["v9"]["by_budget"]["s5000000"]["mean"],
+                        "the crossing cell is no longer on the way up")
+
+    def test_the_level_swing_inside_one_world_rivals_the_gap_between_worlds(self):
+        draws = json.load(open(os.path.join(ROOT, "benchmarks",
+                                            "physics_presets_screen5m_draws.json"), encoding="utf-8"))
+        d7, d8 = draws["draws"]["seed7"], draws["draws"]["seed8"]
+        at5 = lambda dr, p: dr["arms"][p]["by_budget"]["s5000000"]
+        m = self.sentence(r"produced \*\*([\d,.]+)\*\* and ([\d.]+)% reach at one seed and "
+                          r"\*\*(-?[\d,.]+)\*\* and ([\d.]+)% at the other - a swing of "
+                          r"\*\*([\d,.]+)\*\* inside one world, while the cheap one swung "
+                          r"\*\*([\d,.]+)\*\*\. For scale, the distance between the two worlds in the "
+                          r"first draw was ([\d,.]+)", "the within-world swing")
+        self.check("v9 both draws", [m.group(1), m.group(3)],
+                   [at5(d7, "v9")["mean"], at5(d8, "v9")["mean"]], places=2)
+        self.check("v9 reach both draws", [m.group(2), m.group(4)],
+                   [at5(d7, "v9")["reached_target_pct"], at5(d8, "v9")["reached_target_pct"]],
+                   places=1)
+        swing = draws["mean_swing_between_draws_at_5m"]
+        self.check("swings", [m.group(5), m.group(6)], [swing["v9"], swing["fast"]], places=2)
+        gap = abs(at5(d7, "fast")["mean"] - at5(d7, "v9")["mean"])
+        self.check("first-draw gap", m.group(7), gap, places=2)
+        # The sentence's comparison, restated as an arithmetic check rather than prose.
+        self.assertLess(abs(float(m.group(5).replace(",", "")) - gap), 0.01 * gap + 1,
+                        "the published world's swing is no longer on the order of the gap")
+        self.assertGreater(float(m.group(6).replace(",", "")), gap,
+                           "the cheap world's swing is no longer larger than the gap")
+
+    def test_the_two_draws_agree_on_the_speedup_and_disagree_on_everything_else(self):
+        draws = json.load(open(os.path.join(ROOT, "benchmarks",
+                                            "physics_presets_screen5m_draws.json"), encoding="utf-8"))
+        d7, d8 = draws["draws"]["seed7"], draws["draws"]["seed8"]
+        m = self.sentence(r"\*\*([\d.]+)x\*\* in the first window and \*\*([\d.]+)x\*\* in this one\s*"
+                          r"\(([\d,]+) s against ([\d,]+) s - ([\d,.]+) s per 1M against ([\d,.]+) s"
+                          r"\), and the scorer again felt the physics:\s*\*\*(\d+) s against (\d+) s\*\*",
+                          "the two windows' speedups")
+        self.check("speedups", [m.group(1), m.group(2)],
+                   [d7["end_to_end_speedup_fast_vs_v9"], d8["end_to_end_speedup_fast_vs_v9"]],
+                   places=3)
+        self.check("seed 8 wall clocks", [m.group(3), m.group(4)],
+                   [d8["arms"]["v9"]["wall_clock_seconds"], d8["arms"]["fast"]["wall_clock_seconds"]],
+                   places=0)
+        self.check("seed 8 per 1M", [m.group(5), m.group(6)],
+                   [d8["arms"]["v9"]["seconds_per_1m"], d8["arms"]["fast"]["seconds_per_1m"]],
+                   places=1)
+        self.check("seed 8 scorer clocks", [m.group(7), m.group(8)],
+                   [d8["arms"]["v9"]["scoring_seconds"], d8["arms"]["fast"]["scoring_seconds"]],
+                   places=0)
+        for dr in (d7, d8):
+            for preset, arm in dr["arms"].items():
+                self.assertEqual(arm["device"], "cuda")
+                self.assertEqual(arm["torch_threads"], 24)
+            self.assertIn("num_envs=8", draws["protocol"])
+        # Both draws scored each arm in the world it trained in, or the ordering would be a
+        # bookkeeping artefact rather than a behavioural one.
+        for dr in (d7, d8):
+            self.assertEqual(dr["arms"]["v9"]["scored_in_version"],
+                             "standup_balance_walk_curriculum_v9")
+            self.assertEqual(dr["arms"]["fast"]["scored_in_version"],
+                             "standup_balance_walk_curriculum_v9_fast")
+
+    def test_the_three_arms_share_one_reward_function_so_the_ordering_means_something(self):
+        triple = json.load(open(os.path.join(ROOT, "benchmarks",
+                                             "physics_presets_sac1m_triple.json"), encoding="utf-8"))
+        for preset in ("v9", "euler", "fast"):
+            scored = triple["arms"][preset]["scored_in_version"]
+            self.assertEqual(scored, ("standup_balance_walk_curriculum_v9"
+                                      + ("" if preset == "v9" else f"_{preset}")),
+                             f"{preset} was not scored in the world it trained in")
+        # The paragraph's claim is that these three are comparable in return because they share the
+        # reward function - which is only true while all three record the same task speed.
+        speeds = set()
+        for preset in ("v9", "euler", "fast"):
+            art = json.load(open(os.path.join(ROOT, "benchmarks",
+                                              f"physics_presets_sac1m_{preset}.json"),
+                                 encoding="utf-8"))
+            model = art["models"][f"sac1m_{preset}"]
+            speeds.add(model["reward_kwargs"]["target_forward_velocity"])
+            self.assertEqual(model["reward_kwargs"],
+                             art["models"][f"sac1m_{preset}"]["reward_kwargs"])
+        self.assertEqual(speeds, {1.2},
+                         f"the arms no longer share a task speed ({speeds}), so the returns are not "
+                         "comparable across them and the paragraph has to be rewritten")
+
     def test_the_preset_refuses_to_be_scored_in_another_world(self):
         with open(os.path.join(ROOT, "eval_phase1.py"), encoding="utf-8") as handle:
             src = handle.read()

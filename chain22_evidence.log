@@ -1,0 +1,19 @@
+12:51:35 lock held by pid 37556
+12:52:36 machine clear, proceeding
+12:52:36 START SAC 1M in v9
+12:54:55 lock held by pid 50180
+12:54:55 machine claimed
+12:55:56 machine clear, proceeding
+12:55:56 START SAC 1M in v9
+13:46:40 DONE  SAC 1M in v9 (exit 0)
+13:46:40 START score SAC 1M in v9
+13:47:08 DONE  score SAC 1M in v9 (exit 0)
+13:47:08 START SAC 1M in euler
+14:30:58 DONE  SAC 1M in euler (exit 0)
+14:30:58 START score SAC 1M in euler
+14:31:19 DONE  score SAC 1M in euler (exit 0)
+14:31:19 START SAC 1M in fast
+15:03:59 DONE  SAC 1M in fast (exit 0)
+15:03:59 START score SAC 1M in fast
+15:04:13 DONE  score SAC 1M in fast (exit 0)
+15:04:13 chain22 complete

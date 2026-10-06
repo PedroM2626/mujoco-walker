@@ -1,0 +1,263 @@
+{
+  "protocol": "SAC 5M, num_envs=8, task_phase=target, reset_mode=mixed, target_forward_velocity=1.2, one run per world per seed (7 and 8), checkpointed every 1M; each arm scored with eval_phase1.py --num-episodes 20 --seed 11 in the world it trained in. Same physics preset within a draw, so the two worlds differ only in the environment they were trained and scored in",
+  "draws": {
+    "seed7": {
+      "arms": {
+        "v9": {
+          "seed": 7,
+          "checkpoint_run": "screen_sac_v9_5m",
+          "device": "cuda",
+          "torch_threads": 24,
+          "scored_in_version": "standup_balance_walk_curriculum_v9",
+          "wall_clock_seconds": 8992,
+          "wall_clock_window": "2026-10-05 21:05:04 -> 23:34:56",
+          "seconds_per_1m": 1798.4,
+          "scoring_seconds": null,
+          "by_budget": {
+            "s1000000": {
+              "mean": 2231.9,
+              "std": 5578.58,
+              "reached_target_pct": 0.0,
+              "mean_min_target_distance": 3.302,
+              "mean_x_velocity": -0.0157,
+              "standing_at_end_pct": 0.0,
+              "falls_per_episode": 0.15
+            },
+            "s2000000": {
+              "mean": 15328.48,
+              "std": 9885.49,
+              "reached_target_pct": 0.0,
+              "mean_min_target_distance": 2.814,
+              "mean_x_velocity": 0.039,
+              "standing_at_end_pct": 0.0,
+              "falls_per_episode": 0.7
+            },
+            "s3000000": {
+              "mean": 18014.0,
+              "std": 13835.07,
+              "reached_target_pct": 0.0,
+              "mean_min_target_distance": 2.605,
+              "mean_x_velocity": 0.078,
+              "standing_at_end_pct": 0.0,
+              "falls_per_episode": 0.8
+            },
+            "s4000000": {
+              "mean": 19065.03,
+              "std": 18605.03,
+              "reached_target_pct": 0.0,
+              "mean_min_target_distance": 2.435,
+              "mean_x_velocity": 0.1479,
+              "standing_at_end_pct": 0.0,
+              "falls_per_episode": 1.1
+            },
+            "s5000000": {
+              "mean": 18956.17,
+              "std": 12531.77,
+              "reached_target_pct": 10.0,
+              "mean_min_target_distance": 2.309,
+              "mean_x_velocity": 0.132,
+              "standing_at_end_pct": 0.0,
+              "falls_per_episode": 0.85
+            }
+          }
+        },
+        "fast": {
+          "seed": 7,
+          "checkpoint_run": "screen_sac_fast_5m",
+          "device": "cuda",
+          "torch_threads": 24,
+          "scored_in_version": "standup_balance_walk_curriculum_v9_fast",
+          "wall_clock_seconds": 7299,
+          "wall_clock_window": "2026-10-05 23:34:56 -> 2026-10-06 01:36:35",
+          "seconds_per_1m": 1459.8,
+          "scoring_seconds": null,
+          "by_budget": {
+            "s1000000": {
+              "mean": 12415.53,
+              "std": 6592.62,
+              "reached_target_pct": 0.0,
+              "mean_min_target_distance": 2.735,
+              "mean_x_velocity": 0.0369,
+              "standing_at_end_pct": 0.0,
+              "falls_per_episode": 0.25
+            },
+            "s2000000": {
+              "mean": 14087.03,
+              "std": 11695.28,
+              "reached_target_pct": 0.0,
+              "mean_min_target_distance": 2.665,
+              "mean_x_velocity": 0.0516,
+              "standing_at_end_pct": 0.0,
+              "falls_per_episode": 0.6
+            },
+            "s3000000": {
+              "mean": 24941.79,
+              "std": 17321.73,
+              "reached_target_pct": 0.0,
+              "mean_min_target_distance": 2.101,
+              "mean_x_velocity": 0.114,
+              "standing_at_end_pct": 0.0,
+              "falls_per_episode": 1.25
+            },
+            "s4000000": {
+              "mean": 24593.68,
+              "std": 22005.36,
+              "reached_target_pct": 5.0,
+              "mean_min_target_distance": 2.14,
+              "mean_x_velocity": 0.1635,
+              "standing_at_end_pct": 5.0,
+              "falls_per_episode": 1.35
+            },
+            "s5000000": {
+              "mean": 38778.91,
+              "std": 18155.63,
+              "reached_target_pct": 10.0,
+              "mean_min_target_distance": 1.501,
+              "mean_x_velocity": 0.2352,
+              "standing_at_end_pct": 5.0,
+              "falls_per_episode": 1.65
+            }
+          }
+        }
+      },
+      "end_to_end_speedup_fast_vs_v9": 1.232
+    },
+    "seed8": {
+      "arms": {
+        "v9": {
+          "seed": 8,
+          "checkpoint_run": "second_draw_sac_v9_5m",
+          "device": "cuda",
+          "torch_threads": 24,
+          "scored_in_version": "standup_balance_walk_curriculum_v9",
+          "wall_clock_seconds": 9386,
+          "wall_clock_window": "2026-10-06 15:05:50 -> 17:42:16",
+          "seconds_per_1m": 1877.2,
+          "scoring_seconds": 78,
+          "by_budget": {
+            "s1000000": {
+              "mean": 5473.22,
+              "std": 3137.55,
+              "reached_target_pct": 0.0,
+              "mean_min_target_distance": 2.966,
+              "mean_x_velocity": 0.0099,
+              "standing_at_end_pct": 0.0,
+              "falls_per_episode": 0.1
+            },
+            "s2000000": {
+              "mean": 2992.37,
+              "std": 6252.66,
+              "reached_target_pct": 0.0,
+              "mean_min_target_distance": 3.272,
+              "mean_x_velocity": -0.0101,
+              "standing_at_end_pct": 0.0,
+              "falls_per_episode": 0.1
+            },
+            "s3000000": {
+              "mean": -2960.51,
+              "std": 6685.11,
+              "reached_target_pct": 0.0,
+              "mean_min_target_distance": 3.286,
+              "mean_x_velocity": 0.0025,
+              "standing_at_end_pct": 0.0,
+              "falls_per_episode": 0.1
+            },
+            "s4000000": {
+              "mean": 1443.68,
+              "std": 5074.21,
+              "reached_target_pct": 0.0,
+              "mean_min_target_distance": 3.409,
+              "mean_x_velocity": -0.0084,
+              "standing_at_end_pct": 0.0,
+              "falls_per_episode": 0.1
+            },
+            "s5000000": {
+              "mean": -763.96,
+              "std": 5949.33,
+              "reached_target_pct": 0.0,
+              "mean_min_target_distance": 3.33,
+              "mean_x_velocity": 0.0052,
+              "standing_at_end_pct": 0.0,
+              "falls_per_episode": 0.1
+            }
+          }
+        },
+        "fast": {
+          "seed": 8,
+          "checkpoint_run": "second_draw_sac_fast_5m",
+          "device": "cuda",
+          "torch_threads": 24,
+          "scored_in_version": "standup_balance_walk_curriculum_v9_fast",
+          "wall_clock_seconds": 7568,
+          "wall_clock_window": "2026-10-06 17:43:34 -> 19:49:42",
+          "seconds_per_1m": 1513.6,
+          "scoring_seconds": 52,
+          "by_budget": {
+            "s1000000": {
+              "mean": 19202.8,
+              "std": 8994.2,
+              "reached_target_pct": 0.0,
+              "mean_min_target_distance": 3.123,
+              "mean_x_velocity": -0.0951,
+              "standing_at_end_pct": 0.0,
+              "falls_per_episode": 1.55
+            },
+            "s2000000": {
+              "mean": 35145.14,
+              "std": 13850.31,
+              "reached_target_pct": 0.0,
+              "mean_min_target_distance": 2.444,
+              "mean_x_velocity": 0.0187,
+              "standing_at_end_pct": 5.0,
+              "falls_per_episode": 3.15
+            },
+            "s3000000": {
+              "mean": 41456.24,
+              "std": 20273.34,
+              "reached_target_pct": 15.0,
+              "mean_min_target_distance": 2.207,
+              "mean_x_velocity": 0.0871,
+              "standing_at_end_pct": 15.0,
+              "falls_per_episode": 3.25
+            },
+            "s4000000": {
+              "mean": 53257.61,
+              "std": 20010.5,
+              "reached_target_pct": 25.0,
+              "mean_min_target_distance": 2.098,
+              "mean_x_velocity": 0.086,
+              "standing_at_end_pct": 5.0,
+              "falls_per_episode": 3.85
+            },
+            "s5000000": {
+              "mean": 62311.88,
+              "std": 22831.97,
+              "reached_target_pct": 20.0,
+              "mean_min_target_distance": 1.899,
+              "mean_x_velocity": 0.2583,
+              "standing_at_end_pct": 10.0,
+              "falls_per_episode": 4.2
+            }
+          }
+        }
+      },
+      "end_to_end_speedup_fast_vs_v9": 1.24
+    }
+  },
+  "fast_ahead_cells_of_10": 9,
+  "mean_swing_between_draws_at_5m": {
+    "v9": 19720.13,
+    "fast": 23532.97
+  },
+  "reached_target_pct_at_5m": {
+    "v9": [
+      10.0,
+      0.0
+    ],
+    "fast": [
+      10.0,
+      20.0
+    ]
+  },
+  "note": "the ordering is the part that replicated and the level is the part that did not; the two wall-clock speedups (1.232x and 1.240x) are the part that was stable all along, because they are ratios measured inside one window"
+}

@@ -256,5 +256,135 @@ class TestRedqBatchedEnsembleRuns(unittest.TestCase):
         self.assertIn("ensemble-impl", cross.stderr + cross.stdout)
 
 
+class TestSacUtdRatio(unittest.TestCase):
+    """`--utd-ratio` makes the optimisation dose a setting instead of a consequence of `--num-envs`.
+
+    With one gradient update per collection iteration, SAC applies its updates at
+    1/`num_envs` per environment step: the 40M run at 32 envs optimised each environment step four
+    times less than the same step budget at 8 envs, so the throughput flag was silently the dose
+    flag. The ratio multiplies the updates per collection iteration, and 1 is the shipped schedule -
+    which is what the committed runs were trained under, so nothing published moves.
+
+    The counting is done by wrapping `ReplayBuffer.sample`: every critic update draws exactly one
+    batch, so the draws are the gradient steps, and no new instrumentation had to be added to the
+    trainer to observe its own schedule.
+    """
+
+    ROOT = os.path.dirname(os.path.dirname(__file__))
+    RUN_ID = "utd_ratio_test"
+    TOTAL = 1024
+    LEARNING_STARTS = 128
+
+    @classmethod
+    def setUpClass(cls):
+        import time
+        from unittest import mock
+        import train_walker
+
+        cls.counts = {}
+        real_sample = train_walker.ReplayBuffer.sample
+
+        def counting_sample(self, batch_size):
+            cls.draws.append(batch_size)
+            return real_sample(self, batch_size)
+
+        for name, envs, ratio in (("n2_r1", 2, 1), ("n2_r3", 2, 3), ("n6_r3", 6, 3)):
+            cls.draws = []
+            argv = ["train_walker.py", "--algo", "sac", "--device", "cpu", "--run-id", cls.RUN_ID,
+                    "--seed", "7", "--total-timesteps", str(cls.TOTAL),
+                    "--learning-starts", str(cls.LEARNING_STARTS), "--batch-size", "64",
+                    "--buffer-size", "4096", "--num-envs", str(envs), "--utd-ratio", str(ratio)]
+            with mock.patch.object(sys, "argv", argv), mock.patch.object(
+                    train_walker.ReplayBuffer, "sample", counting_sample):
+                train_walker.train(start_time=time.time())
+            cls.counts[name] = len(cls.draws)
+
+    @classmethod
+    def tearDownClass(cls):
+        for path in (os.path.join("checkpoints", cls.RUN_ID),):
+            if os.path.exists(path):
+                shutil.rmtree(path)
+        runs = os.path.join("runs")
+        if os.path.exists(runs):
+            for d in os.listdir(runs):
+                if d.startswith(cls.RUN_ID):
+                    shutil.rmtree(os.path.join(runs, d))
+
+    def expected_updates(self, num_envs):
+        """Collection iterations that reach the update block, at ratio 1."""
+        return self.TOTAL // num_envs - self.LEARNING_STARTS // num_envs
+
+    def test_the_ratio_multiplies_the_gradient_updates(self):
+        one, three = self.counts["n2_r1"], self.counts["n2_r3"]
+        self.assertGreater(one, 0, "no gradient update was observed; the counter is blind")
+        self.assertEqual(one, self.expected_updates(2),
+                         f"ratio 1 did one update per collection iteration, expected "
+                         f"{self.expected_updates(2)} and saw {one}")
+        self.assertEqual(three, 3 * one,
+                         f"ratio 3 saw {three} updates against ratio 1's {one}")
+
+    def test_the_dose_is_now_independent_of_the_environment_count(self):
+        """n=2 at ratio 1 and n=6 at ratio 3 optimise the same number of environment steps alike.
+
+        They cannot be exactly equal: the collection loop floors the iteration count, and
+        `global_step > learning_starts` lands on a different step for each divisor. A handful of
+        updates is the difference between 448 and 450, while the old coupling put a factor of three
+        between the two.
+        """
+        self.assertLessEqual(abs(self.counts["n2_r1"] - self.counts["n6_r3"]), 8,
+                             f"{self.counts['n2_r1']} against {self.counts['n6_r3']}: the dose still "
+                             "follows --num-envs rather than --utd-ratio")
+        self.assertAlmostEqual(self.counts["n6_r3"], 3 * self.expected_updates(6), delta=8,
+                               msg="the n=6 run did not run three updates per collection iteration "
+                                   "over the iterations its schedule reaches")
+
+    def test_only_the_actor_critic_loops_got_the_loop_and_the_target_keeps_pace(self):
+        """The ratio belongs to the two actor-critic schedules, and it must drag the targets along.
+
+        A Polyak average is a lag measured in gradient steps, so applying it once per collection
+        iteration at ratio 4 would leave the target four times further behind the critic than the
+        shipped ratio-1 schedule does - a second, quieter semantics change on top of the dose. The
+        loss logging is the opposite case: its cadence is the tensorboard series the training-rate
+        summaries read, so it stays outside the loop and is untouched by the ratio.
+        """
+        lines = open(os.path.join(self.ROOT, "train_walker.py"), encoding="utf-8").read().splitlines()
+        indent = lambda text: len(text) - len(text.lstrip())
+        loops = [i for i, text in enumerate(lines) if "for _utd in range(max(1, args.utd_ratio))" in text]
+        self.assertEqual(len(loops), 2, "SAC and TD3 should each own exactly one UTD loop")
+        enclosing = set()
+        for i in loops:
+            enclosing.add(next(lines[j].split("(")[0].replace("def ", "")
+                               for j in range(i, 0, -1) if lines[j].startswith("def ")))
+        self.assertEqual(enclosing, {"train_td3", "train"},
+                         f"the UTD loop appeared in {enclosing}; PPO has its own epochs x minibatches")
+        for i in loops:
+            body = indent(lines[i + 1])
+            for j in range(i + 1, i + 80):
+                if "args.target_network_frequency" in lines[j]:
+                    self.assertEqual(indent(lines[j]), body,
+                                     "the target sync left the UTD loop: tau would be applied per "
+                                     "collection iteration while the critic moves per gradient step")
+                    break
+            else:
+                self.fail(f"no target sync found after the loop at line {i + 1}")
+            for j in range(i + 1, i + 80):
+                if "if global_step % 1000 < args.num_envs:" in lines[j]:
+                    self.assertLess(indent(lines[j]), body,
+                                    "the loss logging moved inside the UTD loop, which multiplies "
+                                    "the tensorboard cadence by the ratio")
+                    break
+
+    def test_ratio_one_is_the_default_and_the_flag_reads_it_like_every_other_knob(self):
+        import train_walker
+        self.assertEqual(train_walker.ENV_VARS["UTD_RATIO"], "1",
+                         "the shipped schedule is one update per collection iteration; every "
+                         "committed run was trained under it")
+        source = open(os.path.join(self.ROOT, "train_walker.py"), encoding="utf-8").read()
+        flag = source.index('"--utd-ratio"')
+        self.assertIn('ENV_VARS["UTD_RATIO"]', source[flag:flag + 400],
+                      "the flag does not take its default from ENV_VARS, so it would not follow the "
+                      "environment-variable convention the rest of this parser uses")
+
+
 if __name__ == "__main__":
     unittest.main()

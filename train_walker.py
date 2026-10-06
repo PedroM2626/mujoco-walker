@@ -42,6 +42,7 @@ ENV_VARS = {
     "LEARNING_STARTS": "10000",
     "POLICY_FREQUENCY": "2",
     "TARGET_NETWORK_FREQUENCY": "1",
+    "UTD_RATIO": "1",
     "CHECKPOINT_INTERVAL": "1000000",
     "ALPHA": "0.2",
     "RESET_MODE": "mixed",
@@ -200,6 +201,15 @@ def parse_args():
     parser.add_argument("--learning-starts", type=int, default=int(get_env_or_default("LEARNING_STARTS", ENV_VARS["LEARNING_STARTS"])))
     parser.add_argument("--policy-frequency", type=int, default=int(get_env_or_default("POLICY_FREQUENCY", ENV_VARS["POLICY_FREQUENCY"])))
     parser.add_argument("--target-network-frequency", type=int, default=int(get_env_or_default("TARGET_NETWORK_FREQUENCY", ENV_VARS["TARGET_NETWORK_FREQUENCY"])))
+    parser.add_argument(
+        "--utd-ratio",
+        type=int,
+        default=int(get_env_or_default("UTD_RATIO", ENV_VARS["UTD_RATIO"])),
+        help="SAC/TD3 only: gradient updates run per collection iteration, that is per --num-envs "
+             "environment steps. 1 is the shipped schedule. Without this flag --num-envs is the only "
+             "way to change how much optimisation each environment step receives, so raising it to "
+             "collect faster silently lowers the dose by the same factor.",
+    )
     parser.add_argument("--checkpoint-interval", type=int, default=int(get_env_or_default("CHECKPOINT_INTERVAL", ENV_VARS["CHECKPOINT_INTERVAL"])))
     parser.add_argument("--alpha", type=float, default=float(get_env_or_default("ALPHA", ENV_VARS["ALPHA"])))
     parser.add_argument(
@@ -1637,48 +1647,51 @@ def train_td3(start_time=None):
 
 
             if global_step > args.learning_starts:
-                batch = rb.sample(args.batch_size)
-                with torch.no_grad():
-                    next_actions = actor_target(batch.next_obs)
-                    noise = torch.randn_like(next_actions) * args.policy_noise
-                    noise = torch.clamp(noise, -args.noise_clip, args.noise_clip)
-                    next_actions = torch.clamp(
-                        next_actions + noise,
-                        torch.as_tensor(envs.single_action_space.low, device=device),
-                        torch.as_tensor(envs.single_action_space.high, device=device)
-                    )
-                    qf1_next_target = qf1_target(batch.next_obs, next_actions)
-                    qf2_next_target = qf2_target(batch.next_obs, next_actions)
-                    min_qf_next_target = torch.min(qf1_next_target, qf2_next_target)
-                    next_q_value = batch.rewards.flatten() + args.gamma * (1 - batch.dones.flatten()) * min_qf_next_target.flatten()
+                for _utd in range(max(1, args.utd_ratio)):
+                    batch = rb.sample(args.batch_size)
+                    with torch.no_grad():
+                        next_actions = actor_target(batch.next_obs)
+                        noise = torch.randn_like(next_actions) * args.policy_noise
+                        noise = torch.clamp(noise, -args.noise_clip, args.noise_clip)
+                        next_actions = torch.clamp(
+                            next_actions + noise,
+                            torch.as_tensor(envs.single_action_space.low, device=device),
+                            torch.as_tensor(envs.single_action_space.high, device=device)
+                        )
+                        qf1_next_target = qf1_target(batch.next_obs, next_actions)
+                        qf2_next_target = qf2_target(batch.next_obs, next_actions)
+                        min_qf_next_target = torch.min(qf1_next_target, qf2_next_target)
+                        next_q_value = batch.rewards.flatten() + args.gamma * (1 - batch.dones.flatten()) * min_qf_next_target.flatten()
 
-                qf1_a_values = qf1(batch.obs, batch.actions).view(-1)
-                qf2_a_values = qf2(batch.obs, batch.actions).view(-1)
-                qf1_loss = F.mse_loss(qf1_a_values, next_q_value)
-                qf2_loss = F.mse_loss(qf2_a_values, next_q_value)
-                qf_loss = qf1_loss + qf2_loss
+                    qf1_a_values = qf1(batch.obs, batch.actions).view(-1)
+                    qf2_a_values = qf2(batch.obs, batch.actions).view(-1)
+                    qf1_loss = F.mse_loss(qf1_a_values, next_q_value)
+                    qf2_loss = F.mse_loss(qf2_a_values, next_q_value)
+                    qf_loss = qf1_loss + qf2_loss
 
-                q_optimizer.zero_grad()
-                qf_loss.backward()
-                q_optimizer.step()
+                    q_optimizer.zero_grad()
+                    qf_loss.backward()
+                    q_optimizer.step()
 
-                # The actor must update every policy_frequency *gradient* steps, and
-                # there is one gradient step per vector step. `% policy_frequency <
-                # num_envs` was always true whenever policy_frequency <= num_envs
-                # (2 < 32 here), so the actor and targets were updated on every step.
-                if global_step % (args.policy_frequency * args.num_envs) == 0 and global_step > args.actor_learning_starts:
-                    actor_loss = -qf1(batch.obs, actor(batch.obs)).mean()
-                    actor_optimizer.zero_grad()
-                    actor_loss.backward()
-                    actor_optimizer.step()
+                    # The actor must update every policy_frequency *gradient* steps, and
+                    # there is one gradient step per vector step. `% policy_frequency <
+                    # num_envs` was always true whenever policy_frequency <= num_envs
+                    # (2 < 32 here), so the actor and targets were updated on every step.
+                    if global_step % (args.policy_frequency * args.num_envs) == 0 and global_step > args.actor_learning_starts:
+                        actor_loss = -qf1(batch.obs, actor(batch.obs)).mean()
+                        actor_optimizer.zero_grad()
+                        actor_loss.backward()
+                        actor_optimizer.step()
 
-                if global_step % (args.target_network_frequency * args.num_envs) == 0:
-                    for param, target_param in zip(actor.parameters(), actor_target.parameters()):
-                        target_param.data.copy_(args.tau * param.data + (1 - args.tau) * target_param.data)
-                    for param, target_param in zip(qf1.parameters(), qf1_target.parameters()):
-                        target_param.data.copy_(args.tau * param.data + (1 - args.tau) * target_param.data)
-                    for param, target_param in zip(qf2.parameters(), qf2_target.parameters()):
-                        target_param.data.copy_(args.tau * param.data + (1 - args.tau) * target_param.data)
+                    # A Polyak average lags in gradient steps, so it is applied once per update:
+                    # at ratio 1 that is one application per collection iteration, as shipped.
+                    if global_step % (args.target_network_frequency * args.num_envs) == 0:
+                        for param, target_param in zip(actor.parameters(), actor_target.parameters()):
+                            target_param.data.copy_(args.tau * param.data + (1 - args.tau) * target_param.data)
+                        for param, target_param in zip(qf1.parameters(), qf1_target.parameters()):
+                            target_param.data.copy_(args.tau * param.data + (1 - args.tau) * target_param.data)
+                        for param, target_param in zip(qf2.parameters(), qf2_target.parameters()):
+                            target_param.data.copy_(args.tau * param.data + (1 - args.tau) * target_param.data)
 
                 if global_step % 1000 < args.num_envs:
                     writer.add_scalar("losses/qf1_values", qf1_a_values.mean().item(), global_step)
@@ -1887,51 +1900,61 @@ def train(start_time=None):
 
 
             if global_step > args.learning_starts:
-                batch = rb.sample(args.batch_size)
-                with torch.no_grad():
-                    next_actions, next_log_pi, _ = actor.get_action(batch.next_obs)
-                    qf1_next_target = qf1_target(batch.next_obs, next_actions)
-                    qf2_next_target = qf2_target(batch.next_obs, next_actions)
-                    min_qf_next_target = torch.min(qf1_next_target, qf2_next_target) - log_alpha.exp() * next_log_pi
-                    next_q_value = batch.rewards + (1 - batch.dones) * args.gamma * min_qf_next_target
+                # One UTD iteration = one buffer draw and one critic step. The actor block keys on
+                # `global_step`, which does not move inside this loop, so on the collection steps
+                # where it fires it runs its `policy_frequency` actor steps once per UTD iteration.
+                # Ratio 1 is the schedule this trainer always ran; the target sync and the loss
+                # logging stay outside, once per collection iteration, at every ratio.
+                for _utd in range(max(1, args.utd_ratio)):
+                    batch = rb.sample(args.batch_size)
+                    with torch.no_grad():
+                        next_actions, next_log_pi, _ = actor.get_action(batch.next_obs)
+                        qf1_next_target = qf1_target(batch.next_obs, next_actions)
+                        qf2_next_target = qf2_target(batch.next_obs, next_actions)
+                        min_qf_next_target = torch.min(qf1_next_target, qf2_next_target) - log_alpha.exp() * next_log_pi
+                        next_q_value = batch.rewards + (1 - batch.dones) * args.gamma * min_qf_next_target
 
-                qf1_a_values = qf1(batch.obs, batch.actions)
-                qf2_a_values = qf2(batch.obs, batch.actions)
-                qf1_loss = F.mse_loss(qf1_a_values, next_q_value)
-                qf2_loss = F.mse_loss(qf2_a_values, next_q_value)
-                qf_loss = qf1_loss + qf2_loss
+                    qf1_a_values = qf1(batch.obs, batch.actions)
+                    qf2_a_values = qf2(batch.obs, batch.actions)
+                    qf1_loss = F.mse_loss(qf1_a_values, next_q_value)
+                    qf2_loss = F.mse_loss(qf2_a_values, next_q_value)
+                    qf_loss = qf1_loss + qf2_loss
 
-                q_optimizer.zero_grad()
-                qf_loss.backward()
-                nn.utils.clip_grad_norm_(list(qf1.parameters()) + list(qf2.parameters()), 1.0)
-                q_optimizer.step()
+                    q_optimizer.zero_grad()
+                    qf_loss.backward()
+                    nn.utils.clip_grad_norm_(list(qf1.parameters()) + list(qf2.parameters()), 1.0)
+                    q_optimizer.step()
 
-                if global_step % (args.policy_frequency * args.num_envs) == 0 and global_step > args.actor_learning_starts:
-                    for _ in range(args.policy_frequency):
-                        pi, log_pi, _ = actor.get_action(batch.obs)
-                        qf1_pi = qf1(batch.obs, pi)
-                        qf2_pi = qf2(batch.obs, pi)
-                        min_qf_pi = torch.min(qf1_pi, qf2_pi)
-                        actor_loss = ((log_alpha.exp() * log_pi) - min_qf_pi).mean()
+                    if global_step % (args.policy_frequency * args.num_envs) == 0 and global_step > args.actor_learning_starts:
+                        for _ in range(args.policy_frequency):
+                            pi, log_pi, _ = actor.get_action(batch.obs)
+                            qf1_pi = qf1(batch.obs, pi)
+                            qf2_pi = qf2(batch.obs, pi)
+                            min_qf_pi = torch.min(qf1_pi, qf2_pi)
+                            actor_loss = ((log_alpha.exp() * log_pi) - min_qf_pi).mean()
 
-                        actor_optimizer.zero_grad()
-                        actor_loss.backward()
-                        nn.utils.clip_grad_norm_(actor.parameters(), 1.0)
-                        actor_optimizer.step()
+                            actor_optimizer.zero_grad()
+                            actor_loss.backward()
+                            nn.utils.clip_grad_norm_(actor.parameters(), 1.0)
+                            actor_optimizer.step()
 
-                        if args.autotune:
-                            alpha_loss = (-log_alpha * (log_pi + target_entropy).detach()).mean()
-                            alpha_optimizer.zero_grad()
-                            alpha_loss.backward()
-                            alpha_optimizer.step()
-                        else:
-                            alpha_loss = torch.tensor(0.0)
+                            if args.autotune:
+                                alpha_loss = (-log_alpha * (log_pi + target_entropy).detach()).mean()
+                                alpha_optimizer.zero_grad()
+                                alpha_loss.backward()
+                                alpha_optimizer.step()
+                            else:
+                                alpha_loss = torch.tensor(0.0)
 
-                if global_step % (args.target_network_frequency * args.num_envs) == 0:
-                    for param, target_param in zip(qf1.parameters(), qf1_target.parameters()):
-                        target_param.data.copy_(args.tau * param.data + (1 - args.tau) * target_param.data)
-                    for param, target_param in zip(qf2.parameters(), qf2_target.parameters()):
-                        target_param.data.copy_(args.tau * param.data + (1 - args.tau) * target_param.data)
+                    # Inside the loop on purpose: a Polyak average is a lag measured in gradient
+                    # steps, so at ratio 4 it has to be applied four times to keep the same distance
+                    # from the critic as at ratio 1. At ratio 1 both readings are one application per
+                    # collection iteration, which is what every committed run did.
+                    if global_step % (args.target_network_frequency * args.num_envs) == 0:
+                        for param, target_param in zip(qf1.parameters(), qf1_target.parameters()):
+                            target_param.data.copy_(args.tau * param.data + (1 - args.tau) * target_param.data)
+                        for param, target_param in zip(qf2.parameters(), qf2_target.parameters()):
+                            target_param.data.copy_(args.tau * param.data + (1 - args.tau) * target_param.data)
 
                 if global_step % 1000 < args.num_envs:
                     writer.add_scalar("losses/qf1_values", qf1_a_values.mean().item(), global_step)

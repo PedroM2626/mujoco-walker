@@ -1148,6 +1148,19 @@ SAC screens - 1M steps, seed 7, `num_envs=8`, `target` phase, mixed resets - tra
 2.71x cheaper. That gap is the paragraph above, measured: the rest of the wall clock is the learner
 and the pipes, not MuJoCo.
 
+**The `num_envs=8` in those screens is not only a plumbing choice, and saying so costs a flag.** The
+SAC loop runs one critic update per collection iteration, and a collection iteration is `num_envs`
+environment steps (`train_walker.py:1902-1964`), so the optimisation each environment step receives
+is 1/`num_envs`: at 8 envs a step is optimised four times as hard as at 32, and `--num-envs` was the
+only knob that could turn that. The two rates in this section are the same fact wearing a stopwatch -
+the `v9` arm of the 5M pair ran at **1,798.4 s per 1M steps** at 8 envs while the 40M run at 32 envs
+sustained **467.4 s per 1M**, and 1798.4/467.4 is **3.85x**, which is the 4x update ratio and not an
+engineering win. Collecting at 32 envs is cheaper precisely because it trains less per step. The
+trainer now has the explicit knob the REDQ side already had (`--utd-ratio`, G updates per collection
+iteration, default **1** - the shipped schedule, so no committed run moves). What the knob costs and
+what it buys at 32 envs is **not measured yet**: the arm that decides it is queued, and this sentence
+should be replaced by its numbers rather than re-read as a claim.
+
 And the caveat that limits what a screen can ask. Scored at the published protocol, the two arms
 reach the target in 0 of 20 episodes each (`benchmarks/physics_presets_screen_v9.json`,
 `..._fast.json`): mean 7616.16 against 4889.51, std 7572.40 against 16367.17, mean closest approach
@@ -1171,7 +1184,8 @@ approach 1.501 m against 2.309 m at 5M, falls 1.65 against 0.85 per episode), bu
 per world and the two runs differ in world, not in seed, so nothing separates "the cheap world is
 easier" from "this run got lucky". The screening conclusion is therefore about the *question*, not
 the number: a screen in `fast` answers whether something reaches the target at all, and would not be
-trusted to rank two knobs against each other.
+trusted to rank two knobs against each other. The two 1M windows further down are the evidence for
+that distrust: the same recipe, scored twice, put a different world ahead each time.
 
 The preset was then run on the trainer where physics should matter least, which is the case where the
 loop split makes a falsifiable prediction. Dreamer, 250k env steps, 8 envs, seed 7, the captured CUDA
@@ -1184,8 +1198,64 @@ environment actually occupies, so one loop split tells you in advance what a pre
 trainer you have not timed, and SAC (1.15x, 1.23x), PPO (1.156x) and Dreamer (1.135x) all came in on
 the same side of that prediction.
 
+`euler` had been measured on the step and on the drift and never trained in, which mattered because
+it is the preset that stays closest to the published world. All three worlds were then run end to
+end, one after another in a single window, SAC 1M at 8 envs and seed 7
+(`benchmarks/physics_presets_sac1m_triple.json`): **3,044 s in `v9`, 2,630 s in `euler`, 1,960 s in
+`fast`** - 1.157x and 1.553x. So the least-drifting world does buy speed, just not most of it, and
+this window's `fast` gain (1.553x) is larger than the two earlier windows reported (1.148x, 1.232x),
+which is the per-window spread the section keeps insisting on rather than a contradiction.
+
+The column that decides what the presets may be used for is the last one, and it is not a speed
+column. At the same budget the three arms do not tie: mean return **1,153.71** in `v9`, **5,861.46**
+in `euler`, **17,690.50** in `fast`, with `fast` the only arm that ended any episode standing (5.0%
+against 0.0%) and the only one that got meaningfully closer to the target (2.557 m against 3.057 m),
+while also falling most (0.55 per episode against 0.10 - it is attempting). Unlike the
+curriculum-versus-scratch comparison above, these three are measured under one reward function: all
+three checkpoints record `target_forward_velocity` 1.2 and the same shaping, so the ordering *inside
+this window* is a behavioural difference and not a bookkeeping artefact.
+
+**Whether it is a difference between the worlds is already answered, and the answer is no.** The
+first 1M screen (`benchmarks/physics_presets_screen_paired.json`) is this same recipe - SAC 1M, seed
+7, 8 envs, target task, tv 1.2, cuda, 24 torch threads, each arm scored in the world it trained in -
+and it found **7,616.16** in `v9` against **4,889.51** in `fast`, where this window found
+**1,153.71** against **17,690.50**. The published world came down by a factor of 6.6, the cheap one
+came up by 3.6, and the ordering reversed. The trainer re-seeds every run and makes no promise that
+two runs of one config agree, so the honest reading is two draws of one recipe: at 1M the level column
+is the run speaking, not the world. What did replicate is the thing a 1M screen is actually asked, and
+it is a question rather than a number: **0 of 20** episodes reach the target in every arm of both
+windows, in both worlds. A cheap world is therefore not a neutral faster lane - it leads or trails by
+this much at the same budget, which is exactly what a screen is not supposed to introduce, and its
+lead is not evidence at 1M. That is why the level question is deferred to a second draw at 5M with
+both worlds re-run at a second seed rather than settled here.
+
+Even the scorer feels the physics: the 20-episode evaluation of the three arms took 28 s, 21 s and
+14 s respectively.
+
 `eval_phase1.py` refuses to score a preset run against an aliased older revision, and a preset
 checkpoint records its own world in `env_version`, so the two can never be mixed by accident.
+
+**The second draw was bought for the level question, and it answered the two halves differently.**
+The same 5M recipe - `num_envs=8`, target task, mixed resets, tv 1.2 - re-run with seed 8 instead of
+7, both worlds back to back in one window (`benchmarks/physics_presets_screen5m_draws.json`). The
+ordering replicated: the cheap world is ahead at **9 of the 10** world-by-budget cells, at 5M with
+**62,311.88** against the published world's **-763.96**, reaching the target in 4 of 20 episodes
+against 0 of 20. The one cell where `v9` leads (seed 7 at 2M, 15,328.48 against 14,087.03) is a
+crossing on the way up, not a reversal.
+
+The level did not replicate, and not by a small margin. The published world produced **18,956.17**
+and 10% reach at one seed and **-763.96** and 0% at the other - a swing of **19,720.13** inside one
+world, while the cheap one swung **23,532.97**. For scale, the distance between the two worlds in the
+first draw was 19,822.74: the published world's own swing is as large as the gap it was being compared
+across, and the cheap one's is larger still. So the number a single 5M draw prints is still the run
+speaking; what two draws establish is that *which run is ahead* is the world. One of those figures
+deserves its own sentence, because it is a result rather than noise: a 5M SAC run in the published
+world, at a seed chosen before anyone saw its score, learned nothing that ever reached the target. The
+Phase-1 curves in this repository are single draws of the same recipe.
+
+The speed was the stable column all along: **1.232x** in the first window and **1.240x** in this one
+(9,386 s against 7,568 s - 1,877.2 s per 1M against 1,513.6 s), and the scorer again felt the physics:
+**78 s against 52 s** for the same hundred episodes.
 
 ### 🧮 The learner side: what was measured, what shipped, what was rejected
 
@@ -1849,13 +1919,14 @@ Three facts to keep in mind:
 
 The suite is plain `unittest` (no pytest required) and covers the environment contract, the
 golden reward rollouts, the parallel/serial vector-env parity, checkpointing and the race
-harness — **260 tests, 218 s in this window** (`Ran 260 tests in 217.651s ... OK
+harness — **273 tests, 192 s in this window** (`Ran 273 tests in 191.909s ... OK
 (skipped=7)` under `.venv`). Windows of this suite have measured 176.3 s at 102 tests, 269.995 s
 at 121, 261.1 s at 127, 329.964 s at 128, 319.168 s at 130, 184.716 s, 203.108 s and 306.976 s at
 140, 144.678 s at 147, 230.268 s at 157, 171.016 s and 170.304 s at 194, and 174.008 s,
 170.391 s, 175.036 s, 168.775 s, 168.986 s and 166.606 s at 201/205/210, 169.919 s at 214,
-and 163.920 s and 161.829 s at 237, 165.360 s and 164.902 s at 243, 161.647 s and 162.674 s at 250, 162.726 s and 162.167 s at 251, 171.616 s and 163.434 s at 252, 163.769 s and 163.748 s at 255, 226.912 s and 217.651 s at 260 -
-consecutive runs of one commit agree to 4%, where the
+and 163.920 s and 161.829 s at 237, 165.360 s and 164.902 s at 243, 161.647 s and 162.674 s at 250, 162.726 s and 162.167 s at 251, 171.616 s and 163.434 s at 252, 163.769 s and 163.748 s at 255, 226.912 s and 217.651 s at 260, 193.167 s and 191.909 s at 273 -
+the 273 windows carry a dose test that runs three short CPU trainings, which are about 27 s of
+them, so that entry is not slower hardware; consecutive runs of one commit agree to 4%, where the
 147 and 157 windows an afternoon earlier were 1.6x apart for ten more tests. The
 duration belongs to the machine's state, the
 count does not, and a gate checks the count so it cannot go stale quietly):
@@ -1911,7 +1982,7 @@ that they ran - see Phase 4, item 6. How each of those states was found, with th
 ## 🔬 Reproducing and measuring
 
 ```bash
-python -m unittest discover -s tests -t .   # 260 tests in .venv, 218 s; see "Running the tests"
+python -m unittest discover -s tests -t .   # 273 tests in .venv, 192 s; see "Running the tests"
 python bench_env.py --seconds 4             # env throughput, physics vs Python split
 python bench_mjx.py --sizes 32,128          # MJX/JAX batched stepping
 python verify.py                            # Phase-2 artifact check (exits 2 when missing)
@@ -1925,6 +1996,20 @@ python bench_posture.py --episodes 50           # does it stand? torso height pe
 python bench_posture.py --compare-devices       # the same rows on cuda and cpu, and what moves
 python bench_physics_presets.py --skip-divergence  # what each physics_preset costs, back to back
 python bench_physics_presets.py --skip-throughput  # how far each one drifts from v9, same actions
+python train_walker.py --algo sac --run-id preset_sac_euler_1m --seed 7 --total-timesteps 1000000 \
+  --num-envs 8 --task-phase target --reset-mode mixed --target-forward-velocity 1.2 \
+  --checkpoint-interval 500000 --device cuda --physics-preset euler
+                                              # one arm of the 1M triple end to end; `v9` is the
+                                              # same command with the last flag dropped
+python eval_phase1.py --num-episodes 20 --seed 11 --reset-mode mixed --physics-preset euler \
+  --model sac1m_euler=checkpoints/preset_sac_euler_1m/sac_actor_1000000.pt \
+  --out benchmarks/physics_presets_sac1m_euler.json   # its score, in the world it trained in
+python train_walker.py --algo sac --run-id utd_sac_n32_r4_5m --seed 7 --total-timesteps 5000000 \
+  --num-envs 32 --utd-ratio 4 --task-phase target --reset-mode mixed \
+  --target-forward-velocity 1.2 --checkpoint-interval 1000000 --device cuda
+                                              # --utd-ratio is the optimisation dose: G gradient
+                                              # updates per collection iteration. 1 is the shipped
+                                              # schedule every committed run used
 python summarize_training_rate.py               # every run's real rate, from its own logged timestamps
 python summarize_curriculum_provenance.py       # the manual curriculum's order, widths and stage change
 python -m utils.gpu_window                    # the GPU window a long run would start into

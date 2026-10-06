@@ -33,6 +33,7 @@ from train_walker import (
     get_rng_state,
     set_rng_state,
     ENV_VERSION,
+    PHYSICS_PRESETS,
     env_version_of,
     start_mlflow_run,
     log_mlflow_metrics,
@@ -109,6 +110,8 @@ def parse_redq_args():
     parser.add_argument("--fallen-velocity-scale", type=float, default=0.35)
     parser.add_argument("--task-phase", type=str, default="target")
     parser.add_argument("--target-forward-velocity", type=float, default=0.8)
+    parser.add_argument("--physics-preset", choices=PHYSICS_PRESETS, default="v9",
+                       help="which compiled world to collect in; 'v9' is the published one")
     parser.add_argument("--init-from-run-id", type=str, default=None)
     parser.add_argument("--init-from-checkpoint-step", type=int, default=0)
     parser.add_argument("--allow-mismatched-env-version", action="store_true", default=False)

@@ -1,0 +1,26 @@
+{
+  "protocol": "DreamerV3 build, 250k env steps, num_envs=8, seed 7, task_phase=target, reset_mode=mixed, captured CUDA update in both arms; one window, arms back to back, v9 first",
+  "arms": {
+    "v9": {
+      "seconds": 783,
+      "window": "2026-10-06 10:54:56 -> 11:07:59",
+      "steps": 250000,
+      "env_steps_per_second": 319.3
+    },
+    "fast": {
+      "seconds": 690,
+      "window": "2026-10-06 11:07:59 -> 11:19:29",
+      "steps": 250000,
+      "env_steps_per_second": 362.3
+    }
+  },
+  "measured_speedup_fast_vs_v9": 1.135,
+  "predicted_from_loop_split": {
+    "value": 1.156,
+    "update_share_pct": 78.6,
+    "env_step_ratio_used": 2.707,
+    "formula": "1 / (update_share + (1 - update_share) / env_step_ratio)",
+    "source": "benchmarks/dreamer_loop_split.json and benchmarks/physics_presets.json"
+  },
+  "prediction_error_pct": -1.8
+}

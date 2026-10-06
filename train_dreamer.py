@@ -25,6 +25,7 @@ from train_walker import (
     wrap_normalize_observation,
     wrap_transform_observation,
     ENV_VERSION,
+    PHYSICS_PRESETS,
     env_version_of,
     start_mlflow_run,
     log_mlflow_metrics,
@@ -611,6 +612,10 @@ def parse_dreamer_args():
     parser.add_argument("--fallen-velocity-scale", type=float, default=0.35)
     parser.add_argument("--task-phase", type=str, default="target")
     parser.add_argument("--target-forward-velocity", type=float, default=0.8)
+    # Declared here as well as in train_walker: build_vec_env reads the attribute, and a trainer that
+    # does not define it would silently collect in v9 while the flag says otherwise on the CLI.
+    parser.add_argument("--physics-preset", choices=PHYSICS_PRESETS, default="v9",
+                       help="which compiled world to collect in; 'v9' is the published one")
     add_vec_env_args(parser)
     add_device_arg(parser)
     

@@ -161,6 +161,40 @@ class TestVersionTravelsWithThePreset(unittest.TestCase):
                          "sub-envs while recording a fast version string")
 
 
+class TestEveryTrainerCanActuallyAskForAPreset(unittest.TestCase):
+    """The flag has to be declared by every trainer that builds sub-envs, not just by one.
+
+    `env_common_kwargs` reads the attribute tolerantly (a harness that assembles its own args
+    namespace should get the published world, not an AttributeError), and that tolerance is exactly
+    what makes the failure silent: a trainer whose parser never declares `--physics-preset` accepts
+    nothing, collects in v9, and records `..._v9` in its checkpoints while a user believes they asked
+    for a cheaper world. Three of the four trainers were in that state when the preset landed.
+    """
+
+    TRAINERS = ("train_walker.py", "train_dreamer.py", "train_redq.py", "train_ars.py")
+
+    def test_the_flag_is_declared(self):
+        missing = []
+        for name in self.TRAINERS:
+            with open(os.path.join(ROOT, name), encoding="utf-8") as handle:
+                src = handle.read()
+            if '--physics-preset' not in src:
+                missing.append(name)
+        self.assertEqual(missing, [], f"these trainers accept no preset: {missing}")
+
+    def test_the_ones_that_reuse_the_shared_builder_are_the_risky_ones(self):
+        # train_dreamer/train_redq go through build_vec_env, so a missing declaration is invisible;
+        # train_ars passes kwargs to make_env by hand, where a missing one is a TypeError instead.
+        for name in ("train_dreamer.py", "train_redq.py"):
+            with open(os.path.join(ROOT, name), encoding="utf-8") as handle:
+                self.assertIn("build_vec_env(", handle.read(),
+                              f"{name} no longer builds envs through the shared function; the "
+                              "declaration check above may no longer cover it")
+        with open(os.path.join(ROOT, "train_ars.py"), encoding="utf-8") as handle:
+            self.assertIn("physics_preset=args.physics_preset", handle.read(),
+                          "train_ars builds its env by hand and would silently drop the preset")
+
+
 class TestEvalRefusesToMixWorlds(unittest.TestCase):
     """Source-level guards for eval_phase1.py, which has to stay loadable against old revisions."""
 

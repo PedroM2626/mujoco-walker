@@ -1173,6 +1173,17 @@ easier" from "this run got lucky". The screening conclusion is therefore about t
 the number: a screen in `fast` answers whether something reaches the target at all, and would not be
 trusted to rank two knobs against each other.
 
+The preset was then run on the trainer where physics should matter least, which is the case where the
+loop split makes a falsifiable prediction. Dreamer, 250k env steps, 8 envs, seed 7, the captured CUDA
+update in both arms, back to back in one window: **783 s in `v9` against 690 s in `fast`, 1.135x**
+(`benchmarks/physics_presets_dreamer_pair.json`). The loop split says **78.6%** of that iteration is
+the update and the preset makes `env.step` 2.707x cheaper at n=8, so leaving the update alone and
+dividing only the collection part predicts **1.156x** - the run lands **1.8%** off the arithmetic.
+That is the property worth having: a cheaper environment step buys the share of the wall clock the
+environment actually occupies, so one loop split tells you in advance what a preset is worth on a
+trainer you have not timed, and SAC (1.15x, 1.23x), PPO (1.156x) and Dreamer (1.135x) all came in on
+the same side of that prediction.
+
 `eval_phase1.py` refuses to score a preset run against an aliased older revision, and a preset
 checkpoint records its own world in `env_version`, so the two can never be mixed by accident.
 
@@ -1838,12 +1849,12 @@ Three facts to keep in mind:
 
 The suite is plain `unittest` (no pytest required) and covers the environment contract, the
 golden reward rollouts, the parallel/serial vector-env parity, checkpointing and the race
-harness — **252 tests, 163 s in this window** (`Ran 252 tests in 163.434s ... OK
+harness — **255 tests, 164 s in this window** (`Ran 255 tests in 163.748s ... OK
 (skipped=7)` under `.venv`). Windows of this suite have measured 176.3 s at 102 tests, 269.995 s
 at 121, 261.1 s at 127, 329.964 s at 128, 319.168 s at 130, 184.716 s, 203.108 s and 306.976 s at
 140, 144.678 s at 147, 230.268 s at 157, 171.016 s and 170.304 s at 194, and 174.008 s,
 170.391 s, 175.036 s, 168.775 s, 168.986 s and 166.606 s at 201/205/210, 169.919 s at 214,
-and 163.920 s and 161.829 s at 237, 165.360 s and 164.902 s at 243, 161.647 s and 162.674 s at 250, 162.726 s and 162.167 s at 251, and 171.616 s and 163.434 s at 252 -
+and 163.920 s and 161.829 s at 237, 165.360 s and 164.902 s at 243, 161.647 s and 162.674 s at 250, 162.726 s and 162.167 s at 251, 171.616 s and 163.434 s at 252, and 163.769 s and 163.748 s at 255 -
 consecutive runs of one commit agree to 4%, where the
 147 and 157 windows an afternoon earlier were 1.6x apart for ten more tests. The
 duration belongs to the machine's state, the
@@ -1900,7 +1911,7 @@ that they ran - see Phase 4, item 6. How each of those states was found, with th
 ## 🔬 Reproducing and measuring
 
 ```bash
-python -m unittest discover -s tests -t .   # 252 tests in .venv, 163 s; see "Running the tests"
+python -m unittest discover -s tests -t .   # 255 tests in .venv, 164 s; see "Running the tests"
 python bench_env.py --seconds 4             # env throughput, physics vs Python split
 python bench_mjx.py --sizes 32,128          # MJX/JAX batched stepping
 python verify.py                            # Phase-2 artifact check (exits 2 when missing)

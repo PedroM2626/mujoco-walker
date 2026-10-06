@@ -639,6 +639,53 @@ def trainer_pair_ppo_sac(out="benchmarks/trainer_pair_ppo_sac.json"):
     }, out
 
 
+DREAMER_PRESET_WALL_CLOCK = {
+    # Recorded from chain21's launcher log: the two arms back to back in one window, same seed, same
+    # budget, same captured-update configuration (`[DREAMER] update: captured CUDA graph` in both).
+    "v9": {"seconds": 783, "window": "2026-10-06 10:54:56 -> 11:07:59"},
+    "fast": {"seconds": 690, "window": "2026-10-06 11:07:59 -> 11:19:29"},
+}
+
+
+def physics_preset_dreamer_pair(out="benchmarks/physics_presets_dreamer_pair.json"):
+    """The preset on the trainer whose wall clock is the update, not the physics.
+
+    SAC and PPO gained 1.15-1.23x. Dreamer is the hard case for a cheaper environment: 78.6% of its
+    iteration is the captured update, so the arithmetic of the gain is fixed by that share - divide
+    the collection part by the measured env-step ratio, leave the update alone - and the run either
+    lands on the prediction or it does not. It lands on it, which is the useful result: the preset's
+    value is predictable from a loop split rather than something to be discovered per trainer.
+    """
+    split = json.load(open(os.path.join(ROOT, "benchmarks", "dreamer_loop_split.json"),
+                           encoding="utf-8"))
+    preset = json.load(open(os.path.join(ROOT, "benchmarks", "physics_presets.json"),
+                            encoding="utf-8"))
+    env_ratio = preset["throughput_ratio"]["fast"][f"env_step_n{split['num_envs']}_vs_v9"] \
+        if f"env_step_n{split['num_envs']}_vs_v9" in preset["throughput_ratio"]["fast"] else None
+    if env_ratio is None:
+        env_ratio = preset["throughput_ratio"]["fast"]["env_step_n8_vs_v9"]
+    update_share = split["update_share_pct"] / 100.0
+    predicted = 1.0 / (update_share + (1.0 - update_share) / env_ratio)
+    measured = DREAMER_PRESET_WALL_CLOCK["v9"]["seconds"] / DREAMER_PRESET_WALL_CLOCK["fast"]["seconds"]
+    return {
+        "protocol": ("DreamerV3 build, 250k env steps, num_envs=8, seed 7, task_phase=target, "
+                     "reset_mode=mixed, captured CUDA update in both arms; one window, arms back to "
+                     "back, v9 first"),
+        "arms": {k: dict(v, steps=250000,
+                         env_steps_per_second=round(250000 / v["seconds"], 1))
+                 for k, v in DREAMER_PRESET_WALL_CLOCK.items()},
+        "measured_speedup_fast_vs_v9": round(measured, 3),
+        "predicted_from_loop_split": {
+            "value": round(predicted, 3),
+            "update_share_pct": split["update_share_pct"],
+            "env_step_ratio_used": env_ratio,
+            "formula": "1 / (update_share + (1 - update_share) / env_step_ratio)",
+            "source": "benchmarks/dreamer_loop_split.json and benchmarks/physics_presets.json",
+        },
+        "prediction_error_pct": round(100.0 * (measured - predicted) / predicted, 1),
+    }, out
+
+
 TEACHER_EVENTS = os.path.join("openai_walker", "sac_walker_tensorboard", "SAC_2",
                               "events.out.tfevents.1780843517.pedro.36828.0")
 
@@ -727,6 +774,8 @@ BENCHMARKS = [
     # PPO against SAC at the same config: what each costs per environment step, and what that buys
     # in behaviour. The two answers point in opposite directions, so they live in one artifact.
     trainer_pair_ppo_sac,
+    # The preset on the update-dominated trainer: is the gain predictable from the loop split?
+    physics_preset_dreamer_pair,
     # The teacher's own 100-episode evaluations, mined from its committed TensorBoard log: the only
     # pre-retraction evaluation series in the repo, and an independent protocol.
     teacher_eval_curve,

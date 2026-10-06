@@ -2904,6 +2904,38 @@ class TestReadmePhysicsPresetCells(ReadmeGate, unittest.TestCase):
         self.assertEqual(arms["fast"]["device"], arms["v9"]["device"],
                          "the two screens were scored on different devices")
 
+    def test_the_dreamer_preset_gain_is_the_arithmetic_of_the_loop_split(self):
+        pair, split = self.read_artifacts(
+            os.path.join(ROOT, "benchmarks", "physics_presets_dreamer_pair.json"),
+            os.path.join(ROOT, "benchmarks", "dreamer_loop_split.json"))
+        m = self.sentence(r"\*\*(\d+) s in `v9` against (\d+) s in `fast`, ([\d.]+)x\*\*",
+                          "the Dreamer preset pair")
+        self.check("Dreamer wall clocks", [m.group(1), m.group(2)],
+                   [pair["arms"]["v9"]["seconds"], pair["arms"]["fast"]["seconds"]], places=0)
+        self.check("Dreamer speedup", m.group(3), pair["measured_speedup_fast_vs_v9"], places=3)
+        # The prediction is recomputed here rather than trusted from the artifact: the point of the
+        # paragraph is that the share of the loop, not the ratio of the step, sets the gain.
+        predicted = 1.0 / (split["update_share_pct"] / 100.0
+                           + (1 - split["update_share_pct"] / 100.0)
+                           / pair["predicted_from_loop_split"]["env_step_ratio_used"])
+        m = self.sentence(r"the update and the preset makes `env\.step` ([\d.]+)x cheaper at n=8, "
+                          r"so leaving the update alone and\s*dividing only the collection part "
+                          r"predicts \*\*([\d.]+)x\*\* - the run lands \*\*([\d.]+)%\*\*",
+                          "the loop-split prediction")
+        self.check("env ratio", m.group(1),
+                   pair["predicted_from_loop_split"]["env_step_ratio_used"], places=3)
+        self.check("update share", split["update_share_pct"],
+                   pair["predicted_from_loop_split"]["update_share_pct"], places=1)
+        self.check("predicted", m.group(2), round(predicted, 3), places=3)
+        self.check("prediction error", m.group(3),
+                   abs(pair["prediction_error_pct"]), places=1)
+        # The same claim made for the two collection-bound trainers, from their own artifacts.
+        trainer = json.load(open(os.path.join(ROOT, "benchmarks", "trainer_pair_ppo_sac.json"),
+                                 encoding="utf-8"))
+        ppo_gain = trainer["arms"]["ppo_v9"]["seconds"] / trainer["arms"]["ppo_fast"]["seconds"]
+        self.assertAlmostEqual(ppo_gain, 1.156, places=3,
+                               msg="the paragraph lists PPO's preset gain; it is not 1.156x")
+
     def test_the_preset_refuses_to_be_scored_in_another_world(self):
         with open(os.path.join(ROOT, "eval_phase1.py"), encoding="utf-8") as handle:
             src = handle.read()

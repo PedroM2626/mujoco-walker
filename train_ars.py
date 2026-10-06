@@ -16,6 +16,7 @@ from train_walker import (
     get_rng_state,
     set_rng_state,
     ENV_VERSION,
+    PHYSICS_PRESETS,
     current_env_version,
     start_mlflow_run,
     log_mlflow_metrics,
@@ -61,6 +62,8 @@ def parse_ars_args():
     parser.add_argument("--fallen-velocity-scale", type=float, default=0.35)
     parser.add_argument("--task-phase", type=str, default="target")
     parser.add_argument("--target-forward-velocity", type=float, default=0.8)
+    parser.add_argument("--physics-preset", choices=PHYSICS_PRESETS, default="v9",
+                       help="which compiled world to collect in; 'v9' is the published one")
     parser.add_argument("--checkpoint-interval", type=int, default=200000)
     
     # ARS specific hyperparameters
@@ -142,6 +145,7 @@ def train_ars():
         task_phase=args.task_phase,
         target_forward_velocity=args.target_forward_velocity,
         terminate_when_unhealthy=(args.task_phase == "target"),
+        physics_preset=args.physics_preset,
     )()
 
     obs_dim = int(np.prod(env.observation_space.shape))

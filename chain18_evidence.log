@@ -1,0 +1,11 @@
+21:04:03 lock held by pid 27128
+21:05:04 machine clear, proceeding
+21:05:04 START screen SAC 5M in v9
+23:34:56 DONE  screen SAC 5M in v9 (exit 0)
+23:34:56 START screen SAC 5M in fast
+01:36:35 DONE  screen SAC 5M in fast (exit 0)
+01:36:35 START score the v9 5M curve
+01:37:50 DONE  score the v9 5M curve (exit 0)
+01:37:50 START score the fast 5M curve
+01:38:41 DONE  score the fast 5M curve (exit 0)
+01:38:41 chain18 complete

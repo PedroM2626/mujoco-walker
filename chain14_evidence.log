@@ -1,0 +1,8 @@
+13:46:54 device clear, proceeding
+13:46:54 START train SAC on target from scratch, 40M steps
+18:58:31 DONE  train SAC on target from scratch, 40M steps (exit 0)
+18:58:31 START score the from-scratch curve, 20ep seed 11
+19:01:10 DONE  score the from-scratch curve, 20ep seed 11 (exit 0)
+19:01:10 START re-score the curriculum curve on the same device
+19:03:36 DONE  re-score the curriculum curve on the same device (exit 0)
+19:03:36 chain14 complete

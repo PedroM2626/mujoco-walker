@@ -10,6 +10,7 @@ The cost and the drift of the presets are measurements and live in `benchmarks/p
 produced by `bench_physics_presets.py`; nothing here re-derives them.
 """
 
+import json
 import os
 import pickle
 import re
@@ -193,6 +194,127 @@ class TestEveryTrainerCanActuallyAskForAPreset(unittest.TestCase):
         with open(os.path.join(ROOT, "train_ars.py"), encoding="utf-8") as handle:
             self.assertIn("physics_preset=args.physics_preset", handle.read(),
                           "train_ars builds its env by hand and would silently drop the preset")
+
+
+class TestWallClockProvenanceSurvivesTheLogs(unittest.TestCase):
+    """Every training duration the artifacts record as a literal has to still match its log.
+
+    A run's wall clock is the one number this repository cannot recompute: the checkpoints say what
+    was collected, not how long it took, and `mlruns.db` is gitignored. So the launcher logs are
+    committed as the primary source (`chainNN_evidence.log`) and this test re-derives the spans from
+    them. Without it the recorded seconds are a claim that decays the moment nobody can check it.
+    """
+
+    TMP_SPAN = re.compile(r"^(\d\d):(\d\d):(\d\d) START (.+)$")
+    DONE_SPAN = re.compile(r"^(\d\d):(\d\d):(\d\d) DONE  (.+?) \(exit (\d)\)$")
+
+    def spans(self, chain):
+        """Every (label -> [(start, end, exit)]) pair in one launcher log, retries included."""
+        path = os.path.join(ROOT, f"chain{chain}_evidence.log")
+        self.assertTrue(os.path.exists(path), f"{path} is gone; the durations it backs are "
+                                              "unverifiable claims now")
+        starts, done = {}, []
+        for line in open(path, encoding="utf-8", errors="replace"):
+            line = line.strip()
+            m = self.TMP_SPAN.match(line)
+            if m:
+                starts[m.group(4).strip()] = (m.group(1), m.group(2), m.group(3))
+                continue
+            m = self.DONE_SPAN.match(line)
+            if m:
+                done.append((m.group(4).strip(), (m.group(1), m.group(2), m.group(3)),
+                             int(m.group(5))))
+        for label, end, code in done:
+            yield label, starts.get(label), end, code
+
+    def find_span(self, chain, label, start):
+        for got_label, got_start, got_end, code in self.spans(chain):
+            if got_label == label and code == 0 and got_start and tuple(start) == tuple(got_start):
+                return got_end
+        self.fail(f"chain{chain}: no completed span for {label!r} starting at {':'.join(start)}")
+
+    @staticmethod
+    def seconds_between(start, end):
+        to_s = lambda t: int(t[0]) * 3600 + int(t[1]) * 60 + int(t[2])
+        delta = to_s(end) - to_s(start)
+        return delta + 86400 if delta < 0 else delta
+
+    def parse_window(self, window):
+        """'2026-10-05 13:46:54 -> 18:58:31' and '... -> 2026-10-06 01:36:35' to clock pairs.
+
+        A span that crosses midnight names the second date too, so each side is parsed separately.
+        """
+        m = re.search(r"(\d\d):(\d\d):(\d\d) -> (?:\d{4}-\d\d-\d\d )?(\d\d):(\d\d):(\d\d)", window)
+        self.assertIsNotNone(m, f"cannot read a span out of {window!r}")
+        return (m.group(1), m.group(2), m.group(3)), (m.group(4), m.group(5), m.group(6))
+
+    def test_the_from_scratch_40m_run_matches_chain14(self):
+        art = json.load(open(os.path.join(ROOT, "benchmarks",
+                                          "target_learning_curve_from_scratch_paired.json"),
+                             encoding="utf-8"))
+        run = art["from_scratch_run"]
+        start, end = self.parse_window(run["wall_clock"])
+        self.assertEqual(end, self.find_span(14, "train SAC on target from scratch, 40M steps",
+                                             start))
+        self.assertEqual(run["wall_clock_seconds"], self.seconds_between(start, end))
+
+    def test_the_5m_preset_pair_matches_chain18(self):
+        art = json.load(open(os.path.join(ROOT, "benchmarks",
+                                          "physics_presets_screen5m_paired.json"),
+                             encoding="utf-8"))
+        labels = {"v9": "screen SAC 5M in v9", "fast": "screen SAC 5M in fast"}
+        for preset, arm in art["arms"].items():
+            start, end = self.parse_window(arm["wall_clock_window"])
+            self.assertEqual(end, self.find_span(18, labels[preset], start))
+            self.assertEqual(arm["wall_clock_seconds"], self.seconds_between(start, end))
+
+    def test_the_trainer_pair_matches_chains_19_and_20(self):
+        art = json.load(open(os.path.join(ROOT, "benchmarks", "trainer_pair_ppo_sac.json"),
+                             encoding="utf-8"))
+        spec = {"ppo_v9": (19, "PPO 1M in v9 (n=32)"),
+                "ppo_fast": (19, "PPO 1M in fast (n=32)"),
+                "sac_v9": (20, "SAC 1M in v9 (n=32, the PPO config)")}
+        for key, (chain, label) in spec.items():
+            seconds = art["arms"][key]["seconds"]
+            log_end = None
+            for got_label, got_start, got_end, code in self.spans(chain):
+                if got_label == label and code == 0 and got_start:
+                    log_end, log_start = got_end, got_start
+            self.assertIsNotNone(log_end, f"{label} never completed in chain{chain}")
+            self.assertEqual(seconds, self.seconds_between(log_start, log_end),
+                             f"{key}: the artifact records {seconds} s, chain{chain} says "
+                             f"{self.seconds_between(log_start, log_end)} s")
+
+    def test_the_dreamer_preset_pair_matches_chain21(self):
+        art = json.load(open(os.path.join(ROOT, "benchmarks", "physics_presets_dreamer_pair.json"),
+                             encoding="utf-8"))
+        labels = {"v9": "Dreamer 250k in v9", "fast": "Dreamer 250k in fast"}
+        for preset, arm in art["arms"].items():
+            start, end = self.parse_window(arm["window"])
+            self.assertEqual(end, self.find_span(21, labels[preset], start))
+            self.assertEqual(arm["seconds"], self.seconds_between(start, end))
+
+    def test_the_gail_retrain_matches_chain13(self):
+        art = json.load(open(os.path.join(ROOT, "benchmarks", "phase4_gail_retrain.json"),
+                             encoding="utf-8"))
+        run = art["arms"]["fresh_retrain"]["training_run"]
+        seconds = run["wall_clock_seconds"]
+        # This one duration names its source as the mlflow record, not the launcher: the run window
+        # starts when the trainer opens the run and ends when it closes it, while the launcher span
+        # also carries the interpreter start and the process exit. Two honest measurements of one
+        # run, so the contract here is self-consistency plus agreement to within the startup.
+        start, end = self.parse_window(run["wall_clock_source"])
+        self.assertEqual(seconds, self.seconds_between(start, end),
+                         "the recorded seconds do not follow from the recorded window")
+        log_start = log_end = None
+        for label, got_start, got_end, code in self.spans(13):
+            if label.startswith("train GAIL") and code == 0:
+                log_start, log_end = got_start, got_end
+        self.assertIsNotNone(log_end, "no completed GAIL training span in chain13")
+        launcher = self.seconds_between(log_start, log_end)
+        self.assertLessEqual(abs(launcher - seconds), 30,
+                             f"the launcher saw {launcher} s and the artifact records {seconds} s; "
+                             "more than half a minute apart is not process startup, it is drift")
 
 
 class TestEvalRefusesToMixWorlds(unittest.TestCase):

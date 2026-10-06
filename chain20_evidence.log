@@ -1,0 +1,7 @@
+01:56:13 lock held by pid 40416
+01:57:13 machine clear, proceeding
+01:57:13 START SAC 1M in v9 (n=32, the PPO config)
+02:07:07 DONE  SAC 1M in v9 (n=32, the PPO config) (exit 0)
+02:07:07 START score the SAC n=32 arm
+02:07:24 DONE  score the SAC n=32 arm (exit 0)
+02:07:24 chain20 complete

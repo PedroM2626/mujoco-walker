@@ -41,6 +41,19 @@ htmlcov/
 # benchmarks/phase4_gail_retrain.json; the June run's equivalent survives only as its mlflow
 # record, which is exported into benchmarks/gail_june_run_true_env_reward.json.
 !openai_walker/gail_retrain_2026-10-05.log
+# Launcher logs from the detached chains. They are the only primary source for the wall clocks that
+# benchmarks/*.json record as literals (a training run's seconds are not reconstructable from its
+# checkpoints), and %TEMP% gets cleaned without asking, so they live here now. One per chain, and
+# tests/test_physics_presets.py recomputes the recorded spans from them.
+!chain13_evidence.log
+!chain14_evidence.log
+!chain15_evidence.log
+!chain16_evidence.log
+!chain17_evidence.log
+!chain18_evidence.log
+!chain19_evidence.log
+!chain20_evidence.log
+!chain21_evidence.log
 runs/
 checkpoints/
 *.pt

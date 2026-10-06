@@ -1,0 +1,5 @@
+19:04:59 machine clear, proceeding
+19:04:59 START full test suite
+19:07:19 DONE  full test suite (exit 1)
+19:07:19 suite failed; stopping before any measurement, the preset code has to be fixed first
+19:07:19 chain15 aborted

@@ -1,0 +1,18 @@
+19:24:05 machine clear, proceeding
+19:24:05 START measure the presets (throughput + divergence)
+19:24:40 DONE  measure the presets (throughput + divergence) (exit 1)
+19:24:40 preset measurement failed; stopping before the screens, which need it to be interpretable
+19:24:40 chain17 aborted
+19:27:49 lock held by pid 45392
+19:28:49 machine clear, proceeding
+19:28:49 START measure the presets (throughput + divergence)
+19:30:16 DONE  measure the presets (throughput + divergence) (exit 0)
+19:30:16 START screen SAC 1M in v9
+19:52:41 DONE  screen SAC 1M in v9 (exit 0)
+19:52:41 START screen SAC 1M in fast
+20:12:13 DONE  screen SAC 1M in fast (exit 0)
+20:12:13 START score the v9 arm in v9
+20:12:30 DONE  score the v9 arm in v9 (exit 0)
+20:12:30 START score the fast arm in fast
+20:12:43 DONE  score the fast arm in fast (exit 0)
+20:12:43 chain17 complete

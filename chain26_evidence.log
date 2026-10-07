@@ -1,0 +1,12 @@
+23:42:58 lock held by pid 27728
+23:42:58 machine claimed
+23:43:58 machine clear, proceeding
+23:43:58 START SAC 5M n=32 utd=1 seed 8
+00:26:07 DONE  SAC 5M n=32 utd=1 seed 8 (exit 0)
+00:26:07 START score SAC 5M n=32 utd=1 seed 8
+00:27:33 DONE  score SAC 5M n=32 utd=1 seed 8 (exit 0)
+00:27:33 START SAC 5M n=32 utd=4 seed 8
+02:21:17 DONE  SAC 5M n=32 utd=4 seed 8 (exit 0)
+02:21:17 START score SAC 5M n=32 utd=4 seed 8
+02:22:43 DONE  score SAC 5M n=32 utd=4 seed 8 (exit 0)
+02:22:43 chain26 complete

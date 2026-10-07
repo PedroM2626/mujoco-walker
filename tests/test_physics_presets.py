@@ -372,6 +372,38 @@ class TestWallClockProvenanceSurvivesTheLogs(unittest.TestCase):
         self.assertEqual(ppo["collected_steps"] % (2048 * 32), 0)
         self.assertIn("PPO", art["protocol"])
 
+    def test_the_dose_second_draw_matches_chain26(self):
+        """The replication of 2.7x is only a replication if each draw shared its own window."""
+        art = json.load(open(os.path.join(ROOT, "benchmarks", "utd_dose_draws.json"),
+                             encoding="utf-8"))
+        labels = {("seed7", "1"): "SAC 5M n=32 utd=1", ("seed7", "4"): "SAC 5M n=32 utd=4",
+                  ("seed8", "1"): "SAC 5M n=32 utd=1 seed 8",
+                  ("seed8", "4"): "SAC 5M n=32 utd=4 seed 8"}
+        chains = {"seed7": 24, "seed8": 26}
+        for tag, draw in art["draws"].items():
+            for ratio, arm in draw["arms"].items():
+                start, end = self.parse_window(arm["wall_clock_window"])
+                self.assertEqual(end, self.find_span(chains[tag], labels[(tag, ratio)], start))
+                self.assertEqual(arm["wall_clock_seconds"], self.seconds_between(start, end))
+            scored = {label: (s, e) for label, s, e, code in self.spans(chains[tag])
+                      if code == 0 and s and label.startswith("score SAC 5M")}
+            for ratio in ("1", "4"):
+                want = (f"score SAC 5M n=32 utd={ratio}"
+                        + ("" if tag == "seed7" else " seed 8"))
+                self.assertEqual(self.seconds_between(*scored[want]),
+                                 draw["arms"][ratio]["scoring_seconds"],
+                                 f"{tag}/{ratio}: the scorer's span disagrees")
+            # Each draw is one window: the ratio-4 arm starts at the minute the ratio-1 arm's scoring
+            # finished. Without that, 2.707x and 2.698x would be two cross-window comparisons.
+            r1_end = scored[f"score SAC 5M n=32 utd=1"
+                            + ("" if tag == "seed7" else " seed 8")][1]
+            self.assertEqual(self.parse_window(draw["arms"]["4"]["wall_clock_window"])[0], r1_end,
+                             f"{tag}: the two dose arms of this draw did not run back to back")
+        # The cross-draw check the paragraph leans on: the two cost ratios are independent because the
+        # two windows are - the seed-8 arms ran after midnight, the seed-7 arms the evening before.
+        self.assertNotEqual(art["draws"]["seed7"]["arms"]["1"]["wall_clock_window"],
+                            art["draws"]["seed8"]["arms"]["1"]["wall_clock_window"])
+
     def test_the_gail_retrain_matches_chain13(self):
         art = json.load(open(os.path.join(ROOT, "benchmarks", "phase4_gail_retrain.json"),
                              encoding="utf-8"))

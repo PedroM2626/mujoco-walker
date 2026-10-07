@@ -716,6 +716,109 @@ def utd_dose_pair(out="benchmarks/utd_dose_pair.json"):
     }, out
 
 
+UTD_SEED8_WALL_CLOCK = {
+    # chain26's launcher log: the same two doses re-run at seed 8, back to back in one window, so the
+    # cost ratio of the second draw is comparable to the first draw's and to nothing else.
+    "n32_seed8_r1": {"seconds": 2529, "scoring_seconds": 86,
+                     "window": "2026-10-06 23:43:58 -> 2026-10-07 00:26:07"},
+    "n32_seed8_r4": {"seconds": 6824, "scoring_seconds": 86,
+                     "window": "2026-10-07 00:27:33 -> 02:21:17"},
+}
+
+
+def utd_dose_draws(out="benchmarks/utd_dose_draws.json"):
+    """The dose pair drawn twice, which is what turns 'directional' into a claim about the task.
+
+    Draw 1 said the score columns disagreed with each other and named itself one draw per arm. Draw 2
+    (seed 8, same window discipline) reproduces the cost arithmetic almost exactly - **2.698x for four
+    times the updates** against draw 1's 2.707x, 0.3% apart - and it also reproduces the behavioural
+    direction: the higher dose reaches the target more often, in **6 of the 8 cells that are not ties**
+    and at 5M in both draws (20% and 15% against 5% and 5%, i.e. 14 of 40 episodes against 4 of 40).
+
+    The mean return still ranks the arms the other way on average (32,158 against 29,266 over the two
+    5M draws), which is the point rather than a complication: after two draws the return column has not
+    moved with the task's own criterion, and this section has now measured that twice on different
+    axes - across physics worlds and across optimisation doses.
+    """
+    draws = {}
+    for tag, files, clocks in (
+            ("seed7", {1: "utd_sac_n32_r1_5m.json", 4: "utd_sac_n32_r4_5m.json"}, UTD_5M_WALL_CLOCK),
+            ("seed8", {1: "utd_sac_n32_seed8_r1_5m.json", 4: "utd_sac_n32_seed8_r4_5m.json"},
+             UTD_SEED8_WALL_CLOCK)):
+        arms = {}
+        for ratio, fname in files.items():
+            data = json.load(open(os.path.join(ROOT, "benchmarks", fname), encoding="utf-8"))
+            key = f"n32_r{ratio}" if tag == "seed7" else f"n32_seed8_r{ratio}"
+            clock = clocks[key]
+            arms[ratio] = {
+                "seed": 7 if tag == "seed7" else 8, "utd_ratio": ratio, "num_envs": 32,
+                "updates_per_environment_step": round(ratio / 32.0, 4),
+                "device": data.get("device"), "torch_threads": data.get("torch_threads"),
+                "scored_in_version": data.get("scored_in_version"),
+                "physics_preset": data.get("physics_preset"),
+                "checkpoint_run": data["models"]["s1000000"]["checkpoint"].split("/")[1],
+                "wall_clock_seconds": clock["seconds"], "wall_clock_window": clock["window"],
+                "seconds_per_1m": round(clock["seconds"] / 5.0, 1),
+                "scoring_seconds": clock["scoring_seconds"],
+                "by_budget": {
+                    budget: {k: model[k] for k in ("mean", "std", "reached_target_pct",
+                                                   "mean_min_target_distance", "mean_x_velocity",
+                                                   "standing_at_end_pct", "falls_per_episode")}
+                    for budget, model in sorted(data["models"].items(),
+                                                key=lambda kv: int(kv[0][1:]))
+                },
+            }
+        faster = arms[4]["wall_clock_seconds"] / arms[1]["wall_clock_seconds"]
+        draws[tag] = {"arms": arms, "cost_ratio_of_four_times_the_updates": round(faster, 3)}
+
+    budgets = [f"s{m}000000" for m in range(1, 6)]
+    reach = {ratio: {tag: [draws[tag]["arms"][ratio]["by_budget"][b]["reached_target_pct"]
+                           for b in budgets] for tag in draws} for ratio in (1, 4)}
+    won = lost = tied = 0
+    for tag in draws:
+        for i in range(5):
+            hi, lo = reach[4][tag][i], reach[1][tag][i]
+            if hi > lo:
+                won += 1
+            elif hi < lo:
+                lost += 1
+            else:
+                tied += 1
+    at5 = {ratio: [draws[tag]["arms"][ratio]["by_budget"]["s5000000"] for tag in draws]
+           for ratio in (1, 4)}
+    return {
+        "protocol": ("SAC 5M, num_envs=32, task_phase=target, reset_mode=mixed, "
+                     "target_forward_velocity=1.2, in the published world v9, one arm at "
+                     "--utd-ratio 1 and one at 4 for each seed (7 in chain24, 8 in chain26), each "
+                     "arm scored with eval_phase1.py --num-episodes 20 --seed 11; the two arms of a "
+                     "draw ran back to back in one window"),
+        "draws": draws,
+        "cost_ratios_per_draw": {tag: draws[tag]["cost_ratio_of_four_times_the_updates"]
+                                 for tag in draws},
+        "reproduced_to_pct": round(100 * abs(draws["seed7"]["cost_ratio_of_four_times_the_updates"]
+                                             - draws["seed8"]["cost_ratio_of_four_times_the_updates"])
+                                   / draws["seed7"]["cost_ratio_of_four_times_the_updates"], 1),
+        "update_share_of_ratio_1_clock_pct": {
+            tag: round(100 * ((draws[tag]["arms"][4]["wall_clock_seconds"]
+                               - draws[tag]["arms"][1]["wall_clock_seconds"]) / 3.0)
+                       / draws[tag]["arms"][1]["wall_clock_seconds"], 1) for tag in draws},
+        "reach_pct_by_budget": reach,
+        "dose4_cells": {"ahead": won, "behind": lost, "tied": tied},
+        "mean_over_upper_budgets_pct": {
+            ratio: round(sum(sum(reach[ratio][tag][2:]) for tag in draws) / 6.0, 2)
+            for ratio in (1, 4)},
+        "at_5m": {ratio: {"means": [m["mean"] for m in at5[ratio]],
+                          "reaches_pct": [m["reached_target_pct"] for m in at5[ratio]],
+                          "closest_m": [m["mean_min_target_distance"] for m in at5[ratio]],
+                          "reached_episodes_of_40": int(sum(m["reached_target_pct"]
+                                                            for m in at5[ratio]) * 40 / 100)}
+                  for ratio in (1, 4)},
+        "note": ("two draws per dose: the cost sublinearity and the reach advantage both replicate, "
+                 "while the mean return ranks the arms the other way on average - the return column is "
+                 "posture and the reach column is the task, now measured on two different axes"),
+    }, out
+
+
 TRAINER_PAIR_WALL_CLOCK = {
     # Recorded from the launcher logs of chains 19 and 20, which ran back to back on an idle
     # machine: PPO v9 at 01:42:06 -> 01:46:48, PPO fast at 01:46:48 -> 01:50:52, SAC at n=32 at
@@ -1116,6 +1219,8 @@ BENCHMARKS = [
     physics_presets_sac_triple,
     # The same optimisation dose bought at 32 envs instead of 8: what the update is really worth.
     utd_dose_pair,
+    # That pair drawn a second time at a second seed, which is what makes the reach claim a claim.
+    utd_dose_draws,
     # PPO at ten times the budget it was dismissed at, against the clock of every SAC arm.
     ppo_10m_against_sac,
     # The teacher's own 100-episode evaluations, mined from its committed TensorBoard log: the only

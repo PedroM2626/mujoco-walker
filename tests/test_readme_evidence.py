@@ -3414,26 +3414,23 @@ class TestReadmeUtdDoseCells(ReadmeGate, unittest.TestCase):
         self.check("v9 per 1M, second window", m.group(2),
                    self.draws["draws"]["seed8"]["arms"]["v9"]["seconds_per_1m"], places=1)
 
-    def test_the_two_columns_rank_the_arms_in_opposite_directions(self):
+    def test_draw_one_ranked_the_two_columns_in_opposite_directions(self):
+        """Not a prose gate: the paragraph this checked was replaced by the two-draw version.
+
+        The claim stays here as a data check because the new paragraph is built on it - draw 1 is the
+        reason two draws were bought, and the opposite ordering of return and reach in that draw is
+        what the second draw then had to reproduce.
+        """
         arms = self.pair["arms"]
-        at = lambda name, b: arms[name]["by_budget"][b]
-        m = self.sentence(r"(\d+)% against (\d+)%\*\*\s*at 3M, \*\*(\d+)% against (\d+)%\*\* at 5M\) "
-                          r"and\s*\*less\* at 4M \((\d+)% against (\d+)%\)", "the reach columns")
-        got = [m.group(i) for i in range(1, 7)]
-        want = [at("n32_r4", "s3000000")["reached_target_pct"], at("n32_r1", "s3000000")["reached_target_pct"],
-                at("n32_r4", "s5000000")["reached_target_pct"], at("n32_r1", "s5000000")["reached_target_pct"],
-                at("n32_r4", "s4000000")["reached_target_pct"], at("n32_r1", "s4000000")["reached_target_pct"]]
-        self.check("reach percentages", got, want, places=0)
-        m = self.sentence(r"higher mean return at 5M -\s*\*\*([\d,.]+) against ([\d,.]+)\*\*",
-                          "the two mean returns")
-        self.check("means at 5M", [m.group(1), m.group(2)],
-                   [at("n32_r1", "s5000000")["mean"], at("n32_r4", "s5000000")["mean"]], places=2)
-        self.assertGreater(at("n32_r1", "s5000000")["mean"], at("n32_r4", "s5000000")["mean"],
-                           "the under-dosed arm no longer posts the higher return, so the paragraph's "
-                           "opposite-ranking claim has to be rewritten")
-        self.assertGreater(at("n32_r4", "s5000000")["reached_target_pct"],
-                           at("n32_r1", "s5000000")["reached_target_pct"],
-                           "the dose-matched arm no longer reaches more often at 5M")
+        at5 = {name: arm["by_budget"]["s5000000"] for name, arm in arms.items()}
+        self.assertGreater(at5["n32_r1"]["mean"], at5["n32_r4"]["mean"],
+                           "draw 1 no longer has the under-dosed arm ahead on return")
+        self.assertLess(at5["n32_r1"]["reached_target_pct"], at5["n32_r4"]["reached_target_pct"],
+                        "draw 1 no longer has the dose-matched arm ahead on reaching")
+        upper = {name: [arm["by_budget"][f"s{m}000000"]["reached_target_pct"] for m in (3, 4, 5)]
+                 for name, arm in arms.items()}
+        self.assertEqual(upper["n32_r1"], [5.0, 15.0, 5.0])
+        self.assertEqual(upper["n32_r4"], [25.0, 10.0, 20.0])
 
     def test_the_dose_of_each_arm_is_what_the_protocol_claims(self):
         arms = self.pair["arms"]
@@ -3452,6 +3449,109 @@ class TestReadmeUtdDoseCells(ReadmeGate, unittest.TestCase):
         self.assertEqual(arms["n32_r4"]["updates_per_environment_step"], round(1 / 8.0, 4))
         self.assertIn("num_envs=32", self.pair["protocol"])
         self.assertIn("--utd-ratio 1 and one at", self.pair["protocol"])
+
+
+class TestReadmeUtdDrawReplicationCells(ReadmeGate, unittest.TestCase):
+    """The dose pair drawn at two seeds: every cell against benchmarks/utd_dose_draws.json.
+
+    This is the paragraph that replaced a "one draw each, so directional" hedge, so its gate is
+    deliberately about the two draws disagreeing or agreeing: the replication figure, the cell count,
+    and the arithmetic that turns two per-seed lists into the averages the prose quotes.
+    """
+
+    DRAWS = os.path.join(ROOT, "benchmarks", "utd_dose_draws.json")
+    PAIR = os.path.join(ROOT, "benchmarks", "utd_dose_pair.json")
+    START = "**The pair drawn a second time at seed 8 reproduces"
+    END = "And the caveat that limits what a screen can ask."
+
+    def setUp(self):
+        with open(README, encoding="utf-8") as handle:
+            readme = handle.read()
+        start = readme.index(self.START)
+        self.block = readme[start:readme.index(self.END, start)]
+        self.draws, self.pair = self.read_artifacts(self.DRAWS, self.PAIR)
+        self.bad = []
+        self.what = "UTD dose draws"
+
+    def test_the_cost_arithmetic_replicates_across_two_independent_windows(self):
+        d8, d7 = self.draws["draws"]["seed8"], self.draws["draws"]["seed7"]
+        m = self.sentence(r": ([\d,]+) s against ([\d,]+) s, which is \*\*([\d.]+)x\*\*, "
+                          r"0\.3% from the first draw's (?:\*\*)?([\d.]+)x(?:\*\*)?, and the same two "
+                          r"equations put \*\*([\d.]+)%\*\*", "the second draw's cost")
+        self.check("second draw clocks", [m.group(1), m.group(2)],
+                   [d8["arms"]["1"]["wall_clock_seconds"], d8["arms"]["4"]["wall_clock_seconds"]],
+                   places=0)
+        self.check("cost ratios", [m.group(3), m.group(4)],
+                   [self.draws["cost_ratios_per_draw"]["seed8"],
+                    self.draws["cost_ratios_per_draw"]["seed7"]], places=3)
+        self.check("update share, draw 2", m.group(5),
+                   self.draws["update_share_of_ratio_1_clock_pct"]["seed8"], places=1)
+        self.assertEqual(self.draws["cost_ratios_per_draw"]["seed8"],
+                         round(d8["arms"]["4"]["wall_clock_seconds"]
+                               / d8["arms"]["1"]["wall_clock_seconds"], 3))
+        self.assertEqual(self.draws["reproduced_to_pct"], 0.3,
+                         "the paragraph quotes 0.3%; the two draws moved apart by more than that")
+        # Draw 1's figures, re-checked from the other artifact so the sentence cannot half-rot.
+        self.assertEqual(self.draws["cost_ratios_per_draw"]["seed7"],
+                         self.pair["ratio_4_over_ratio_1_seconds"])
+        self.assertEqual(self.draws["update_share_of_ratio_1_clock_pct"]["seed7"],
+                         self.pair["derived_from_the_two_measurements"]
+                         ["update_share_of_ratio_1_clock_pct"])
+
+    def test_the_reach_advantage_and_the_cell_count_come_from_the_same_grid(self):
+        cells = self.draws["dose4_cells"]
+        m = self.sentence(r"reaches the target more often in \*\*(\d+) of the (\d+) cells that are "
+                          r"not ties\*\*", "the cell count")
+        self.check("cells ahead", m.group(1), cells["ahead"], places=0)
+        self.check("non-tie cells", m.group(2), cells["ahead"] + cells["behind"], places=0)
+        self.assertEqual(cells["ahead"] + cells["behind"] + cells["tied"], 10,
+                         "two draws over five budgets is ten cells")
+        at5 = self.draws["at_5m"]
+        m = self.sentence(r"\*\*(\d+) of (\d+) episodes against (\d+) of (\d+)\*\* "
+                          r"\(([\d.]+)% and ([\d.]+)% against ([\d.]+)% and ([\d.]+)%\)",
+                          "the 5M reach columns")
+        self.check("episodes at 5M", [m.group(1), m.group(3)],
+                   [at5["4"]["reached_episodes_of_40"], at5["1"]["reached_episodes_of_40"]], places=0)
+        self.check("episodes denominators", [m.group(2), m.group(4)], [40, 40], places=0)
+        self.check("percentages", [m.group(5), m.group(6), m.group(7), m.group(8)],
+                   at5["4"]["reaches_pct"] + at5["1"]["reaches_pct"], places=1)
+        self.assertEqual(int(m.group(1)) + int(m.group(3)),
+                         sum(p * 40 // 100 for p in at5["4"]["reaches_pct"]
+                             + at5["1"]["reaches_pct"]))
+        upper = self.draws["mean_over_upper_budgets_pct"]
+        m = self.sentence(r"reaches in \*\*([\d.]+)%\*\* of episodes against \*\*([\d.]+)%\*\*",
+                          "the upper-budget average")
+        self.check("upper budget means", [m.group(1), m.group(2)],
+                   [upper["4"], upper["1"]], places=2)
+
+    def test_the_return_column_still_points_the_other_way_after_two_draws(self):
+        at5 = self.draws["at_5m"]
+        avg = {r: round(sum(at5[r]["means"]) / 2.0, 1) for r in ("1", "4")}
+        m = self.sentence(r"on average\s*\*\*([\d,.]+)\*\* against \*\*([\d,.]+)\*\* across the two "
+                          r"5M draws", "the averaged mean returns")
+        self.check("averaged means", [m.group(1), m.group(2)], [avg["1"], avg["4"]], places=1)
+        self.assertGreater(avg["1"], avg["4"],
+                           "the under-dosed arm no longer averages the higher return, so the "
+                           "opposite-ranking claim has to be rewritten rather than re-pointed")
+        self.assertLess(at5["4"]["reached_episodes_of_40"] - at5["1"]["reached_episodes_of_40"], 12,
+                        "the reach gap is quoted as ten episodes out of eighty")
+
+    def test_both_draws_are_the_same_recipe_and_one_world(self):
+        for tag, draw in self.draws["draws"].items():
+            for ratio, arm in draw["arms"].items():
+                self.assertEqual(arm["num_envs"], 32, f"{tag}/{ratio}")
+                self.assertEqual(arm["device"], "cuda")
+                self.assertEqual(arm["torch_threads"], 24)
+                self.assertEqual(arm["scored_in_version"], "standup_balance_walk_curriculum_v9")
+                self.assertEqual(arm["physics_preset"], "v9")
+                self.assertEqual(arm["updates_per_environment_step"],
+                             round(int(ratio) / 32.0, 4))
+            self.assertEqual(draw["arms"]["1"]["seed"], draw["arms"]["4"]["seed"],
+                             f"{tag}: the two arms of a draw are not the same seed")
+        self.assertNotEqual(self.draws["draws"]["seed7"]["arms"]["1"]["seed"],
+                            self.draws["draws"]["seed8"]["arms"]["1"]["seed"])
+        self.assertIn("num_envs=32", self.draws["protocol"])
+        self.assertIn("--utd-ratio 1 and one at 4", self.draws["protocol"])
 
 
 class TestReadmeTrainerPairCells(ReadmeGate, unittest.TestCase):

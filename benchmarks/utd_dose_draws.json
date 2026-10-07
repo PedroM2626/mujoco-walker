@@ -1,0 +1,348 @@
+{
+  "protocol": "SAC 5M, num_envs=32, task_phase=target, reset_mode=mixed, target_forward_velocity=1.2, in the published world v9, one arm at --utd-ratio 1 and one at 4 for each seed (7 in chain24, 8 in chain26), each arm scored with eval_phase1.py --num-episodes 20 --seed 11; the two arms of a draw ran back to back in one window",
+  "draws": {
+    "seed7": {
+      "arms": {
+        "1": {
+          "seed": 7,
+          "utd_ratio": 1,
+          "num_envs": 32,
+          "updates_per_environment_step": 0.0312,
+          "device": "cuda",
+          "torch_threads": 24,
+          "scored_in_version": "standup_balance_walk_curriculum_v9",
+          "physics_preset": "v9",
+          "checkpoint_run": "utd_sac_n32_r1_5m",
+          "wall_clock_seconds": 2399,
+          "wall_clock_window": "2026-10-06 20:15:05 -> 20:55:04",
+          "seconds_per_1m": 479.8,
+          "scoring_seconds": 81,
+          "by_budget": {
+            "s1000000": {
+              "mean": 12157.92,
+              "std": 8338.36,
+              "reached_target_pct": 0.0,
+              "mean_min_target_distance": 2.623,
+              "mean_x_velocity": 0.0513,
+              "standing_at_end_pct": 0.0,
+              "falls_per_episode": 0.3
+            },
+            "s2000000": {
+              "mean": 17698.63,
+              "std": 6863.26,
+              "reached_target_pct": 0.0,
+              "mean_min_target_distance": 2.842,
+              "mean_x_velocity": 0.0601,
+              "standing_at_end_pct": 0.0,
+              "falls_per_episode": 0.25
+            },
+            "s3000000": {
+              "mean": 27335.92,
+              "std": 12597.65,
+              "reached_target_pct": 5.0,
+              "mean_min_target_distance": 2.638,
+              "mean_x_velocity": 0.0298,
+              "standing_at_end_pct": 0.0,
+              "falls_per_episode": 1.1
+            },
+            "s4000000": {
+              "mean": 33986.53,
+              "std": 16564.96,
+              "reached_target_pct": 15.0,
+              "mean_min_target_distance": 2.632,
+              "mean_x_velocity": 0.0559,
+              "standing_at_end_pct": 5.0,
+              "falls_per_episode": 1.5
+            },
+            "s5000000": {
+              "mean": 36623.52,
+              "std": 18806.99,
+              "reached_target_pct": 5.0,
+              "mean_min_target_distance": 2.029,
+              "mean_x_velocity": 0.1182,
+              "standing_at_end_pct": 5.0,
+              "falls_per_episode": 1.9
+            }
+          }
+        },
+        "4": {
+          "seed": 7,
+          "utd_ratio": 4,
+          "num_envs": 32,
+          "updates_per_environment_step": 0.125,
+          "device": "cuda",
+          "torch_threads": 24,
+          "scored_in_version": "standup_balance_walk_curriculum_v9",
+          "physics_preset": "v9",
+          "checkpoint_run": "utd_sac_n32_r4_5m",
+          "wall_clock_seconds": 6494,
+          "wall_clock_window": "2026-10-06 20:56:25 -> 22:44:39",
+          "seconds_per_1m": 1298.8,
+          "scoring_seconds": 84,
+          "by_budget": {
+            "s1000000": {
+              "mean": 7885.16,
+              "std": 9465.38,
+              "reached_target_pct": 0.0,
+              "mean_min_target_distance": 3.048,
+              "mean_x_velocity": -0.0613,
+              "standing_at_end_pct": 0.0,
+              "falls_per_episode": 0.3
+            },
+            "s2000000": {
+              "mean": 30900.47,
+              "std": 16145.14,
+              "reached_target_pct": 5.0,
+              "mean_min_target_distance": 2.572,
+              "mean_x_velocity": 0.048,
+              "standing_at_end_pct": 10.0,
+              "falls_per_episode": 1.4
+            },
+            "s3000000": {
+              "mean": 33811.81,
+              "std": 27759.34,
+              "reached_target_pct": 25.0,
+              "mean_min_target_distance": 1.706,
+              "mean_x_velocity": 0.1941,
+              "standing_at_end_pct": 0.0,
+              "falls_per_episode": 2.0
+            },
+            "s4000000": {
+              "mean": 31976.66,
+              "std": 25108.07,
+              "reached_target_pct": 10.0,
+              "mean_min_target_distance": 1.867,
+              "mean_x_velocity": 0.2,
+              "standing_at_end_pct": 5.0,
+              "falls_per_episode": 1.55
+            },
+            "s5000000": {
+              "mean": 24137.34,
+              "std": 19688.09,
+              "reached_target_pct": 20.0,
+              "mean_min_target_distance": 2.228,
+              "mean_x_velocity": 0.1345,
+              "standing_at_end_pct": 0.0,
+              "falls_per_episode": 1.3
+            }
+          }
+        }
+      },
+      "cost_ratio_of_four_times_the_updates": 2.707
+    },
+    "seed8": {
+      "arms": {
+        "1": {
+          "seed": 8,
+          "utd_ratio": 1,
+          "num_envs": 32,
+          "updates_per_environment_step": 0.0312,
+          "device": "cuda",
+          "torch_threads": 24,
+          "scored_in_version": "standup_balance_walk_curriculum_v9",
+          "physics_preset": "v9",
+          "checkpoint_run": "utd_sac_n32_seed8_r1_5m",
+          "wall_clock_seconds": 2529,
+          "wall_clock_window": "2026-10-06 23:43:58 -> 2026-10-07 00:26:07",
+          "seconds_per_1m": 505.8,
+          "scoring_seconds": 86,
+          "by_budget": {
+            "s1000000": {
+              "mean": 10562.85,
+              "std": 8737.78,
+              "reached_target_pct": 0.0,
+              "mean_min_target_distance": 2.99,
+              "mean_x_velocity": 0.0271,
+              "standing_at_end_pct": 0.0,
+              "falls_per_episode": 0.3
+            },
+            "s2000000": {
+              "mean": 31856.8,
+              "std": 15587.37,
+              "reached_target_pct": 10.0,
+              "mean_min_target_distance": 2.222,
+              "mean_x_velocity": 0.0761,
+              "standing_at_end_pct": 0.0,
+              "falls_per_episode": 1.55
+            },
+            "s3000000": {
+              "mean": 33306.31,
+              "std": 18184.38,
+              "reached_target_pct": 5.0,
+              "mean_min_target_distance": 2.326,
+              "mean_x_velocity": 0.1255,
+              "standing_at_end_pct": 5.0,
+              "falls_per_episode": 1.7
+            },
+            "s4000000": {
+              "mean": 29135.59,
+              "std": 19291.32,
+              "reached_target_pct": 20.0,
+              "mean_min_target_distance": 2.404,
+              "mean_x_velocity": 0.1238,
+              "standing_at_end_pct": 5.0,
+              "falls_per_episode": 1.15
+            },
+            "s5000000": {
+              "mean": 27692.29,
+              "std": 15317.85,
+              "reached_target_pct": 5.0,
+              "mean_min_target_distance": 2.596,
+              "mean_x_velocity": 0.0313,
+              "standing_at_end_pct": 0.0,
+              "falls_per_episode": 1.3
+            }
+          }
+        },
+        "4": {
+          "seed": 8,
+          "utd_ratio": 4,
+          "num_envs": 32,
+          "updates_per_environment_step": 0.125,
+          "device": "cuda",
+          "torch_threads": 24,
+          "scored_in_version": "standup_balance_walk_curriculum_v9",
+          "physics_preset": "v9",
+          "checkpoint_run": "utd_sac_n32_seed8_r4_5m",
+          "wall_clock_seconds": 6824,
+          "wall_clock_window": "2026-10-07 00:27:33 -> 02:21:17",
+          "seconds_per_1m": 1364.8,
+          "scoring_seconds": 86,
+          "by_budget": {
+            "s1000000": {
+              "mean": 1213.99,
+              "std": 7536.16,
+              "reached_target_pct": 0.0,
+              "mean_min_target_distance": 3.023,
+              "mean_x_velocity": 0.0084,
+              "standing_at_end_pct": 5.0,
+              "falls_per_episode": 0.1
+            },
+            "s2000000": {
+              "mean": 16626.43,
+              "std": 11347.1,
+              "reached_target_pct": 0.0,
+              "mean_min_target_distance": 2.663,
+              "mean_x_velocity": 0.0316,
+              "standing_at_end_pct": 0.0,
+              "falls_per_episode": 0.55
+            },
+            "s3000000": {
+              "mean": 26460.92,
+              "std": 17029.27,
+              "reached_target_pct": 15.0,
+              "mean_min_target_distance": 2.177,
+              "mean_x_velocity": 0.1511,
+              "standing_at_end_pct": 5.0,
+              "falls_per_episode": 1.25
+            },
+            "s4000000": {
+              "mean": 40317.66,
+              "std": 28651.02,
+              "reached_target_pct": 30.0,
+              "mean_min_target_distance": 1.595,
+              "mean_x_velocity": 0.2529,
+              "standing_at_end_pct": 0.0,
+              "falls_per_episode": 1.85
+            },
+            "s5000000": {
+              "mean": 34394.83,
+              "std": 15949.18,
+              "reached_target_pct": 15.0,
+              "mean_min_target_distance": 1.845,
+              "mean_x_velocity": 0.2461,
+              "standing_at_end_pct": 0.0,
+              "falls_per_episode": 1.55
+            }
+          }
+        }
+      },
+      "cost_ratio_of_four_times_the_updates": 2.698
+    }
+  },
+  "cost_ratios_per_draw": {
+    "seed7": 2.707,
+    "seed8": 2.698
+  },
+  "reproduced_to_pct": 0.3,
+  "update_share_of_ratio_1_clock_pct": {
+    "seed7": 56.9,
+    "seed8": 56.6
+  },
+  "reach_pct_by_budget": {
+    "1": {
+      "seed7": [
+        0.0,
+        0.0,
+        5.0,
+        15.0,
+        5.0
+      ],
+      "seed8": [
+        0.0,
+        10.0,
+        5.0,
+        20.0,
+        5.0
+      ]
+    },
+    "4": {
+      "seed7": [
+        0.0,
+        5.0,
+        25.0,
+        10.0,
+        20.0
+      ],
+      "seed8": [
+        0.0,
+        0.0,
+        15.0,
+        30.0,
+        15.0
+      ]
+    }
+  },
+  "dose4_cells": {
+    "ahead": 6,
+    "behind": 2,
+    "tied": 2
+  },
+  "mean_over_upper_budgets_pct": {
+    "1": 9.17,
+    "4": 19.17
+  },
+  "at_5m": {
+    "1": {
+      "means": [
+        36623.52,
+        27692.29
+      ],
+      "reaches_pct": [
+        5.0,
+        5.0
+      ],
+      "closest_m": [
+        2.029,
+        2.596
+      ],
+      "reached_episodes_of_40": 4
+    },
+    "4": {
+      "means": [
+        24137.34,
+        34394.83
+      ],
+      "reaches_pct": [
+        20.0,
+        15.0
+      ],
+      "closest_m": [
+        2.228,
+        1.845
+      ],
+      "reached_episodes_of_40": 14
+    }
+  },
+  "note": "two draws per dose: the cost sublinearity and the reach advantage both replicate, while the mean return ranks the arms the other way on average - the return column is posture and the reach column is the task, now measured on two different axes"
+}

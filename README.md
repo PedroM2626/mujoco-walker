@@ -1169,15 +1169,23 @@ trainers rather than one number confirming the other - what they agree on is onl
 the update is the larger half. Buying the committed 8-env arm's dose at 32 envs cost **6,494 s where
 that arm took 8,992 s (1.385x)**, and that is the one figure here carrying a window caveat: the two
 arms were trained on different nights, and the same world at 8 envs ran at 1,798.4 s per 1M in one of
-them and 1,877.2 s per 1M in the other.
+them and 1,877.2 s per 1M in the other. **The pair drawn a second time at seed 8 reproduces the
+arithmetic** (`benchmarks/utd_dose_draws.json`): 2,529 s against 6,824 s, which is **2.698x**, 0.3% from
+the first draw's 2.707x, and the same two equations put **56.6%** of that ratio-1 clock in the update.
 
-The behavioural half goes the other way and refuses to be a number. The dose-matched arm reaches more
-often at two of the three upper budgets (**25% against 5%** at 3M, **20% against 5%** at 5M) and
-*less* at 4M (10% against 15%), while the under-dosed arm posted the higher mean return at 5M -
-**36,623.52 against 24,137.34**. One draw per arm, in a world whose own band today ran from
-+18,956.17 to -763.96. So the part of this that repeats is the cost arithmetic; the score comparison
-is directional, and it is one more instance of the rule this section keeps re-learning: the return
-column is posture, the reach column is the task.
+The behavioural half is where the second draw changed the sentence rather than the number. With two
+draws per dose, the higher dose reaches the target more often in **6 of the 8 cells that are not ties**,
+and it does so at 5M in both seeds: **14 of 40 episodes against 4 of 40** (20% and 15% against 5% and
+5%). Averaged over the three upper budgets it reaches in **19.17%** of episodes against **9.17%** for
+the under-dosed arm. The mean return still ranks the arms the other way, on average
+**32,157.9** against **29,266.1** across the two 5M draws - so after two draws per arm the return
+column has *still* not moved with the task's own criterion, which is now measured on two different
+axes: physics worlds and optimisation doses. What a higher dose buys is reaching, not score.
+
+Two honest limits survive the replication. Two draws is still two: the 5M advantage is ten episodes out
+of eighty, and the reach column inside each run moves by that much between neighbouring checkpoints.
+And the whole comparison is one world and one algorithm - `v9`, SAC, `num_envs=32` - so the 2.698x and
+the reach gap describe this trainer's schedule, not a law about doses.
 
 And the caveat that limits what a screen can ask. Scored at the published protocol, the two arms
 reach the target in 0 of 20 episodes each (`benchmarks/physics_presets_screen_v9.json`,
@@ -1957,12 +1965,12 @@ Three facts to keep in mind:
 
 The suite is plain `unittest` (no pytest required) and covers the environment contract, the
 golden reward rollouts, the parallel/serial vector-env parity, checkpointing and the race
-harness — **284 tests, 194 s in this window** (`Ran 284 tests in 193.904s ... OK
+harness — **289 tests, 201 s in this window** (`Ran 289 tests in 201.464s ... OK
 (skipped=7)` under `.venv`). Windows of this suite have measured 176.3 s at 102 tests, 269.995 s
 at 121, 261.1 s at 127, 329.964 s at 128, 319.168 s at 130, 184.716 s, 203.108 s and 306.976 s at
 140, 144.678 s at 147, 230.268 s at 157, 171.016 s and 170.304 s at 194, and 174.008 s,
 170.391 s, 175.036 s, 168.775 s, 168.986 s and 166.606 s at 201/205/210, 169.919 s at 214,
-and 163.920 s and 161.829 s at 237, 165.360 s and 164.902 s at 243, 161.647 s and 162.674 s at 250, 162.726 s and 162.167 s at 251, 171.616 s and 163.434 s at 252, 163.769 s and 163.748 s at 255, 226.912 s and 217.651 s at 260, 193.167 s and 191.909 s at 273, 206.150 s at 279, 193.904 s at 284 -
+and 163.920 s and 161.829 s at 237, 165.360 s and 164.902 s at 243, 161.647 s and 162.674 s at 250, 162.726 s and 162.167 s at 251, 171.616 s and 163.434 s at 252, 163.769 s and 163.748 s at 255, 226.912 s and 217.651 s at 260, 193.167 s and 191.909 s at 273, 206.150 s at 279, 193.904 s at 284, 201.464 s at 289 -
 those last windows carry a dose test that runs three short CPU trainings, which are about 27 s of
 them, so that entry is not slower hardware; consecutive runs of one commit agree to 4%, where the
 147 and 157 windows an afternoon earlier were 1.6x apart for ten more tests. The
@@ -2020,7 +2028,7 @@ that they ran - see Phase 4, item 6. How each of those states was found, with th
 ## 🔬 Reproducing and measuring
 
 ```bash
-python -m unittest discover -s tests -t .   # 284 tests in .venv, 194 s; see "Running the tests"
+python -m unittest discover -s tests -t .   # 289 tests in .venv, 201 s; see "Running the tests"
 python bench_env.py --seconds 4             # env throughput, physics vs Python split
 python bench_mjx.py --sizes 32,128          # MJX/JAX batched stepping
 python verify.py                            # Phase-2 artifact check (exits 2 when missing)

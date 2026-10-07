@@ -1122,6 +1122,90 @@ def ppo_10m_against_sac(out="benchmarks/ppo_10m_vs_sac.json"):
     }, out
 
 
+EULER_5M_WALL_CLOCK = {
+    # chain27 (seed 7) and chain28 (seed 8), each a window of its own so the euler-vs-v9 ratio is
+    # computed inside a draw and never across nights. Re-checked against the committed logs.
+    "euler_seed7": {"seconds": 7860, "scoring_seconds": 58,
+                    "window": "2026-10-07 02:35:53 -> 04:46:53"},
+    "euler_seed8": {"seconds": 7505, "scoring_seconds": 56,
+                    "window": "2026-10-07 04:52:41 -> 06:57:46"},
+}
+
+
+def euler_screen_5m_draws(out="benchmarks/physics_presets_screen5m_euler_draws.json"):
+    """`euler` at 5M twice, because the first time it reached nothing and one draw says nothing.
+
+    Draw 1 (seed 7) flat-lined: mean 3,150.93 -> -76.12 across five checkpoints, forward speed ~0,
+    0.10 falls per episode, and the target reached in 0 of 100 scored episodes - the lying-still
+    optimum PPO sat in at 1M. Draw 2 (seed 8), same world and same budget, climbed to
+    **14,409.67 at 4M and reached in 10% of episodes at 5M**. So the first result was a draw, not a
+    property of the integrator - which is the inference the paired-seed design exists to license, and
+    it was bought for 2 h 05 m of machine time rather than argued.
+
+    The cost half replicates on its own terms: 7,860 s against the published world's 8,992 s at seed 7
+    (**1.144x**) and 7,505 s against 9,386 s at seed 8 (**1.251x**), two independent windows bracketing
+    the 1.157x the 1M triple measured. And the behavioural comparison to `v9` closes: euler's two-draw
+    reach record at 5M is 0% and 10%, v9's is 10% and 0% - indistinguishable at this sample size, while
+    the `fast` world led both of its draws. The world that drifts least (0.227 m of torso height over a
+    shared episode) tracks the published one on the criterion, which is what a screening preset should
+    do; the world that prunes self-collision is where the divergence lives.
+    """
+    draws = {}
+    for tag, fname, seed in (("seed7", "physics_presets_screen5m_euler.json", 7),
+                             ("seed8", "physics_presets_screen5m_seed8_euler.json", 8)):
+        data = json.load(open(os.path.join(ROOT, "benchmarks", fname), encoding="utf-8"))
+        clock = EULER_5M_WALL_CLOCK[f"euler_{tag}"]
+        v9 = json.load(open(os.path.join(ROOT, "benchmarks",
+                                         "physics_presets_screen5m_draws.json"),
+                            encoding="utf-8"))["draws"][tag]["arms"]["v9"]
+        faster = v9["wall_clock_seconds"] / clock["seconds"]
+        draws[tag] = {
+            "seed": seed, "physics_preset": data["physics_preset"],
+            "scored_in_version": data.get("scored_in_version"),
+            "device": data.get("device"), "torch_threads": data.get("torch_threads"),
+            "checkpoint_run": data["models"]["s1000000"]["checkpoint"].split("/")[1],
+            "wall_clock_seconds": clock["seconds"], "wall_clock_window": clock["window"],
+            "seconds_per_1m": round(clock["seconds"] / 5.0, 1),
+            "scoring_seconds": clock["scoring_seconds"],
+            "v9_same_draw_seconds": v9["wall_clock_seconds"],
+            "v9_same_draw_seconds_per_1m": v9["seconds_per_1m"],
+            "speedup_euler_over_v9_in_this_window": round(faster, 3),
+            "by_budget": {
+                budget: {k: model[k] for k in ("mean", "std", "reached_target_pct",
+                                               "mean_min_target_distance", "mean_x_velocity",
+                                               "standing_at_end_pct", "falls_per_episode")}
+                for budget, model in sorted(data["models"].items(),
+                                            key=lambda kv: int(kv[0][1:]))
+            },
+        }
+    at5 = lambda tag: draws[tag]["by_budget"]["s5000000"]
+    v9_draws = json.load(open(os.path.join(ROOT, "benchmarks",
+                                           "physics_presets_screen5m_draws.json"),
+                              encoding="utf-8"))["draws"]
+    return {
+        "protocol": ("SAC 5M, num_envs=8, task_phase=target, reset_mode=mixed, "
+                     "target_forward_velocity=1.2, trained in `euler` once per seed (7 in chain27, "
+                     "8 in chain28), each draw scored with eval_phase1.py --num-episodes 20 --seed 11 "
+                     "in the world it trained in, against the `v9` arm of the same seed from "
+                     "benchmarks/physics_presets_screen5m_draws.json"),
+        "draws": draws,
+        "speedups_euler_over_v9": {tag: draws[tag]["speedup_euler_over_v9_in_this_window"]
+                                   for tag in draws},
+        "at_1m_triple_for_reference": 1.157,
+        "reached_target_pct_at_5m": {
+            "euler": [at5(t)["reached_target_pct"] for t in draws],
+            "v9": [v9_draws[t]["arms"]["v9"]["by_budget"]["s5000000"]["reached_target_pct"]
+                   for t in draws]},
+        "mean_at_5m": {"euler": [at5(t)["mean"] for t in draws]},
+        "scored_episodes_reaching": {"euler": int(sum(at5(t)["reached_target_pct"]
+                                                      for t in draws) * 40 / 100),
+                                     "of_episodes": 40},
+        "note": ("draw 1 reached in 0 of 100 episodes and draw 2 in 2 of 20: the flat line was the run. "
+                 "Both worlds' two-draw reach records are {0%, 10%} and {10%, 0%}, which this sample "
+                 "size cannot separate"),
+    }, out
+
+
 TEACHER_EVENTS = os.path.join("openai_walker", "sac_walker_tensorboard", "SAC_2",
                               "events.out.tfevents.1780843517.pedro.36828.0")
 
@@ -1223,6 +1307,8 @@ BENCHMARKS = [
     utd_dose_draws,
     # PPO at ten times the budget it was dismissed at, against the clock of every SAC arm.
     ppo_10m_against_sac,
+    # The third physics world at the budget where reaching is observable, drawn twice.
+    euler_screen_5m_draws,
     # The teacher's own 100-episode evaluations, mined from its committed TensorBoard log: the only
     # pre-retraction evaluation series in the repo, and an independent protocol.
     teacher_eval_curve,

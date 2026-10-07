@@ -3554,6 +3554,116 @@ class TestReadmeUtdDrawReplicationCells(ReadmeGate, unittest.TestCase):
         self.assertIn("--utd-ratio 1 and one at 4", self.draws["protocol"])
 
 
+class TestReadmeEulerDrawsCells(ReadmeGate, unittest.TestCase):
+    """`euler` at 5M, two draws, against benchmarks/physics_presets_screen5m_euler_draws.json.
+
+    The paragraph's whole point is that draw 1 was misread, so its gate has to fail if someone
+    re-quotes draw 1 as a property of the world: the two draws are checked against each other, not
+    just against the numbers in the prose.
+    """
+
+    EULER = os.path.join(ROOT, "benchmarks", "physics_presets_screen5m_euler_draws.json")
+    TRIPLE = os.path.join(ROOT, "benchmarks", "physics_presets_sac1m_triple.json")
+    START = "**`euler` has now been trained at the budget"
+    END = "### \U0001f9ee The learner side"
+
+    def setUp(self):
+        with open(README, encoding="utf-8") as handle:
+            readme = handle.read()
+        start = readme.index(self.START)
+        self.block = readme[start:readme.index(self.END, start)]
+        self.art, self.triple = self.read_artifacts(self.EULER, self.TRIPLE)
+        self.bad = []
+        self.what = "euler 5M draws"
+
+    def test_draw_one_was_a_flat_line_and_draw_two_was_not(self):
+        d7, d8 = self.art["draws"]["seed7"], self.art["draws"]["seed8"]
+        m = self.sentence(r"mean ([\d,]+\.[\d]+) falling to \*\*(-?[\d,.]+)\*\* across its five "
+                          r"checkpoints,\s*forward speed ~0, ([\d.]+) falls per episode, the target "
+                          r"reached in \*\*(\d+) of (\d+)\*\* scored episodes", "draw 1's flat line")
+        self.check("draw 1 first and last mean", [m.group(1), m.group(2)],
+                   [d7["by_budget"]["s1000000"]["mean"], d7["by_budget"]["s5000000"]["mean"]],
+                   places=2)
+        self.check("draw 1 falls", m.group(3), d7["by_budget"]["s5000000"]["falls_per_episode"],
+                   places=2)
+        reached7 = sum(v["reached_target_pct"] for v in d7["by_budget"].values())
+        self.check("draw 1 reaches", [m.group(4), m.group(5)],
+                   [int(reached7 * 20 / 100), 5 * 20], places=0)
+        m = self.sentence(r"it climbs to \*\*([\d,]+\.[\d]+)\*\* at (\d)M and reaches the target in "
+                          r"\*\*([\d.]+)%\*\*", "draw 2's climb")
+        self.check("draw 2 4M mean", m.group(1), d8["by_budget"]["s4000000"]["mean"], places=2)
+        self.check("draw 2 budget", m.group(2), 4, places=0)
+        self.check("draw 2 5M reach", m.group(3),
+                   d8["by_budget"]["s5000000"]["reached_target_pct"], places=1)
+        # The claim "the flat line was the run" has to stay true of the data, not just of the prose.
+        self.assertGreater(d8["by_budget"]["s5000000"]["mean"], 5000,
+                           "draw 2 no longer rescues draw 1, so the paragraph must be rewritten")
+
+    def test_the_cost_replicates_inside_each_window(self):
+        d7, d8 = self.art["draws"]["seed7"], self.art["draws"]["seed8"]
+        m = self.sentence(r"\*\*([\d,]+) s against the published world's ([\d,]+) s at seed (\d+)\s*"
+                          r"\(([\d.]+)x\)\*\* and \*\*([\d,]+) s against ([\d,]+) s at seed (\d+) "
+                          r"\(([\d.]+)x\)\*\*", "the two cost ratios")
+        self.check("seed 7 clocks and ratio", [m.group(1), m.group(2), m.group(4)],
+                   [d7["wall_clock_seconds"], d7["v9_same_draw_seconds"],
+                    d7["speedup_euler_over_v9_in_this_window"]], places=1)
+        self.check("seed 8 clocks and ratio", [m.group(5), m.group(6), m.group(8)],
+                   [d8["wall_clock_seconds"], d8["v9_same_draw_seconds"],
+                    d8["speedup_euler_over_v9_in_this_window"]], places=1)
+        self.assertEqual(m.group(3), "7")
+        self.assertEqual(m.group(7), "8")
+        m = self.sentence(r"bracketing the\s*\*\*([\d.]+)x\*\* the 1M triple measured", "the 1M ratio")
+        self.check("1M triple euler ratio", m.group(1),
+                   self.triple["train_seconds_over_v9"]["euler"], places=3)
+        lo = min(d7["speedup_euler_over_v9_in_this_window"],
+                 d8["speedup_euler_over_v9_in_this_window"])
+        hi = max(d7["speedup_euler_over_v9_in_this_window"],
+                 d8["speedup_euler_over_v9_in_this_window"])
+        self.assertLessEqual(lo, self.triple["train_seconds_over_v9"]["euler"],
+                             "the 1M ratio no longer sits inside the two 5M windows")
+        self.assertGreaterEqual(hi, self.triple["train_seconds_over_v9"]["euler"])
+
+    def test_euler_tracks_v9_on_the_criterion_and_fast_does_not(self):
+        reach = self.art["reached_target_pct_at_5m"]
+        m = self.sentence(r"`euler`'s two-draw reach record at 5M is \*\*(\d+)% then (\d+)%\*\* where "
+                          r"`v9`'s is \*\*(\d+)% then\s*(\d+)%\*\*", "the two reach records")
+        self.check("euler record", [m.group(1), m.group(2)], reach["euler"], places=0)
+        self.check("v9 record", [m.group(3), m.group(4)], reach["v9"], places=0)
+        self.assertEqual(sorted(reach["euler"]), sorted(reach["v9"]),
+                         "the two worlds' reach records are no longer the same multiset, so the "
+                         "'indistinguishable' sentence has to be replaced")
+        fast = json.load(open(os.path.join(ROOT, "benchmarks",
+                                           "physics_presets_screen5m_draws.json"),
+                              encoding="utf-8"))
+        fast5 = [fast["draws"][t]["arms"]["fast"]["by_budget"]["s5000000"]["reached_target_pct"]
+                 for t in fast["draws"]]
+        v9_5 = [fast["draws"][t]["arms"]["v9"]["by_budget"]["s5000000"]["mean"] for t in fast["draws"]]
+        fast_5 = [fast["draws"][t]["arms"]["fast"]["by_budget"]["s5000000"]["mean"]
+                  for t in fast["draws"]]
+        self.assertTrue(all(f > v for f, v in zip(fast_5, v9_5)),
+                        "fast no longer leads both draws on mean return at 5M")
+        self.assertGreater(min(fast_5), max(self.art["mean_at_5m"]["euler"]),
+                           "euler's best draw now outruns fast, so 'the divergence lives in fast' "
+                           "needs re-reading")
+
+    def test_the_instruments_of_both_draws_match_the_published_protocol(self):
+        for tag, draw in self.art["draws"].items():
+            self.assertEqual(draw["device"], "cuda", tag)
+            self.assertEqual(draw["torch_threads"], 24, tag)
+            self.assertEqual(draw["physics_preset"], "euler", tag)
+            self.assertEqual(draw["scored_in_version"],
+                             "standup_balance_walk_curriculum_v9_euler", tag)
+            self.assertEqual(draw["seconds_per_1m"], round(draw["wall_clock_seconds"] / 5.0, 1), tag)
+            self.assertGreater(draw["scoring_seconds"], 0, tag)
+        self.assertIn("num_envs=8", self.art["protocol"])
+        self.assertIn("target_forward_velocity=1.2", self.art["protocol"])
+        gap = max(self.art["mean_at_5m"]["euler"]) - min(self.art["mean_at_5m"]["euler"])
+        m = self.sentence(r"the two `euler` draws differ by more than ([\d,]+) of mean return",
+                          "the within-world gap")
+        self.assertGreater(gap, float(m.group(1).replace(",", "")),
+                           f"the paragraph says more than {m.group(1)}; the draws differ by {gap:.2f}")
+
+
 class TestReadmeTrainerPairCells(ReadmeGate, unittest.TestCase):
     """PPO against SAC: the rate claim and the behaviour claim are gated together or not at all.
 

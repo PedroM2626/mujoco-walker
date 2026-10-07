@@ -1261,6 +1261,25 @@ Even the scorer feels the physics: the 20-episode evaluation of the three arms t
 `eval_phase1.py` refuses to score a preset run against an aliased older revision, and a preset
 checkpoint records its own world in `env_version`, so the two can never be mixed by accident.
 
+**`euler` has now been trained at the budget where reaching is observable - twice - and the first answer
+was wrong.** Draw 1 (seed 7) flat-lined: mean 3,150.93 falling to **-76.12** across its five checkpoints,
+forward speed ~0, 0.10 falls per episode, the target reached in **0 of 100** scored episodes. Read on its
+own that looks like a property of the integrator. Draw 2 (seed 8, `benchmarks/physics_presets_screen5m_euler_draws.json`)
+is the same world at the same budget: it climbs to **14,409.67** at 4M and reaches the target in **10%**
+of episodes at 5M. The flat line was the run, not the world - the inference the paired-seed design exists
+to license, bought with 2 h 05 m of machine time instead of argued.
+
+The cost half replicates on its own terms: **7,860 s against the published world's 8,992 s at seed 7
+(1.144x)** and **7,505 s against 9,386 s at seed 8 (1.251x)**, two independent windows bracketing the
+**1.157x** the 1M triple measured, each ratio computed inside its own draw. And the comparison this
+section needed closes: `euler`'s two-draw reach record at 5M is **0% then 10%** where `v9`'s is **10% then
+0%** - indistinguishable at this sample size - while `fast` led both of its draws. The world that drifts
+least (0.227 m of torso height over a shared episode) tracks the published one on the task's own
+criterion; the divergence lives in the world that prunes self-collision. Two draws is still two: 40
+scored episodes per arm at 5M, and the two `euler` draws differ by more than 10,000 of mean return. What
+is measured rather than assumed is that a 5M screen in `euler` asks the same question the published world
+asks, at ~1.14-1.25x the speed.
+
 **The second draw was bought for the level question, and it answered the two halves differently.**
 The same 5M recipe - `num_envs=8`, target task, mixed resets, tv 1.2 - re-run with seed 8 instead of
 7, both worlds back to back in one window (`benchmarks/physics_presets_screen5m_draws.json`). The
@@ -1965,12 +1984,12 @@ Three facts to keep in mind:
 
 The suite is plain `unittest` (no pytest required) and covers the environment contract, the
 golden reward rollouts, the parallel/serial vector-env parity, checkpointing and the race
-harness — **289 tests, 201 s in this window** (`Ran 289 tests in 201.464s ... OK
+harness — **294 tests, 187 s in this window** (`Ran 294 tests in 187.485s ... OK
 (skipped=7)` under `.venv`). Windows of this suite have measured 176.3 s at 102 tests, 269.995 s
 at 121, 261.1 s at 127, 329.964 s at 128, 319.168 s at 130, 184.716 s, 203.108 s and 306.976 s at
 140, 144.678 s at 147, 230.268 s at 157, 171.016 s and 170.304 s at 194, and 174.008 s,
 170.391 s, 175.036 s, 168.775 s, 168.986 s and 166.606 s at 201/205/210, 169.919 s at 214,
-and 163.920 s and 161.829 s at 237, 165.360 s and 164.902 s at 243, 161.647 s and 162.674 s at 250, 162.726 s and 162.167 s at 251, 171.616 s and 163.434 s at 252, 163.769 s and 163.748 s at 255, 226.912 s and 217.651 s at 260, 193.167 s and 191.909 s at 273, 206.150 s at 279, 193.904 s at 284, 201.464 s at 289 -
+and 163.920 s and 161.829 s at 237, 165.360 s and 164.902 s at 243, 161.647 s and 162.674 s at 250, 162.726 s and 162.167 s at 251, 171.616 s and 163.434 s at 252, 163.769 s and 163.748 s at 255, 226.912 s and 217.651 s at 260, 193.167 s and 191.909 s at 273, 206.150 s at 279, 193.904 s at 284, 201.464 s at 289, 189.864 s and 187.485 s at 294 -
 those last windows carry a dose test that runs three short CPU trainings, which are about 27 s of
 them, so that entry is not slower hardware; consecutive runs of one commit agree to 4%, where the
 147 and 157 windows an afternoon earlier were 1.6x apart for ten more tests. The
@@ -2028,7 +2047,7 @@ that they ran - see Phase 4, item 6. How each of those states was found, with th
 ## 🔬 Reproducing and measuring
 
 ```bash
-python -m unittest discover -s tests -t .   # 289 tests in .venv, 201 s; see "Running the tests"
+python -m unittest discover -s tests -t .   # 294 tests in .venv, 187 s; see "Running the tests"
 python bench_env.py --seconds 4             # env throughput, physics vs Python split
 python bench_mjx.py --sizes 32,128          # MJX/JAX batched stepping
 python verify.py                            # Phase-2 artifact check (exits 2 when missing)

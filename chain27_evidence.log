@@ -1,0 +1,8 @@
+02:34:52 lock held by pid 27548
+02:34:52 machine claimed
+02:35:53 machine clear, proceeding
+02:35:53 START SAC 5M in euler
+04:46:53 DONE  SAC 5M in euler (exit 0)
+04:46:53 START score SAC 5M in euler
+04:47:51 DONE  score SAC 5M in euler (exit 0)
+04:47:51 chain27 complete

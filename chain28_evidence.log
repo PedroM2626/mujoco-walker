@@ -1,0 +1,8 @@
+04:51:40 lock held by pid 64228
+04:51:40 machine claimed
+04:52:41 machine clear, proceeding
+04:52:41 START SAC 5M in euler seed 8
+06:57:46 DONE  SAC 5M in euler seed 8 (exit 0)
+06:57:46 START score SAC 5M in euler seed 8
+06:58:42 DONE  score SAC 5M in euler seed 8 (exit 0)
+06:58:42 chain28 complete

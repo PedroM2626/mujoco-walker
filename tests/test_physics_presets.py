@@ -404,6 +404,31 @@ class TestWallClockProvenanceSurvivesTheLogs(unittest.TestCase):
         self.assertNotEqual(art["draws"]["seed7"]["arms"]["1"]["wall_clock_window"],
                             art["draws"]["seed8"]["arms"]["1"]["wall_clock_window"])
 
+    def test_the_euler_5m_draws_match_chains_27_and_28(self):
+        """Two worlds' clocks from two nights, each checked against its own launcher log."""
+        art = json.load(open(os.path.join(ROOT, "benchmarks",
+                                          "physics_presets_screen5m_euler_draws.json"),
+                             encoding="utf-8"))
+        spec = {"seed7": (27, "SAC 5M in euler", "score SAC 5M in euler"),
+                "seed8": (28, "SAC 5M in euler seed 8", "score SAC 5M in euler seed 8")}
+        for tag, (chain, train_label, score_label) in spec.items():
+            arm = art["draws"][tag]
+            start, end = self.parse_window(arm["wall_clock_window"])
+            self.assertEqual(end, self.find_span(chain, train_label, start),
+                             f"{tag}: chain{chain} has no completed {train_label!r} at that start")
+            self.assertEqual(arm["wall_clock_seconds"], self.seconds_between(start, end))
+            span = [(s, e) for label, s, e, code in self.spans(chain)
+                    if label == score_label and code == 0 and s]
+            self.assertEqual(len(span), 1, f"{tag}: the scoring span is not in chain{chain}")
+            self.assertEqual(self.seconds_between(*span[0]), arm["scoring_seconds"])
+        # The v9 clocks the ratios are built from are chain18/chain23's, already gated above; assert
+        # the artifact is still quoting those same numbers rather than a re-typed pair.
+        draws = json.load(open(os.path.join(ROOT, "benchmarks",
+                                            "physics_presets_screen5m_draws.json"), encoding="utf-8"))
+        for tag in ("seed7", "seed8"):
+            self.assertEqual(art["draws"][tag]["v9_same_draw_seconds"],
+                             draws["draws"][tag]["arms"]["v9"]["wall_clock_seconds"])
+
     def test_the_gail_retrain_matches_chain13(self):
         art = json.load(open(os.path.join(ROOT, "benchmarks", "phase4_gail_retrain.json"),
                              encoding="utf-8"))

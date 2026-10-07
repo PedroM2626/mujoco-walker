@@ -310,6 +310,27 @@ hole stays open: a lock only binds the processes that take it, and the copy alre
 patch was written had parsed the unpatched script, so relaunching a chain is not the same as retiring
 the one before it.
 
+## The reading a single draw invites, and the design that refused it
+
+`euler` went 5M at seed 7 and produced a flat line: mean 3,150.93 falling to -76.12 over five
+checkpoints, forward speed ~0, 0.10 falls per episode, target reached in 0 of 100 scored episodes. The
+sentence that writes itself from that is "`euler` does not learn this task", and it would have been
+published at 04:47 with a gate pinning every cell of it - the gate would have passed, because the
+numbers are real, and the claim would still have been wrong. Seed 8 in the same world at the same
+budget climbed to 14,409.67 at 4M and reached in 10% of episodes at 5M.
+
+**Why the second draw existed before the first one finished:** the same evening the published world had
+swung from +18,956.17 with 10% reaching to -763.96 with 0% on a seed change alone, so a single arm of
+this trainer could no longer be quoted as a property of anything but itself. The paired design was
+bought for the physics comparison and it paid out on the euler arm instead: the cheap-in-drift world now
+has a two-draw record ({0%, 10%}) that is the same multiset as the published world's ({10%, 0%}), which
+is a sentence no single draw can support in either direction.
+
+**How to apply:** when an arm is one run of a stochastic trainer, the paragraph has to say which of the
+two claims it is making - the ordering (replicable across draws, cheap to test) or the level (not). If
+the paragraph needs the level, the second draw is part of the experiment, not polish, and the right time
+to schedule it is before the first one finishes, while the interpretation is still open.
+
 ## The throughput knob was the optimisation-dose knob
 
 `--num-envs` is named for parallelism and reads like a pure throughput setting. In this SAC loop it is

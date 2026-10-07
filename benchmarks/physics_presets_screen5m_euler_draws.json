@@ -1,0 +1,155 @@
+{
+  "protocol": "SAC 5M, num_envs=8, task_phase=target, reset_mode=mixed, target_forward_velocity=1.2, trained in `euler` once per seed (7 in chain27, 8 in chain28), each draw scored with eval_phase1.py --num-episodes 20 --seed 11 in the world it trained in, against the `v9` arm of the same seed from benchmarks/physics_presets_screen5m_draws.json",
+  "draws": {
+    "seed7": {
+      "seed": 7,
+      "physics_preset": "euler",
+      "scored_in_version": "standup_balance_walk_curriculum_v9_euler",
+      "device": "cuda",
+      "torch_threads": 24,
+      "checkpoint_run": "preset_sac_euler_5m",
+      "wall_clock_seconds": 7860,
+      "wall_clock_window": "2026-10-07 02:35:53 -> 04:46:53",
+      "seconds_per_1m": 1572.0,
+      "scoring_seconds": 58,
+      "v9_same_draw_seconds": 8992,
+      "v9_same_draw_seconds_per_1m": 1798.4,
+      "speedup_euler_over_v9_in_this_window": 1.144,
+      "by_budget": {
+        "s1000000": {
+          "mean": 3150.93,
+          "std": 5458.37,
+          "reached_target_pct": 0.0,
+          "mean_min_target_distance": 2.901,
+          "mean_x_velocity": 0.014,
+          "standing_at_end_pct": 0.0,
+          "falls_per_episode": 0.15
+        },
+        "s2000000": {
+          "mean": 3244.95,
+          "std": 4032.35,
+          "reached_target_pct": 0.0,
+          "mean_min_target_distance": 3.12,
+          "mean_x_velocity": 0.0069,
+          "standing_at_end_pct": 0.0,
+          "falls_per_episode": 0.1
+        },
+        "s3000000": {
+          "mean": 2389.47,
+          "std": 4383.38,
+          "reached_target_pct": 0.0,
+          "mean_min_target_distance": 3.288,
+          "mean_x_velocity": 0.0037,
+          "standing_at_end_pct": 0.0,
+          "falls_per_episode": 0.1
+        },
+        "s4000000": {
+          "mean": 3057.69,
+          "std": 3557.15,
+          "reached_target_pct": 0.0,
+          "mean_min_target_distance": 3.372,
+          "mean_x_velocity": -0.0044,
+          "standing_at_end_pct": 0.0,
+          "falls_per_episode": 0.1
+        },
+        "s5000000": {
+          "mean": -76.12,
+          "std": 9504.31,
+          "reached_target_pct": 0.0,
+          "mean_min_target_distance": 3.323,
+          "mean_x_velocity": 0.0,
+          "standing_at_end_pct": 0.0,
+          "falls_per_episode": 0.1
+        }
+      }
+    },
+    "seed8": {
+      "seed": 8,
+      "physics_preset": "euler",
+      "scored_in_version": "standup_balance_walk_curriculum_v9_euler",
+      "device": "cuda",
+      "torch_threads": 24,
+      "checkpoint_run": "preset_sac_euler_seed8_5m",
+      "wall_clock_seconds": 7505,
+      "wall_clock_window": "2026-10-07 04:52:41 -> 06:57:46",
+      "seconds_per_1m": 1501.0,
+      "scoring_seconds": 56,
+      "v9_same_draw_seconds": 9386,
+      "v9_same_draw_seconds_per_1m": 1877.2,
+      "speedup_euler_over_v9_in_this_window": 1.251,
+      "by_budget": {
+        "s1000000": {
+          "mean": 5111.91,
+          "std": 5154.74,
+          "reached_target_pct": 0.0,
+          "mean_min_target_distance": 3.251,
+          "mean_x_velocity": -0.0025,
+          "standing_at_end_pct": 0.0,
+          "falls_per_episode": 0.1
+        },
+        "s2000000": {
+          "mean": 9151.48,
+          "std": 7637.08,
+          "reached_target_pct": 0.0,
+          "mean_min_target_distance": 3.272,
+          "mean_x_velocity": -0.0335,
+          "standing_at_end_pct": 0.0,
+          "falls_per_episode": 0.1
+        },
+        "s3000000": {
+          "mean": 8216.31,
+          "std": 6131.4,
+          "reached_target_pct": 0.0,
+          "mean_min_target_distance": 3.006,
+          "mean_x_velocity": 0.0267,
+          "standing_at_end_pct": 0.0,
+          "falls_per_episode": 0.1
+        },
+        "s4000000": {
+          "mean": 14409.67,
+          "std": 11994.86,
+          "reached_target_pct": 0.0,
+          "mean_min_target_distance": 2.899,
+          "mean_x_velocity": 0.0501,
+          "standing_at_end_pct": 0.0,
+          "falls_per_episode": 0.5
+        },
+        "s5000000": {
+          "mean": 10598.19,
+          "std": 9155.02,
+          "reached_target_pct": 10.0,
+          "mean_min_target_distance": 2.895,
+          "mean_x_velocity": 0.0403,
+          "standing_at_end_pct": 0.0,
+          "falls_per_episode": 0.35
+        }
+      }
+    }
+  },
+  "speedups_euler_over_v9": {
+    "seed7": 1.144,
+    "seed8": 1.251
+  },
+  "at_1m_triple_for_reference": 1.157,
+  "reached_target_pct_at_5m": {
+    "euler": [
+      0.0,
+      10.0
+    ],
+    "v9": [
+      10.0,
+      0.0
+    ]
+  },
+  "mean_at_5m": {
+    "euler": [
+      -76.12,
+      10598.19
+    ]
+  },
+  "scored_episodes_reaching": {
+    "euler": 4,
+    "of_episodes": 40
+  },
+  "note": "draw 1 reached in 0 of 100 episodes and draw 2 in 2 of 20: the flat line was the run. Both worlds' two-draw reach records are {0%, 10%} and {10%, 0%}, which this sample size cannot separate"
+}

@@ -63,8 +63,15 @@ def reward_info_for(ck):
     train_walker used its own shaping kwargs. The answer is read off the checkpoint.
     """
     kwargs, source = reward_kwargs_for(ck)
+    # A curriculum is part of the task the policy was trained on, and the checkpoint says so in two
+    # ways: new runs record the flag, and every run carries the env version, which is stamped `_tcur`
+    # when the curriculum was on. Reading both means a scored arm faces the target distances it
+    # trained against instead of the published 2-5 m.
+    curriculum = bool(ck.get("target_curriculum")) or \
+        str(ck.get("env_version") or "").endswith("_tcur")
     return {"reward_kwargs": kwargs, "reward_source": source,
-            "env_version": ck.get("env_version"), "target_forward_velocity":
+            "env_version": ck.get("env_version"), "target_curriculum": curriculum,
+            "target_forward_velocity":
             ck.get("target_forward_velocity")}
 
 
@@ -200,7 +207,8 @@ def build_policy(path, device):
 
 
 def score(policy, episodes, seed, task_phase, steps=EPISODE_STEPS, reset_mode="mixed",
-          on_episode_start=_noop_reset, reward_kwargs=None, physics_preset="v9"):
+          on_episode_start=_noop_reset, reward_kwargs=None, physics_preset="v9",
+          target_curriculum=False):
     """Run `episodes` seeded episodes and return (reward, falls, standing, telemetry).
 
     The telemetry row answers the question the return value cannot: did the robot actually
@@ -211,6 +219,10 @@ def score(policy, episodes, seed, task_phase, steps=EPISODE_STEPS, reset_mode="m
     # the env module in as `envs.walker_ragdoll_env`, and that revision has no `physics_preset`
     # parameter, so an unconditional kwarg would break every re-score of a published number.
     preset_kwargs = {} if physics_preset == "v9" else {"physics_preset": physics_preset}
+    # Same reason as the preset: an aliased older revision has no `target_curriculum` parameter, so
+    # passing it unconditionally would break a re-score of a published number.
+    if target_curriculum:
+        preset_kwargs["target_curriculum"] = True
     env = gym.make("WalkerRagdoll-v0", reset_mode=reset_mode, task_phase=task_phase,
                    **(reward_kwargs or {}), **preset_kwargs)
     radius = float(env.unwrapped._target_radius)
@@ -330,6 +342,11 @@ def main():
                         "'fast' are screening worlds with different dynamics, so a checkpoint "
                         "trained in one is only scored in the same one - the mismatch note below "
                         "compares against this.")
+    p.add_argument("--target-curriculum", default="auto", choices=["auto", "on", "off"],
+                   help="whether the target distance is widened by success while scoring. auto = "
+                        "whatever the checkpoint was trained under (its own flag, or a _tcur "
+                        "env_version). 'off' is the transfer question: the policy trained on near "
+                        "targets, scored on the published 2-5 m.")
     p.add_argument("--env-commit", default=None, metavar="REV",
                    help="avalia contra a versao do ambiente nesse commit (re-executa o script)")
     p.add_argument("--out", default=os.path.join("benchmarks", "phase1_results.json"))
@@ -339,6 +356,11 @@ def main():
         # in there. Refusing beats scoring in v9 while the command line claims otherwise.
         p.error("--env-commit aliases an older env revision that has no --physics-preset; "
                 "choose one or the other")
+    if args.env_commit and args.target_curriculum in ("on", "auto"):
+        # The aliased revision also predates the curriculum kwarg, so `auto` could only mean "off"
+        # there and `on` would raise inside gym.make. Refusing keeps the command line honest.
+        p.error("--env-commit aliases an older env revision with no target_curriculum parameter; "
+                "pass --target-curriculum off if that is what you mean")
 
     if args.env_commit and not os.environ.get(ALIAS_MARK):
         raise SystemExit(_relaunch_with_env(args.env_commit, sys.argv[1:]))
@@ -376,6 +398,15 @@ def main():
                   f"este repo e {running_version!r}; os retornos abaixo sao da env atual. Para o MDP "
                   f"nativo use --env-commit <rev>.")
         task_phase = args.task_phase or phase or "target"
+        curriculum = {"on": True, "off": False}.get(args.target_curriculum,
+                                                    rinfo["target_curriculum"])
+        if rinfo["target_curriculum"] or args.target_curriculum != "auto":
+            print(f"[NOTE] {name}: curriculo de distancia ao alvo "
+                  f"{'treinado' if rinfo['target_curriculum'] else 'ausente'} no checkpoint, "
+                  f"avaliando com ele {'LIGADO' if curriculum else 'DESLIGADO'} "
+                  f"(--target-curriculum={args.target_curriculum}). "
+                  + ("As distancias avaliadas nao sao as 2-5 m publicadas." if curriculum else
+                     "Transferencia: o agente enfrenta a faixa publicada de 2-5 m."))
         # The Dreamer actor samples its stochastic state, so scoring it twice gives two numbers
         # (the same checkpoint measured -3425.86, -3637.40 and -3278.44 in three unseeded runs).
         # Seed the policy RNG per model, exactly as openai_walker/evaluate_all.py had to.
@@ -387,7 +418,8 @@ def main():
         rewards, falls, standing, tele = score(policy, args.num_episodes, args.seed, task_phase,
                                                args.steps, args.reset_mode, on_episode_start=reset,
                                                reward_kwargs=rkw,
-                                               physics_preset=args.physics_preset)
+                                               physics_preset=args.physics_preset,
+                                               target_curriculum=curriculum)
         arr = np.asarray(rewards, dtype=float)
         step_match = re.search(r"(\d+)(?:\.\d+)?\.pt$", os.path.basename(path))
         step = int(step_match.group(1)) if step_match else None
@@ -397,6 +429,8 @@ def main():
             "obs_width": width, "global_step": step, "episodes": int(arr.size),
             "reward_source": rsrc, "reward_kwargs": rkw,
             "checkpoint_env_version": rinfo["env_version"],
+            "target_curriculum": bool(curriculum),
+            "target_curriculum_trained": bool(rinfo["target_curriculum"]),
             "mean": round(float(arr.mean()), 2),
             "median": round(float(np.median(arr)), 2),
             "std": round(float(arr.std()), 2),

@@ -386,5 +386,108 @@ class TestSacUtdRatio(unittest.TestCase):
                       "environment-variable convention the rest of this parser uses")
 
 
+class TestRewardOverrideAndTargetCurriculum(unittest.TestCase):
+    """The two knobs the new target arms need, and the default every committed run was built with.
+
+    Both are the same kind of object as `--utd-ratio`: a setting whose *absence* must reproduce the
+    published MDP exactly. The reward override also has a bookkeeping half - a checkpoint that records
+    the shipped shaping while training under something else would be scored against a reward it never
+    optimised, which is the failure this repository has already been burned by twice.
+    """
+
+    ROOT = os.path.dirname(os.path.dirname(__file__))
+
+    def setUp(self):
+        import types
+        import train_walker
+        self.tw = train_walker
+        self.ns = types.SimpleNamespace
+
+    def test_no_flag_reproduces_the_shipped_shaping_and_the_published_version(self):
+        from envs.walker_ragdoll_env import ENV_VERSION
+        args = self.ns()
+        self.assertEqual(self.tw.effective_reward_kwargs(args),
+                         self.tw.TRAINING_REWARD_KWARGS)
+        self.assertEqual(self.tw.current_env_version(args), ENV_VERSION)
+
+    def test_the_override_reaches_the_environment_that_trains(self):
+        args = self.ns(reward_override=["stability_reward_weight=60",
+                                        "lateral_drift_penalty_weight=10"],
+                       reset_mode="mixed", fixed_reset_probability=0.25,
+                       upright_reset_probability=0.15, fallen_velocity_scale=0.35,
+                       target_forward_velocity=1.2, physics_preset="v9",
+                       target_curriculum=False, task_phase="target")
+        thunk = self.tw.make_env("WalkerRagdoll-v0", 0, False, "override_test",
+                                 **self.tw.env_common_kwargs(args))
+        env = thunk()
+        try:
+            self.assertEqual(env.unwrapped._stability_reward_weight, 60.0)
+            self.assertEqual(env.unwrapped._lateral_drift_penalty_weight, 10.0)
+            # Everything the override did not name stays at the shipped value.
+            self.assertEqual(env.unwrapped._target_progress_reward_weight,
+                             self.tw.TRAINING_REWARD_KWARGS["target_progress_reward_weight"])
+        finally:
+            env.close()
+
+    def test_the_checkpoint_records_the_reward_it_was_actually_trained_with(self):
+        import tempfile, torch, gymnasium as gym
+        args = self.ns(reward_override=["stillness_penalty_weight=50"], target_curriculum=True)
+        record = self.tw.task_record(args)
+        self.assertEqual(record["reward_kwargs"]["stillness_penalty_weight"], 50.0)
+        self.assertTrue(record["target_curriculum"])
+        with tempfile.TemporaryDirectory() as tmp:
+            agent = self.tw.PPOAgent(46, 17)
+            # save_ppo_checkpoint reads the observation normaliser out of the env stack, so the test
+            # hands it a real one rather than a stand-in.
+            envs = self.tw.wrap_normalize_observation(gym.make("WalkerRagdoll-v0"))
+            path = os.path.join(tmp, "ppo_ckpt_10.pt")
+            try:
+                self.tw.save_ppo_checkpoint(path, 10, agent, torch.optim.Adam(agent.parameters()),
+                                            envs, task_phase="target",
+                                            target_forward_velocity=1.2, **record)
+            finally:
+                envs.close()
+            ck = torch.load(path, map_location="cpu", weights_only=False)
+            self.assertEqual(ck["reward_kwargs"]["stillness_penalty_weight"], 50.0)
+            self.assertTrue(ck["target_curriculum"])
+
+    def test_only_reward_weights_can_be_overridden(self):
+        for bad in (["target_radius=1.0"], ["healthy_z_range=0.5"], ["not_a_key=1"], ["x"],
+                    ["stability_reward_weight=big"]):
+            with self.assertRaises(SystemExit, msg=f"{bad} should not be accepted"):
+                self.tw.parse_reward_overrides(bad)
+
+    def test_the_curriculum_widens_the_target_span_and_stamps_a_different_task(self):
+        import gymnasium as gym
+        import envs.walker_ragdoll_env as we
+        plain = gym.make("WalkerRagdoll-v0", task_phase="target").unwrapped
+        self.assertEqual(plain._env_version, we.ENV_VERSION)
+        self.assertEqual(plain._target_span(), (2.0, 5.0))
+        cur = gym.make("WalkerRagdoll-v0", task_phase="target", target_curriculum=True).unwrapped
+        self.assertEqual(cur._env_version, f"{we.ENV_VERSION}_tcur")
+        for level, hi in ((0, 2.5), (3, 3.0), (6, 3.5), (15, 5.0), (40, 5.0)):
+            cur._curriculum_level = level
+            self.assertEqual(cur._target_span(), (2.0, hi))
+        cur._curriculum_level = 0
+        distances = []
+        for i in range(30):
+            _, info = cur.reset(seed=500 + i)
+            distances.append(float(info["target_distance"]))
+        self.assertLessEqual(max(distances), 2.5 + 1e-9,
+                             "the curriculum is on but the sampled targets are not inside 2.5 m")
+        plain.close()
+        cur.close()
+
+    def test_the_evaluator_turns_the_curriculum_back_on_from_the_checkpoint(self):
+        import eval_phase1
+        stamped = eval_phase1.reward_info_for({"env_version": "standup_balance_walk_curriculum_v9_tcur"})
+        self.assertTrue(stamped["target_curriculum"],
+                        "a _tcur checkpoint would be scored against the published 2-5 m")
+        flagged = eval_phase1.reward_info_for({"target_curriculum": True})
+        self.assertTrue(flagged["target_curriculum"])
+        plain = eval_phase1.reward_info_for({"env_version": "standup_balance_walk_curriculum_v9"})
+        self.assertFalse(plain["target_curriculum"])
+
+
 if __name__ == "__main__":
     unittest.main()

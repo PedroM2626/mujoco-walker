@@ -122,6 +122,7 @@ class WalkerRagdollEnv(MujocoEnv, gym.utils.EzPickle):
         target_radius: float = 0.45,
         target_distance_range: tuple = (2.0, 5.0),
         target_curriculum_streak: int = 10,
+        target_curriculum: bool = False,
         bad_support_penalty_weight: float = 15.0,
         low_upright_penalty_weight: float = 0.0,
         terminate_when_unhealthy: bool = False,
@@ -188,8 +189,12 @@ class WalkerRagdollEnv(MujocoEnv, gym.utils.EzPickle):
                 f"physics_preset must be one of {list(PHYSICS_PRESETS)}, got {physics_preset!r}"
             )
         self._physics_preset = physics_preset
-        self._env_version = (ENV_VERSION if physics_preset == "v9"
-                             else f"{ENV_VERSION}_{physics_preset}")
+        self._target_curriculum = bool(target_curriculum)
+        base_version = (ENV_VERSION if physics_preset == "v9"
+                        else f"{ENV_VERSION}_{physics_preset}")
+        # A curriculum is a different task, not a different knob: the same policy faces a different
+        # distribution of targets, so it gets its own version stamp the way a preset does.
+        self._env_version = (f"{base_version}_tcur" if self._target_curriculum else base_version)
         self._task_phase = task_phase
         self._target_xy = np.array([3.0, 0.0], dtype=np.float64)
         self._target_fixed_until_curriculum = True
@@ -232,6 +237,7 @@ class WalkerRagdollEnv(MujocoEnv, gym.utils.EzPickle):
             target_radius,
             target_distance_range,
             target_curriculum_streak,
+            target_curriculum,
             bad_support_penalty_weight,
             low_upright_penalty_weight,
             terminate_when_unhealthy,
@@ -735,12 +741,27 @@ class WalkerRagdollEnv(MujocoEnv, gym.utils.EzPickle):
         self._set_target_marker()
         return self._get_obs()
 
+    def _target_span(self):
+        """The distance range the next target is drawn from, widened by what has been reached.
+
+        With the curriculum on, an episode starts inside 2.0-2.5 m - a distance the policy can close
+        in the 10 s horizon even at the ~0.5 m/s it actually produces - and the upper bound opens by
+        0.5 m every three successes, up to the configured range. `_curriculum_level` already counted
+        total targets reached; until now nothing read it, so the "curriculum" in the env's name was
+        the resampling alone.
+        """
+        lo, hi = self._target_distance_range
+        if not self._target_curriculum:
+            return lo, hi
+        near = min(2.5, hi)
+        return lo, min(hi, near + 0.5 * (self._curriculum_level // 3))
+
     def _sample_target(self):
         if self._task_phase != "target":
             self._target_xy = np.array([3.0, 0.0], dtype=np.float64)
             return
 
-        min_distance, max_distance = self._target_distance_range
+        min_distance, max_distance = self._target_span()
         distance = self.np_random.uniform(min_distance, max_distance)
         angle = self.np_random.uniform(-0.15, 0.15)
         direction = np.array([np.cos(angle), np.sin(angle)], dtype=np.float64)

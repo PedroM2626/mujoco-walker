@@ -51,6 +51,8 @@ ENV_VARS = {
     "FALLEN_VELOCITY_SCALE": "0.35",
     "TASK_PHASE": "recovery",
     "PHYSICS_PRESET": "v9",
+    "TARGET_CURRICULUM": "0",
+    "REWARD_OVERRIDE": "",
     "TARGET_FORWARD_VELOCITY": "0.8",
     "INIT_FROM_RUN_ID": "",
     "INIT_FROM_CHECKPOINT_STEP": "",
@@ -304,6 +306,21 @@ def parse_args():
                             "(RK4, every collision pair). 'euler' and 'fast' are cheaper worlds "
                             "for screening and are different MDPs, so their checkpoints record a "
                             "version string that says so and cannot be scored as v9.")
+    parser.add_argument("--target-curriculum", action="store_true",
+                        default=get_env_or_default("TARGET_CURRICULUM",
+                                                   ENV_VARS["TARGET_CURRICULUM"]) == "1",
+                        help="target phase only: start the target at 2.0-2.5 m and open the upper "
+                             "bound by 0.5 m every three successes, up to --target-distance-range's "
+                             "ceiling. This is a different task, so the checkpoints record an "
+                             "env_version ending in _tcur and evaluation turns it back on.")
+    parser.add_argument("--reward-override", action="append", default=[
+        p for p in get_env_or_default("REWARD_OVERRIDE", ENV_VARS["REWARD_OVERRIDE"]).split(";")
+        if p.strip()], metavar="KEY=VALUE",
+                        help="override one reward weight for this run only, e.g. "
+                             "--reward-override stability_reward_weight=60. Repeatable. The effective "
+                             "dict is what the checkpoints record, so the scorer reads the reward the "
+                             "policy actually optimised. Keys are limited to reward weights; the "
+                             "default is envs.reward_shaping.TRAINING_REWARD_KWARGS.")
     parser.add_argument("--use-supervisor-in-training", action="store_true", default=False, help="Use recovery supervisor during target phase training")
     # PPO-specific arguments
     parser.add_argument("--num-steps", type=int, default=int(get_env_or_default("NUM_STEPS", ENV_VARS["NUM_STEPS"])), help="PPO rollout length per env.")
@@ -336,6 +353,8 @@ def make_env(
     target_forward_velocity=0.8,
     terminate_when_unhealthy=False,
     physics_preset="v9",
+    reward_kwargs=None,
+    target_curriculum=False,
 ):
     def thunk():
         env_kwargs = {
@@ -347,10 +366,11 @@ def make_env(
             "target_forward_velocity": target_forward_velocity,
             "terminate_when_unhealthy": terminate_when_unhealthy,
             "physics_preset": physics_preset,
+            "target_curriculum": target_curriculum,
             # Reward shaping for stable 1M-step walking, in one place shared with the
             # evaluators (envs.reward_shaping.TRAINING_REWARD_KWARGS): scoring with the
             # environment defaults instead pays for postures training never rewarded.
-            **TRAINING_REWARD_KWARGS,
+            **(dict(TRAINING_REWARD_KWARGS) if reward_kwargs is None else dict(reward_kwargs)),
         }
         if capture_video and idx == 0:
             env = gym.make(env_id, render_mode="rgb_array", **env_kwargs)
@@ -378,13 +398,73 @@ def env_common_kwargs(args):
         # Read tolerantly: a caller that has no preset (an older harness, a test that assembles its
         # own args namespace) must get the published world, not an AttributeError.
         "physics_preset": getattr(args, "physics_preset", "v9"),
+        "reward_kwargs": effective_reward_kwargs(args),
+        "target_curriculum": bool(getattr(args, "target_curriculum", False)),
+    }
+
+
+REWARD_OVERRIDABLE = (
+    # Only terms that scale a reward or a penalty. Anything that changes the *task* - the target
+    # radius, the distance range, the healthy z range, the horizon - is deliberately absent, because
+    # a run that quietly moved the goalposts would be scored as if it had not.
+    "standing_reward", "upright_reward_weight", "stand_height_reward_weight",
+    "recovery_reward_weight", "stability_reward_weight", "stillness_penalty_weight",
+    "lateral_drift_penalty_weight", "bad_support_penalty_weight", "low_upright_penalty_weight",
+    "walk_reward_weight", "forward_velocity_reward_weight", "ctrl_cost_weight",
+    "impact_cost_weight", "target_progress_reward_weight", "target_direction_reward_weight",
+    "target_success_reward",
+)
+
+
+def parse_reward_overrides(pairs):
+    """`["key=1.5", ...]` -> `{key: 1.5}`, refusing anything that is not a reward weight."""
+    out = {}
+    for pair in pairs or []:
+        if "=" not in pair:
+            raise SystemExit(f"--reward-override expects KEY=VALUE, got {pair!r}")
+        key, _, value = pair.partition("=")
+        key = key.strip()
+        if key not in REWARD_OVERRIDABLE:
+            raise SystemExit(
+                f"--reward-override {key=} is not a reward weight. Allowed: "
+                f"{', '.join(sorted(REWARD_OVERRIDABLE))}")
+        try:
+            out[key] = float(value)
+        except ValueError:
+            raise SystemExit(f"--reward-override {key}={value!r} is not a number")
+    return out
+
+
+def effective_reward_kwargs(args):
+    """The reward the env in this run is built with: the shipped shaping, then this run's overrides.
+
+    Read tolerantly so a caller without the flag (an older harness, a test namespace) gets exactly
+    `TRAINING_REWARD_KWARGS`, which is what every committed checkpoint was trained under.
+    """
+    kwargs = dict(TRAINING_REWARD_KWARGS)
+    kwargs.update(parse_reward_overrides(getattr(args, "reward_override", None)))
+    return kwargs
+
+
+def task_record(args):
+    """The task fields every checkpoint has to carry, so a scorer can rebuild the MDP.
+
+    `reward_kwargs` is the effective dict rather than the module default, and `target_curriculum`
+    says whether the target distance was being widened - both are things the evaluation reads back.
+    """
+    return {
+        "reward_kwargs": effective_reward_kwargs(args),
+        "target_curriculum": bool(getattr(args, "target_curriculum", False)),
     }
 
 
 def current_env_version(args):
     """The env version string this run's checkpoints should carry, and be checked against."""
     preset = getattr(args, "physics_preset", "v9")
-    return ENV_VERSION if preset == "v9" else f"{ENV_VERSION}_{preset}"
+    version = ENV_VERSION if preset == "v9" else f"{ENV_VERSION}_{preset}"
+    if getattr(args, "target_curriculum", False):
+        version = f"{version}_tcur"
+    return version
 
 
 def build_vec_env(args, run_name, num_envs=None, capture_video=None):
@@ -1004,6 +1084,8 @@ def save_sac_checkpoint(
     replay_buffer,
     task_phase=None,
     target_forward_velocity=None,
+    reward_kwargs=None,
+    target_curriculum=False,
     save_replay_buffer=True,
 ):
     os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -1015,7 +1097,8 @@ def save_sac_checkpoint(
             "env_version": env_version_of(envs),
             "task_phase": task_phase,
             "target_forward_velocity": target_forward_velocity,
-            "reward_kwargs": dict(TRAINING_REWARD_KWARGS),
+            "reward_kwargs": dict(reward_kwargs or TRAINING_REWARD_KWARGS),
+            "target_curriculum": bool(target_curriculum),
             "global_step": global_step,
             "num_envs": envs.num_envs,
             "buffer_size": replay_buffer.size,
@@ -1058,7 +1141,8 @@ def save_sac_checkpoint(
             "env_version": env_version_of(envs),
             "task_phase": task_phase,
             "target_forward_velocity": target_forward_velocity,
-            "reward_kwargs": dict(TRAINING_REWARD_KWARGS),
+            "reward_kwargs": dict(reward_kwargs or TRAINING_REWARD_KWARGS),
+            "target_curriculum": bool(target_curriculum),
             "global_step": global_step,
             "actor_state_dict": actor.state_dict(),
             "obs_rms": get_obs_rms(envs),
@@ -1198,14 +1282,15 @@ class TD3Agent(nn.Module):
         return torch.tanh(self.fc_mean(x)) * self.action_scale + self.action_bias
 
 
-def save_td3_checkpoint(path, global_step, agent, qf1, qf2, optimizer, q_optimizer, envs, task_phase=None, target_forward_velocity=None):
+def save_td3_checkpoint(path, global_step, agent, qf1, qf2, optimizer, q_optimizer, envs, task_phase=None, target_forward_velocity=None, reward_kwargs=None, target_curriculum=False):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     checkpoint = {
         "algo": "td3",
         "env_version": env_version_of(envs),
         "task_phase": task_phase,
         "target_forward_velocity": target_forward_velocity,
-        "reward_kwargs": dict(TRAINING_REWARD_KWARGS),
+        "reward_kwargs": dict(reward_kwargs or TRAINING_REWARD_KWARGS),
+        "target_curriculum": bool(target_curriculum),
         "global_step": global_step,
         "agent_state_dict": agent.state_dict(),
         "qf1_state_dict": qf1.state_dict(),
@@ -1232,14 +1317,15 @@ def latest_td3_checkpoint(ckpt_dir):
     return max(candidates)[1] if candidates else None
 
 
-def save_ppo_checkpoint(path, global_step, agent, optimizer, envs, task_phase=None, target_forward_velocity=None):
+def save_ppo_checkpoint(path, global_step, agent, optimizer, envs, task_phase=None, target_forward_velocity=None, reward_kwargs=None, target_curriculum=False):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     checkpoint = {
         "algo": "ppo",
         "env_version": env_version_of(envs),
         "task_phase": task_phase,
         "target_forward_velocity": target_forward_velocity,
-        "reward_kwargs": dict(TRAINING_REWARD_KWARGS),
+        "reward_kwargs": dict(reward_kwargs or TRAINING_REWARD_KWARGS),
+        "target_curriculum": bool(target_curriculum),
         "global_step": global_step,
         "agent_state_dict": agent.state_dict(),
         "optimizer_state_dict": optimizer.state_dict(),
@@ -1494,6 +1580,7 @@ def train_ppo(start_time=None):
                     ckpt_path,
                     global_step, agent, optimizer, envs,
                     task_phase=args.task_phase, target_forward_velocity=args.target_forward_velocity,
+                    **task_record(args),
                 )
                 next_checkpoint_step += args.checkpoint_interval
 
@@ -1502,7 +1589,8 @@ def train_ppo(start_time=None):
     finally:
         final_path = os.path.join(ckpt_dir, f"ppo_ckpt_{global_step}.pt")
         save_ppo_checkpoint(final_path, global_step, agent, optimizer, envs,
-                            task_phase=args.task_phase, target_forward_velocity=args.target_forward_velocity)
+                            task_phase=args.task_phase, target_forward_velocity=args.target_forward_velocity,
+                            **task_record(args))
         envs.close()
         writer.close()
         print(f"PPO training completed. Total steps: {global_step}")
@@ -1713,6 +1801,7 @@ def train_td3(start_time=None):
                     envs,
                     task_phase=args.task_phase,
                     target_forward_velocity=args.target_forward_velocity,
+                    **task_record(args),
                 )
                 next_checkpoint_step += args.checkpoint_interval
     except KeyboardInterrupt:
@@ -1730,6 +1819,7 @@ def train_td3(start_time=None):
             envs,
             task_phase=args.task_phase,
             target_forward_velocity=args.target_forward_velocity,
+            **task_record(args),
         )
         envs.close()
         writer.close()
@@ -1983,6 +2073,7 @@ def train(start_time=None):
                     task_phase=args.task_phase,
                     target_forward_velocity=args.target_forward_velocity,
                     save_replay_buffer=args.save_replay_buffer,
+                    **task_record(args),
                 )
                 next_checkpoint_step += args.checkpoint_interval
     except KeyboardInterrupt:
@@ -2006,6 +2097,7 @@ def train(start_time=None):
             task_phase=args.task_phase,
             target_forward_velocity=args.target_forward_velocity,
             save_replay_buffer=args.save_replay_buffer,
+            **task_record(args),
         )
         envs.close()
         writer.close()

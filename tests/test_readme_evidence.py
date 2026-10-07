@@ -628,6 +628,118 @@ class TestReadmeDreamerScalingCells(ReadmeGate, unittest.TestCase):
                     round(marg["seq_len_captured"] * seq, 1)], places=1)
 
 
+class TestReadmePpoTenMillionCells(ReadmeGate, unittest.TestCase):
+    """The PPO re-run at 10M: every figure against benchmarks/ppo_10m_vs_sac.json.
+
+    The paragraph exists because an earlier paragraph made a claim about algorithms that had only been
+    tested at one budget, so its cells are pinned twice over: the curve figures and the clocks of the
+    SAC arms it is compared against, which come from two other artifacts.
+    """
+
+    PPO = os.path.join(ROOT, "benchmarks", "ppo_10m_vs_sac.json")
+    PAIR = os.path.join(ROOT, "benchmarks", "trainer_pair_ppo_sac.json")
+    START = "**The re-run happened, and the objection was the budget"
+    END = "The Dreamer row was the whole story of the eager build"
+
+    def setUp(self):
+        with open(README, encoding="utf-8") as handle:
+            self.readme = handle.read()
+        start = self.readme.index(self.START)
+        self.block = self.readme[start:self.readme.index(self.END, start)]
+        self.art, self.pair = self.read_artifacts(self.PPO, self.PAIR)
+        self.bad = []
+        self.what = "PPO 10M"
+
+    def test_the_table_row_and_the_run_together_are_the_same_measurement(self):
+        ppo = self.art["ppo_10m"]
+        m = re.search(r"\| `train_walker\.py --algo ppo`, 10M \|[^|]*\| ([\d,]+) steps in ([\d,]+) s = "
+                      r"([\d,.]+)/s \| ([\d,.]+) s \|", self.readme)
+        self.assertIsNotNone(m, "the 10M PPO row of the trainer table is gone")
+        self.check("table row", [m.group(1), m.group(2), m.group(3), m.group(4)],
+                   [ppo["collected_steps"], ppo["wall_clock_seconds"], ppo["env_steps_per_second"],
+                    ppo["seconds_per_1m"]], places=1)
+        m = self.sentence(r"\*\*([\d,]+) steps in ([\d,]+) s\*\*, which is\s*\*\*([\d,.]+) "
+                          r"env-steps/s\*\*", "the prose restatement of the same row")
+        self.check("prose row", [m.group(1), m.group(2), m.group(3)],
+                   [ppo["collected_steps"], ppo["wall_clock_seconds"], ppo["env_steps_per_second"]],
+                   places=1)
+        # The rollout-boundary claim: 10M requested, and the last step a whole number of rollouts.
+        self.assertEqual(ppo["collected_steps"] % (2048 * 32), 0,
+                         "PPO no longer checkpoints at 2048x32 boundaries")
+        self.assertLess(10000000 - ppo["collected_steps"], 2048 * 32)
+
+    def test_the_curve_claims_come_from_the_curve(self):
+        ppo, curve = self.art["ppo_10m"], self.art["ppo_10m"]["curve"]
+        by_step = {int(k[1:]): v for k, v in curve.items()}
+        first = min(by_step)
+        top = max(by_step, key=lambda s: by_step[s]["mean"])
+        best = self.art["ppo_10m"]["best_reach"]
+        m = self.sentence(r"the mean climbs from \*\*(-?[\d,.]+)\*\* at the first\s*rollout boundary "
+                          r"to \*\*([\d,.]+)\*\* at ([\d,]+) steps, its best reach column is \*\*(\d+)% "
+                          r"\((\d+) of (\d+)\)\*\* at\s*\*?\*?([\d,]+) steps with a closest approach of "
+                          r"\*\*([\d.]+) m\*\*", "the curve")
+        self.check("first mean", m.group(1), by_step[first]["mean"], places=2)
+        self.check("top mean and its step", [m.group(2), m.group(3)],
+                   [by_step[top]["mean"], top], places=2)
+        self.check("best reach", [m.group(4), m.group(5), m.group(6), m.group(8)],
+                   [best["reached_pct_at_step"], best["reached_pct_at_step"] * 20 // 100, 20,
+                    best["mean_min_target_distance"]], places=2)
+        self.check("best reach step", m.group(7), best["step"], places=0)
+        self.assertEqual(top, 8060928)
+        self.assertEqual(len(curve), 10)
+
+    def test_the_two_limits_the_paragraph_names_are_in_the_data(self):
+        curve = {int(k[1:]): v for k, v in self.art["ppo_10m"]["curve"].items()}
+        reaches = [v["reached_target_pct"] for v in curve.values()]
+        self.assertEqual((min(reaches), max(reaches)), (0.0, 15.0),
+                         "the reach column no longer swings 0 to 15% inside this run")
+        m = self.sentence(r"swings \*\*(\d+) to (\d+)%\*\* across ten checkpoints", "the swing band")
+        self.check("swing", [m.group(1), m.group(2)], [min(reaches), max(reaches)], places=0)
+        self.assertEqual(len(curve), 10, "the paragraph says ten checkpoints")
+        late = [s for s in curve if s >= 6000000]
+        falls = [curve[s]["falls_per_episode"] for s in late]
+        stand = [curve[s]["standing_at_end_pct"] for s in curve if curve[s]["standing_at_end_pct"] > 0]
+        m = self.sentence(r"\*\*([\d.]+) to ([\d.]+) per episode\*\* at the top of the curve against "
+                          r"the 1M arm's (?:\*\*)?([\d.]+)", "the falls")
+        self.check("falls band", [m.group(1), m.group(2), m.group(3)],
+                   [min(falls), max(falls), self.pair["arms"]["ppo_v9"]["falls_per_episode"]],
+                   places=2)
+        self.assertEqual(self.pair["arms"]["ppo_v9"]["standing_at_end_pct"], 0.0,
+                         "the 1M arm no longer stands in 0% of episodes")
+        self.assertEqual(sorted(set(stand)), [5.0, 10.0],
+                         "the standing band quoted in the paragraph has moved")
+
+    def test_the_clocks_it_is_compared_against_and_the_instrument_settings(self):
+        ppo, sac = self.art["ppo_10m"], self.art["sac_arms_same_task_same_world"]
+        m = self.sentence(r"\*\*([\d,.]+) env-steps/s\*\* - ([\d.]+)x the rate of SAC at 32 envs and "
+                          r"ratio 1\s*measured over the same 5M budget, and ([\d.]+)x the rate of the "
+                          r"8-env screens", "the rate ratios")
+        self.check("ratios", [m.group(2), m.group(3)],
+                   [self.art["rate_ratios"]["ppo_over_sac_n32_r1"],
+                    self.art["rate_ratios"]["ppo_over_sac_n8_r1"]], places=1)
+        m = self.sentence(r"\(([\d,]+) s against ([\d,]+) s at ratio 1, ([\d,]+) s at ratio 4\)",
+                          "the three clocks in one sentence")
+        self.check("clocks", [m.group(1), m.group(2), m.group(3)],
+                   [ppo["wall_clock_seconds"], sac["sac_n32_r1"]["seconds"],
+                    sac["sac_n32_r4"]["seconds"]], places=0)
+        # The instrument settings the comparison needs to be true of: same task, same world, same
+        # device, and one draw per arm.
+        self.assertIn("seed 7", self.art["protocol"])
+        self.assertIn("num_envs=32", self.art["protocol"])
+        self.assertIn("target_forward_velocity=1.2", self.art["protocol"])
+        self.assertEqual(ppo["device"], "cuda")
+        self.assertEqual(ppo["torch_threads"], 24)
+        self.assertEqual(ppo["scored_in_version"], "standup_balance_walk_curriculum_v9")
+        for row in sac.values():
+            self.assertGreater(row["seconds_per_1m"], ppo["seconds_per_1m"])
+        # The 3.7x the paragraph declines to lead with, and why.
+        self.assertEqual(self.art["rate_ratios"]["ppo_over_sac_1m_pair_arm"], 3.7)
+        self.assertNotEqual(self.art["rate_ratios"]["ppo_over_sac_n32_r1"],
+                            self.art["rate_ratios"]["ppo_over_sac_1m_pair_arm"],
+                            "the same-budget and short-run ratios collapsed onto each other, so the "
+                            "note about dividing fixed costs needs rewriting")
+
+
 class TestReadmeDreamerLoopSplitCells(ReadmeGate, unittest.TestCase):
     """The iteration-attribution table and its prose against benchmarks/dreamer_loop_split.json.
 

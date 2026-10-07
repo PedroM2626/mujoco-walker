@@ -904,6 +904,121 @@ def physics_presets_sac_triple(out="benchmarks/physics_presets_sac1m_triple.json
     }, out
 
 
+PPO_10M_WALL_CLOCK = {
+    # Recorded from chain25's launcher log. PPO checkpoints at rollout boundaries and writes no
+    # elapsed time into them, and `train_walker.py` logs nothing to mlflow, so the run's whole cost is
+    # this one span - which is also why the comparison below is made between whole runs and never
+    # "at what second" a checkpoint was good.
+    "seconds": 1594, "scoring_seconds": 130,
+    "window": "2026-10-06 23:03:01 -> 23:29:35",
+}
+
+
+def ppo_10m_against_sac(out="benchmarks/ppo_10m_vs_sac.json"):
+    """Ten times the budget for PPO, and the clock of every SAC arm it should be judged against.
+
+    The committed pair said PPO is the fastest loop and the worst policy at ~1M steps
+    (`benchmarks/trainer_pair_ppo_sac.json`), and left the obvious objection on the table: 1M is early
+    for on-policy. This is the same recipe at 10M, and the objection does not survive it - PPO stands
+    up, walks, and reaches the target in 3 of 20 episodes at 5,046,272 steps.
+
+    What the wall clock says is the part worth acting on: **9,961,472 steps in 1,594 s = 6,249.4
+    env-steps/s**, which is 3.0x the rate of SAC at `num_envs=32` ratio 1 measured over the same 5M
+    (479.8 s per 1M) and 11.2x the rate of the 8-env screens (1,798.4 s per 1M). Against the SAC arm of
+    the committed 1M pair it is 3.7x, and the gap between 3.0 and 3.7 is the same trap this repository
+    has been caught in before: that pair's SAC ran 1M in 594 s, so its rate divides the run's fixed
+    costs by a sixth of the steps. The whole PPO curve, including its best reach column, cost less
+    clock than a single SAC 5M arm in this world.
+
+    Two honest limits travel with it. The rate is higher than the committed pair's 3,486.0/s because
+    that arm paid its fixed startup over 983,040 steps instead of 9.96M - a short run's rate divides
+    the same fixed cost by fewer steps. And this is one draw: the reach column inside this very run
+    oscillates 0-15% across ten checkpoints, which is the band the same evening measured at ~20k of
+    mean return in SAC, so the *shape* (PPO comes up late and reaches occasionally) is the finding and
+    the individual cells are not.
+    """
+    ppo = json.load(open(os.path.join(ROOT, "benchmarks", "ppo_learning_curve_10m_v9.json"),
+                         encoding="utf-8"))
+    budgets = sorted(ppo["models"], key=lambda k: int(k[1:]))
+    total = int(budgets[-1][1:])
+    clock = PPO_10M_WALL_CLOCK
+    pair = json.load(open(os.path.join(ROOT, "benchmarks", "trainer_pair_ppo_sac.json"),
+                          encoding="utf-8"))
+    dose = json.load(open(os.path.join(ROOT, "benchmarks", "utd_dose_pair.json"), encoding="utf-8"))
+    draws = json.load(open(os.path.join(ROOT, "benchmarks",
+                                        "physics_presets_screen5m_draws.json"), encoding="utf-8"))
+    five = lambda arm: arm["by_budget"]["s5000000"]
+    sac_rows = {
+        "sac_n32_r1": {"seconds": dose["arms"]["n32_r1"]["wall_clock_seconds"],
+                       "steps": 5000000,
+                       "mean_at_5m": five(dose["arms"]["n32_r1"])["mean"],
+                       "reached_pct_at_5m": five(dose["arms"]["n32_r1"])["reached_target_pct"]},
+        "sac_n32_r4": {"seconds": dose["arms"]["n32_r4"]["wall_clock_seconds"],
+                       "steps": 5000000,
+                       "mean_at_5m": five(dose["arms"]["n32_r4"])["mean"],
+                       "reached_pct_at_5m": five(dose["arms"]["n32_r4"])["reached_target_pct"]},
+        "sac_n8_r1_seed7": {"seconds": draws["draws"]["seed7"]["arms"]["v9"]["wall_clock_seconds"],
+                            "steps": 5000000,
+                            "mean_at_5m": five(draws["draws"]["seed7"]["arms"]["v9"])["mean"],
+                            "reached_pct_at_5m": five(draws["draws"]["seed7"]["arms"]["v9"])["reached_target_pct"]},
+        "sac_n8_r1_seed8": {"seconds": draws["draws"]["seed8"]["arms"]["v9"]["wall_clock_seconds"],
+                            "steps": 5000000,
+                            "mean_at_5m": five(draws["draws"]["seed8"]["arms"]["v9"])["mean"],
+                            "reached_pct_at_5m": five(draws["draws"]["seed8"]["arms"]["v9"])["reached_target_pct"]},
+    }
+    for row in sac_rows.values():
+        row["seconds_per_1m"] = round(row["seconds"] / (row["steps"] / 1e6), 1)
+    ppo_per_1m = round(clock["seconds"] / (total / 1e6), 1)
+    ppo_rate = round(total / clock["seconds"], 1)
+    best = max(ppo["models"].values(), key=lambda m: m["reached_target_pct"])
+    return {
+        "protocol": ("PPO, seed 7, num_envs=32, task_phase=target, reset_mode=mixed, "
+                     "target_forward_velocity=1.2, 10M requested and 9,961,472 collected (the trainer "
+                     "checkpoints at rollout boundaries of 2048x32 steps), scored by eval_phase1.py "
+                     "--num-episodes 20 --seed 11 in v9; SAC rows are the arms in "
+                     "benchmarks/utd_dose_pair.json and physics_presets_screen5m_draws.json"),
+        "ppo_10m": {
+            "wall_clock_seconds": clock["seconds"], "wall_clock_window": clock["window"],
+            "scoring_seconds": clock["scoring_seconds"], "collected_steps": total,
+            "env_steps_per_second": ppo_rate, "seconds_per_1m": ppo_per_1m,
+            "device": ppo.get("device"), "torch_threads": ppo.get("torch_threads"),
+            "scored_in_version": ppo.get("scored_in_version"),
+            "best_reach": {"step": int(max(ppo["models"], key=lambda k: ppo["models"][k]["reached_target_pct"])[1:]),
+                           "reached_pct_at_step": best["reached_target_pct"], "mean": best["mean"],
+                           "mean_min_target_distance": best["mean_min_target_distance"],
+                           "standing_at_end_pct": best["standing_at_end_pct"],
+                           "falls_per_episode": best["falls_per_episode"]},
+            "curve": {b: {k: ppo["models"][b][k] for k in ("mean", "std", "reached_target_pct",
+                                                           "mean_min_target_distance",
+                                                           "mean_x_velocity", "standing_at_end_pct",
+                                                           "falls_per_episode")} for b in budgets},
+        },
+        "ppo_1m_committed_arm": {
+            "seconds": pair["arms"]["ppo_v9"]["seconds"],
+            "collected_steps": pair["arms"]["ppo_v9"]["collected_steps"],
+            "mean": pair["arms"]["ppo_v9"]["mean"],
+            "reached_pct": pair["arms"]["ppo_v9"]["reached_target_pct"],
+            "mean_min_target_distance": pair["arms"]["ppo_v9"]["mean_min_target_distance"],
+            "env_steps_per_second": pair["arms"]["ppo_v9"]["env_steps_per_second"]
+            if "env_steps_per_second" in pair["arms"]["ppo_v9"] else None,
+        },
+        "sac_arms_same_task_same_world": sac_rows,
+        "rate_ratios": {
+            "ppo_over_sac_n32_r1": round(sac_rows["sac_n32_r1"]["seconds_per_1m"] / ppo_per_1m, 1),
+            "ppo_over_sac_n32_r4": round(sac_rows["sac_n32_r4"]["seconds_per_1m"] / ppo_per_1m, 1),
+            "ppo_over_sac_n8_r1": round(sac_rows["sac_n8_r1_seed7"]["seconds_per_1m"] / ppo_per_1m, 1),
+            "ppo_over_sac_1m_pair_arm": round(ppo_rate
+                                              / pair["arms"]["sac_v9"]["env_steps_per_second"], 1),
+            "the_last_two_disagree_because": ("the pair's SAC arm is 1M over 594 s, so its per-second "
+                                              "rate divides fixed startup by one sixth of the steps of "
+                                              "the 5M arms; only the same-budget ratios are usable"),
+        },
+        "note": ("PPO at 10M stands, walks and reaches, and it does so on a clock that is a fraction of "
+                 "any SAC arm here - but the reach column inside this one run swings 0 to 15% across "
+                 "ten checkpoints, so read the shape and not the cells"),
+    }, out
+
+
 TEACHER_EVENTS = os.path.join("openai_walker", "sac_walker_tensorboard", "SAC_2",
                               "events.out.tfevents.1780843517.pedro.36828.0")
 
@@ -1001,6 +1116,8 @@ BENCHMARKS = [
     physics_presets_sac_triple,
     # The same optimisation dose bought at 32 envs instead of 8: what the update is really worth.
     utd_dose_pair,
+    # PPO at ten times the budget it was dismissed at, against the clock of every SAC arm.
+    ppo_10m_against_sac,
     # The teacher's own 100-episode evaluations, mined from its committed TensorBoard log: the only
     # pre-retraction evaluation series in the repo, and an independent protocol.
     teacher_eval_curve,

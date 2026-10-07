@@ -1,0 +1,9 @@
+23:02:01 lock held by pid 62136
+23:02:01 machine claimed
+23:03:01 machine clear, proceeding
+23:03:01 START PPO 10M target n=32 v9
+23:29:35 DONE  PPO 10M target n=32 v9 (exit 0)
+23:29:35 scoring 10 rollout-boundary checkpoints
+23:29:35 START score the PPO 10M curve
+23:31:45 DONE  score the PPO 10M curve (exit 0)
+23:31:45 chain25 complete

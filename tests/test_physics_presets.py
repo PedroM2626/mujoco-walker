@@ -354,6 +354,24 @@ class TestWallClockProvenanceSurvivesTheLogs(unittest.TestCase):
         self.assertTrue(smoke and smoke[0] < 120,
                         "the ratio-3 smoke arm is missing from chain24 or never finished quickly")
 
+    def test_the_ppo_10m_run_matches_chain25(self):
+        """One training span and one scoring span, both from chain25's log."""
+        art = json.load(open(os.path.join(ROOT, "benchmarks", "ppo_10m_vs_sac.json"),
+                             encoding="utf-8"))
+        ppo = art["ppo_10m"]
+        start, end = self.parse_window(ppo["wall_clock_window"])
+        self.assertEqual(end, self.find_span(25, "PPO 10M target n=32 v9", start))
+        self.assertEqual(ppo["wall_clock_seconds"], self.seconds_between(start, end))
+        scored = {label: self.seconds_between(s, e) for label, s, e, code in self.spans(25)
+                  if code == 0 and s and label == "score the PPO 10M curve"}
+        self.assertEqual(scored["score the PPO 10M curve"], ppo["scoring_seconds"])
+        # The step count the log's completion line would have to agree with is not in the log, but the
+        # rollout-boundary arithmetic is: 10M requested cannot be reached, and the artifact must name
+        # the number that was actually collected.
+        self.assertLess(ppo["collected_steps"], 10000000)
+        self.assertEqual(ppo["collected_steps"] % (2048 * 32), 0)
+        self.assertIn("PPO", art["protocol"])
+
     def test_the_gail_retrain_matches_chain13(self):
         art = json.load(open(os.path.join(ROOT, "benchmarks", "phase4_gail_retrain.json"),
                              encoding="utf-8"))

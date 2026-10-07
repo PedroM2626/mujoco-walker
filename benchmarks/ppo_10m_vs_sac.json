@@ -1,0 +1,160 @@
+{
+  "protocol": "PPO, seed 7, num_envs=32, task_phase=target, reset_mode=mixed, target_forward_velocity=1.2, 10M requested and 9,961,472 collected (the trainer checkpoints at rollout boundaries of 2048x32 steps), scored by eval_phase1.py --num-episodes 20 --seed 11 in v9; SAC rows are the arms in benchmarks/utd_dose_pair.json and physics_presets_screen5m_draws.json",
+  "ppo_10m": {
+    "wall_clock_seconds": 1594,
+    "wall_clock_window": "2026-10-06 23:03:01 -> 23:29:35",
+    "scoring_seconds": 130,
+    "collected_steps": 9961472,
+    "env_steps_per_second": 6249.4,
+    "seconds_per_1m": 160.0,
+    "device": "cuda",
+    "torch_threads": 24,
+    "scored_in_version": "standup_balance_walk_curriculum_v9",
+    "best_reach": {
+      "step": 5046272,
+      "reached_pct_at_step": 15.0,
+      "mean": 33204.98,
+      "mean_min_target_distance": 2.179,
+      "standing_at_end_pct": 5.0,
+      "falls_per_episode": 1.8
+    },
+    "curve": {
+      "s1048576": {
+        "mean": -813.28,
+        "std": 10248.12,
+        "reached_target_pct": 0.0,
+        "mean_min_target_distance": 3.145,
+        "mean_x_velocity": 0.007,
+        "standing_at_end_pct": 0.0,
+        "falls_per_episode": 0.1
+      },
+      "s2031616": {
+        "mean": 11594.52,
+        "std": 7982.86,
+        "reached_target_pct": 0.0,
+        "mean_min_target_distance": 3.075,
+        "mean_x_velocity": -0.0079,
+        "standing_at_end_pct": 0.0,
+        "falls_per_episode": 0.15
+      },
+      "s3014656": {
+        "mean": 17863.01,
+        "std": 8435.51,
+        "reached_target_pct": 0.0,
+        "mean_min_target_distance": 2.853,
+        "mean_x_velocity": 0.0068,
+        "standing_at_end_pct": 0.0,
+        "falls_per_episode": 0.4
+      },
+      "s4063232": {
+        "mean": 24717.01,
+        "std": 11137.06,
+        "reached_target_pct": 10.0,
+        "mean_min_target_distance": 2.811,
+        "mean_x_velocity": -0.0083,
+        "standing_at_end_pct": 0.0,
+        "falls_per_episode": 1.0
+      },
+      "s5046272": {
+        "mean": 33204.98,
+        "std": 12628.99,
+        "reached_target_pct": 15.0,
+        "mean_min_target_distance": 2.179,
+        "mean_x_velocity": 0.0148,
+        "standing_at_end_pct": 5.0,
+        "falls_per_episode": 1.8
+      },
+      "s6029312": {
+        "mean": 36235.22,
+        "std": 11242.39,
+        "reached_target_pct": 5.0,
+        "mean_min_target_distance": 2.352,
+        "mean_x_velocity": -0.0016,
+        "standing_at_end_pct": 5.0,
+        "falls_per_episode": 2.55
+      },
+      "s7012352": {
+        "mean": 39643.14,
+        "std": 13911.66,
+        "reached_target_pct": 10.0,
+        "mean_min_target_distance": 2.69,
+        "mean_x_velocity": -0.0496,
+        "standing_at_end_pct": 10.0,
+        "falls_per_episode": 2.55
+      },
+      "s8060928": {
+        "mean": 43439.25,
+        "std": 11132.33,
+        "reached_target_pct": 5.0,
+        "mean_min_target_distance": 2.041,
+        "mean_x_velocity": 0.0427,
+        "standing_at_end_pct": 5.0,
+        "falls_per_episode": 3.2
+      },
+      "s9043968": {
+        "mean": 39970.99,
+        "std": 18446.42,
+        "reached_target_pct": 5.0,
+        "mean_min_target_distance": 2.194,
+        "mean_x_velocity": 0.0113,
+        "standing_at_end_pct": 5.0,
+        "falls_per_episode": 2.7
+      },
+      "s9961472": {
+        "mean": 39232.09,
+        "std": 18306.47,
+        "reached_target_pct": 5.0,
+        "mean_min_target_distance": 2.387,
+        "mean_x_velocity": 0.0491,
+        "standing_at_end_pct": 0.0,
+        "falls_per_episode": 2.85
+      }
+    }
+  },
+  "ppo_1m_committed_arm": {
+    "seconds": 282,
+    "collected_steps": 983040,
+    "mean": -985.97,
+    "reached_pct": 0.0,
+    "mean_min_target_distance": 3.211,
+    "env_steps_per_second": 3486.0
+  },
+  "sac_arms_same_task_same_world": {
+    "sac_n32_r1": {
+      "seconds": 2399,
+      "steps": 5000000,
+      "mean_at_5m": 36623.52,
+      "reached_pct_at_5m": 5.0,
+      "seconds_per_1m": 479.8
+    },
+    "sac_n32_r4": {
+      "seconds": 6494,
+      "steps": 5000000,
+      "mean_at_5m": 24137.34,
+      "reached_pct_at_5m": 20.0,
+      "seconds_per_1m": 1298.8
+    },
+    "sac_n8_r1_seed7": {
+      "seconds": 8992,
+      "steps": 5000000,
+      "mean_at_5m": 18956.17,
+      "reached_pct_at_5m": 10.0,
+      "seconds_per_1m": 1798.4
+    },
+    "sac_n8_r1_seed8": {
+      "seconds": 9386,
+      "steps": 5000000,
+      "mean_at_5m": -763.96,
+      "reached_pct_at_5m": 0.0,
+      "seconds_per_1m": 1877.2
+    }
+  },
+  "rate_ratios": {
+    "ppo_over_sac_n32_r1": 3.0,
+    "ppo_over_sac_n32_r4": 8.1,
+    "ppo_over_sac_n8_r1": 11.2,
+    "ppo_over_sac_1m_pair_arm": 3.7,
+    "the_last_two_disagree_because": "the pair's SAC arm is 1M over 594 s, so its per-second rate divides fixed startup by one sixth of the steps of the 5M arms; only the same-budget ratios are usable"
+  },
+  "note": "PPO at 10M stands, walks and reaches, and it does so on a clock that is a fraction of any SAC arm here - but the reach column inside this one run swings 0 to 15% across ten checkpoints, so read the shape and not the cells"
+}

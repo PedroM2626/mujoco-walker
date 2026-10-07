@@ -1285,6 +1285,7 @@ laptop (RTX 4070 Laptop 8 GB, 32 threads, `.venv`), one process at a time:
 |:---|:---|:---|:---|
 | `train_ars.py` | linear policy, 10 directions | 1,005,153 steps in 544 s = 1848/s | 9 min |
 | `train_walker.py --algo ppo` | 32 envs, `target` phase, seed 7 | 983,040 steps in 282 s = 3,486.0/s | 4.8 min |
+| `train_walker.py --algo ppo`, 10M | same config, one draw, re-run of the row above | 9,961,472 steps in 1,594 s = 6,249.4/s | 160.0 s |
 | `train_walker.py --algo sac` | same config, same night | 1,000,000 steps in 594 s = 1,683.5/s | 9.9 min |
 | `train_dreamer.py` | 4 envs, update each collect step | 5,000 steps in 37 s with the update gate closed; 14,000 in 898 s in one A/B window and in 205 s later, same build | ~4-18 h |
 | `train_dreamer.py`, captured update | same config, and the CUDA default now (`--no-update-graph` opts out) | 100 updates in 4.1 s against 17.6 s eager, in the same window | its own projection says 3.6 h; measured later at two budgets: **1.18 h** |
@@ -1310,8 +1311,27 @@ night's earlier pair, `ppo_524288` against `sac_500000`, puts PPO at **3,150.48*
 closest against SAC's **13,784.48** and **2.770 m** - same sign at 5% of budget and at 100%. Neither
 arm reaches the target at either budget, and neither stands at the end of an episode at all.
 The conclusion is about the question "faster" answers: switching trainer changes what the machine
-can do with a budget, and for this task off-policy data is what moves the behaviour; PPO is the right
-comparison to run again if the learner, not the collection, becomes the bottleneck.
+can do with a budget, and at these budgets off-policy data is what moves the behaviour. That clause was
+written when PPO had only ever been run here at 1M, and it has now been tested at ten times that
+budget.
+
+**The re-run happened, and the objection was the budget, not the algorithm.** Same config, 10M
+requested, one draw (`benchmarks/ppo_10m_vs_sac.json`): **9,961,472 steps in 1,594 s**, which is
+**6,249.4 env-steps/s** - 3.0x the rate of SAC at 32 envs and ratio 1 measured over the same 5M budget,
+and 11.2x the rate of the 8-env screens. And it comes up: the mean climbs from **-813.28** at the first
+rollout boundary to **43,439.25** at 8,060,928 steps, its best reach column is **15% (3 of 20)** at
+5,046,272 steps with a closest approach of **2.179 m**, and it finishes episodes standing in 5-10% of
+them where the 1M arm finished standing in 0%. So "off-policy is what moves the behaviour" was a
+sentence about 1M budgets: at 10x, the on-policy arm reaches too, and the entire PPO curve cost less
+clock than one SAC 5M arm in this world (1,594 s against 2,399 s at ratio 1, 6,494 s at ratio 4).
+
+Two limits keep that from being a verdict. It is one draw, and within that draw the reach column
+swings **0 to 15%** across ten checkpoints - the same band this section measured the evening before,
+when the published world moved from +18,956.17 to -763.96 between seeds. And PPO pays for its cheap
+updates in falls: **2.55 to 3.2 per episode** at the top of the curve against the 1M arm's 0.10, which
+is what attempting looks like. Neither supports ranking PPO against SAC from a single run; both support
+the cheaper claim, which is that PPO at 10M is a legitimate arm that should be drawn again - and it
+took 27 minutes of machine time to learn that.
 
 The Dreamer row was the whole story of the eager build: with its update gate closed this trainer
 collects 5,000 steps in 37 s, which is where "~96% of its wall clock is the learner step, not the
@@ -1937,12 +1957,12 @@ Three facts to keep in mind:
 
 The suite is plain `unittest` (no pytest required) and covers the environment contract, the
 golden reward rollouts, the parallel/serial vector-env parity, checkpointing and the race
-harness — **279 tests, 206 s in this window** (`Ran 279 tests in 206.150s ... OK
+harness — **284 tests, 194 s in this window** (`Ran 284 tests in 193.904s ... OK
 (skipped=7)` under `.venv`). Windows of this suite have measured 176.3 s at 102 tests, 269.995 s
 at 121, 261.1 s at 127, 329.964 s at 128, 319.168 s at 130, 184.716 s, 203.108 s and 306.976 s at
 140, 144.678 s at 147, 230.268 s at 157, 171.016 s and 170.304 s at 194, and 174.008 s,
 170.391 s, 175.036 s, 168.775 s, 168.986 s and 166.606 s at 201/205/210, 169.919 s at 214,
-and 163.920 s and 161.829 s at 237, 165.360 s and 164.902 s at 243, 161.647 s and 162.674 s at 250, 162.726 s and 162.167 s at 251, 171.616 s and 163.434 s at 252, 163.769 s and 163.748 s at 255, 226.912 s and 217.651 s at 260, 193.167 s and 191.909 s at 273, 206.150 s at 279 -
+and 163.920 s and 161.829 s at 237, 165.360 s and 164.902 s at 243, 161.647 s and 162.674 s at 250, 162.726 s and 162.167 s at 251, 171.616 s and 163.434 s at 252, 163.769 s and 163.748 s at 255, 226.912 s and 217.651 s at 260, 193.167 s and 191.909 s at 273, 206.150 s at 279, 193.904 s at 284 -
 those last windows carry a dose test that runs three short CPU trainings, which are about 27 s of
 them, so that entry is not slower hardware; consecutive runs of one commit agree to 4%, where the
 147 and 157 windows an afternoon earlier were 1.6x apart for ten more tests. The
@@ -2000,7 +2020,7 @@ that they ran - see Phase 4, item 6. How each of those states was found, with th
 ## 🔬 Reproducing and measuring
 
 ```bash
-python -m unittest discover -s tests -t .   # 279 tests in .venv, 206 s; see "Running the tests"
+python -m unittest discover -s tests -t .   # 284 tests in .venv, 194 s; see "Running the tests"
 python bench_env.py --seconds 4             # env throughput, physics vs Python split
 python bench_mjx.py --sizes 32,128          # MJX/JAX batched stepping
 python verify.py                            # Phase-2 artifact check (exits 2 when missing)

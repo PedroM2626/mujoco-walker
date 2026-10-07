@@ -38,6 +38,32 @@ the curve was the last thing anyone saw. `python summarize_training_rate.py`
 (`benchmarks/training_rate_history.json`) recomputes each run's rate from the metric's own timestamps
 instead of reading its values, which is immune to both traps.
 
+## A claim about an algorithm, measured at one point on the budget axis
+
+The learner-side section said "for this task off-policy data is what moves the behaviour", and the
+evidence behind it was real: one night, both arms at 32 envs and ~1M steps, PPO averaging **-985.97**
+with 0 of 20 reaching and a closest approach of 3.211 m while SAC averaged **22,020.06**. What the
+sentence did not say is that it had been tested at exactly one budget, and PPO's own weakness at small
+budgets is the textbook reason not to. The re-run at 10M (chain25, 1,594 s of wall clock) closes the
+gap: the same recipe climbs from **-813.28** at its first rollout boundary to **43,439.25** at
+8,060,928 steps, reaches the target in **15% of episodes (3 of 20)** at 5,046,272, and ends episodes
+standing 5-10% of the time where the 1M arm ended standing 0%. On-policy learning at this task does
+move the behaviour - late, and after ten times the environment steps.
+
+**The general form: when a conclusion names an algorithm class, check whether the evidence names a
+budget.** The correction cost 27 minutes and one sentence; it was free to spot beforehand, because the
+pair's own artifact already recorded that 1M was PPO's first checkpoint-reachable boundary. A related
+trap surfaced while writing it up: the new run is **3.0x** the rate of the SAC arm measured over the
+same 5M budget and **3.7x** the rate of the SAC arm from the committed 1M pair, and both numbers are
+correct. The pair's SAC rate (1,683.5/s) divides fixed startup by 1M steps while the 5M arms divide it
+by five times as many, so the artifact stores both ratios and says which one to lead with. Same shape
+as the short-run projections this file already documents, arriving on the other side of a comparison.
+
+The PPO arm is one draw, and its reach column swings 0-15% across its own ten checkpoints - the same
+band the seeded-sibling experiment measured the previous evening in SAC. So the published claim is the
+shape (PPO comes up late and reaches occasionally) and the cost (the whole curve is cheaper than one
+SAC 5M arm), not a ranking of the two algorithms at any budget.
+
 ## A score without its device is half a measurement
 
 `eval_phase1.py` wrote the protocol, the env revision and the reward source into its artifact but not

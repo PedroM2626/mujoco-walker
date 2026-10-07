@@ -64,6 +64,9 @@ htmlcov/
 !chain29_evidence.log
 runs/
 checkpoints/
+# The trainers' --capture-video output lands here; it is evidence to look at, not to version, and
+# the renderings used to check a claim are re-derivable from the checkpoint plus the eval seed.
+videos/
 *.pt
 *.pth
 *.pkl

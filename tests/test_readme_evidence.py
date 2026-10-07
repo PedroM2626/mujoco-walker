@@ -3690,6 +3690,101 @@ class TestReadmeEulerDrawsCells(ReadmeGate, unittest.TestCase):
                            f"the paragraph says more than {m.group(1)}; the draws differ by {gap:.2f}")
 
 
+class TestReadmeArrivalDefinitionCells(ReadmeGate, unittest.TestCase):
+    """The two arrival rules, against benchmarks/reach_upright_arrival.json.
+
+    This is the paragraph that says what the other reach numbers in the README are *not* measuring, so
+    it is gated on the strict column and on the fidelity claim: every row's distance-only figure has to
+    still equal the committed artifact it was re-scored from, or the two columns are not two readings
+    of one measurement.
+    """
+
+    ARRIVAL = os.path.join(ROOT, "benchmarks", "reach_upright_arrival.json")
+    DOSE = os.path.join(ROOT, "benchmarks", "utd_sac_n32_seed8_r4_5m.json")
+    START = "**Every reach number above and below is distance-only"
+    END = "The standing rung splits the other way"
+
+    def setUp(self):
+        with open(README, encoding="utf-8") as handle:
+            readme = handle.read()
+        start = readme.index(self.START)
+        self.block = readme[start:readme.index(self.END, start)]
+        self.art = self.read_artifacts(self.ARRIVAL)[0]
+        self.dose = self.read_artifacts(self.DOSE)[0]
+        self.rows = {(r["artifact"].split("/")[-1], r["model"]): r for r in self.art["rows"]}
+        self.bad = []
+        self.what = "arrival definitions"
+
+    def row(self, artifact, model):
+        key = (artifact.split("/")[-1], model)
+        self.assertIn(key, self.rows, f"{artifact}:{model} is no longer measured")
+        return self.rows[key]
+
+    def test_the_distance_only_column_still_reproduces_what_was_published(self):
+        for r in self.art["rows"]:
+            art = json.load(open(os.path.join(ROOT, r["artifact"]), encoding="utf-8"))
+            self.assertEqual(r["reached_distance_only_pct"],
+                             art["models"][r["model"]]["reached_target_pct"],
+                             f"{r['label']}: the re-score disagrees with the committed row, so the "
+                             "two columns are not two definitions of one measurement")
+
+    def test_the_best_arm_in_the_published_world_arrives_standing_three_times(self):
+        m = self.sentence(r"arrives standing in \*\*(\d+) of (\d+) episodes \((\d+)%\)\*\* -\s*"
+                          r"SAC at `--utd-ratio 4` seed 7 / (\d)M and at ratio 1 seed 8 / (\d)M, whose "
+                          r"distance-only rows read ([\d.]+)% and\s*([\d.]+)%", "the strict best")
+        best = self.art["best_upright_arrivals"]
+        self.check("upright episodes", [m.group(1), m.group(3)],
+                   [best["reached_upright_count"], best["reached_upright_pct"]], places=0)
+        self.check("episodes per arm", m.group(2), 20, places=0)
+        d4 = self.row("benchmarks/utd_sac_n32_r4_5m.json", "s3000000")
+        d1 = self.row("benchmarks/utd_sac_n32_seed8_r1_5m.json", "s4000000")
+        self.check("the two arms' loose rows", [m.group(6), m.group(7)],
+                   [d4["reached_distance_only_pct"], d1["reached_distance_only_pct"]], places=1)
+        self.assertEqual((m.group(4), m.group(5)), ("3", "4"))
+        self.assertEqual(d4["reached_upright_count"], d1["reached_upright_count"],
+                         "the paragraph names two arms tied on the strict column")
+
+    def test_the_other_quoted_arms_are_the_measured_ones(self):
+        m = self.sentence(r"the 40M from-scratch curve's ([\d.]+)% at 5M is \*\*([\d.]+)%\*\* upright",
+                          "the from-scratch pair")
+        scratch = self.row("benchmarks/target_learning_curve_from_scratch_v9.json", "s5000000")
+        self.check("from scratch", [m.group(1), m.group(2)],
+                   [scratch["reached_distance_only_pct"], scratch["reached_upright_pct"]], places=1)
+        words = {"zero": 0, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6}
+        m = self.sentence(r"PPO at 10M is the extreme: ([\d.]+)% and\s*([\d.]+)% by distance, "
+                          r"\*\*([\d.]+)% and ([\d.]+)%\*\* standing, because (one|two|three|four|"
+                          r"five) of its (one|two|three|four|five) arrivals are collapses",
+                          "the PPO pair")
+        p8 = self.row("benchmarks/ppo_learning_curve_10m_v9_seed8.json", "s7012352")
+        p7 = self.row("benchmarks/ppo_learning_curve_10m_v9.json", "s5046272")
+        self.check("ppo loose", [m.group(1), m.group(2)],
+                   [p8["reached_distance_only_pct"], p7["reached_distance_only_pct"]], places=1)
+        self.check("ppo upright", [m.group(3), m.group(4)],
+                   [p8["reached_upright_pct"], p7["reached_upright_pct"]], places=1)
+        self.check("ppo collapses", [words[m.group(5)], words[m.group(6)]],
+                   [p8["collapse_on_target_only"],
+                    int(p8["reached_distance_only_pct"] * 20 / 100)], places=0)
+        m = self.sentence(r"the `fast` world at 5M seed 8 \(([\d.]+)% by both rules, (\d+) collapses\)",
+                          "the clean fast arm")
+        fast = self.row("benchmarks/physics_presets_screen5m_seed8_fast.json", "s5000000")
+        self.check("fast arm", [m.group(1), m.group(2)],
+                   [fast["reached_upright_pct"], fast["collapse_on_target_only"]], places=0)
+        self.assertEqual(fast["reached_upright_pct"], fast["reached_distance_only_pct"],
+                         "the fast arm is no longer the one where every arrival was clean")
+
+    def test_the_near_miss_that_motivated_the_video_is_the_measured_one(self):
+        tele = self.dose["per_episode"]["s4000000__telemetry"]
+        misses = [t["min_target_distance"] for t in tele
+                  if not t["reached_target"] and t["min_target_distance"] <= 0.5]
+        self.assertEqual(misses, [0.468], "the 1.8 cm near miss the paragraph cites is gone")
+        m = self.sentence(r"which misses by ([\d.]+) cm", "the near miss")
+        self.check("centimetres", m.group(1), round((0.468 - 0.45) * 100, 1), places=1)
+        m = self.sentence(r"the clip that .reached. at ([\d.]+) m ends on the floor", "the clip")
+        self.check("clip distance", m.group(1), 0.430, places=3)
+        reached = [t["min_target_distance"] for t in tele if t["reached_target"]]
+        self.assertIn(0.43, reached)
+
+
 class TestReadmeTrainerPairCells(ReadmeGate, unittest.TestCase):
     """PPO against SAC: the rate claim and the behaviour claim are gated together or not at all.
 

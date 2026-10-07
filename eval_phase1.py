@@ -16,6 +16,18 @@ Usage:
     python eval_phase1.py --model redq=checkpoints/redq_v2_1m/redq_actor_1000000.pt \
                           --model dreamer=checkpoints/dreamer_v2_1m/dreamer_actor_1000000.pt \
                           --num-episodes 100 --seed 11
+
+Two arrival counts, deliberately kept apart: `reached_target_pct` is distance-only (the closest
+approach ever got inside the 0.45 m radius) and is the number every published row in this repository
+carries; `reached_target_upright_pct` counts only arrivals that happened with the torso above 1.0 m
+and upright above 0.7, which is the condition the environment's own success term applies. They differ
+by a lot on the target task - a fall forward can land inside the radius, and the reward pays nothing
+for it - so a claim about *walking* to the target has to quote the second one.
+
+Scope note the name does not give away: this scores any checkpoint of the Phase-1 *trainers*, in
+whatever `task_phase` it was trained (recovery, balance, walk, target). Phase 1 of the curriculum is
+standing up; the script is not restricted to it, and it prints a note when a checkpoint's phase is not
+the default `target`.
 """
 
 import argparse
@@ -211,6 +223,7 @@ def score(policy, episodes, seed, task_phase, steps=EPISODE_STEPS, reset_mode="m
             n_steps = 0
             dist = float(info.get("target_distance", np.inf))
             min_dist = dist
+            min_dist_upright = float("inf")
             vel_sum = 0.0
             was_healthy = env.unwrapped.is_healthy
             for _ in range(steps):
@@ -222,6 +235,15 @@ def score(policy, episodes, seed, task_phase, steps=EPISODE_STEPS, reset_mode="m
                     dist = float(info.get("target_distance", np.inf))
                     min_dist = min(min_dist, dist)
                     vel_sum += float(info.get("x_velocity", 0.0))
+                    # The second, stricter arrival the environment itself recognises: the reward's
+                    # success term also needs the torso above 1.0 m and upright above 0.7 at the step
+                    # inside the radius, so an episode can come within 0.45 m by collapsing onto the
+                    # marker and score nothing for it. `reached_target` stays distance-only because
+                    # every published row was counted that way; `reached_target_upright` is the same
+                    # episodes judged the way the reward judges them.
+                    if (dist <= radius and float(env.unwrapped.data.qpos[2]) > 1.0
+                            and float(env.unwrapped.upright_factor) > 0.7):
+                        min_dist_upright = min(min_dist_upright, dist)
                 is_healthy = env.unwrapped.is_healthy
                 if was_healthy and not is_healthy:
                     n_falls += 1
@@ -236,6 +258,9 @@ def score(policy, episodes, seed, task_phase, steps=EPISODE_STEPS, reset_mode="m
                 "steps": n_steps,
                 "min_target_distance": round(min_dist, 3),
                 "reached_target": bool(min_dist <= radius),
+                "min_target_distance_upright": (round(min_dist_upright, 3)
+                                                if np.isfinite(min_dist_upright) else None),
+                "reached_target_upright": bool(min_dist_upright <= radius),
                 "mean_x_velocity": round(vel_sum / max(n_steps, 1), 4),
             } if task_phase == "target" else {
                 "steps": n_steps, "min_target_distance": None,
@@ -380,6 +405,11 @@ def main():
             "standing_at_end_pct": round(100.0 * np.mean(standing), 1),
             "mean_episode_steps": round(float(np.mean([t["steps"] for t in tele])), 1),
             "reached_target_pct": (round(100.0 * np.mean(reached), 1) if reached else None),
+            # The same episodes judged by the environment's own success gate (see score()): an
+            # arrival counts only if the torso is above 1.0 m and upright above 0.7 at that step.
+            "reached_target_upright_pct": (
+                round(100.0 * np.mean([t["reached_target_upright"] for t in tele]), 1)
+                if reached else None),
             "mean_min_target_distance": (
                 round(float(np.mean([t["min_target_distance"] for t in tele])), 3)
                 if reached else None),

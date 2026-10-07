@@ -374,6 +374,24 @@ the extra budget did not buy is reliability. Reach rate by checkpoint (1M, 2M, 3
 checkpoint is the least goal-directed of its second half and its best is at 5M. A longer budget moves
 this curve; it does not straighten it.
 
+**Every reach number above and below is distance-only, and a rendered episode shows why that matters.**
+`reached_target_pct` counts an episode whose closest approach ever entered the 0.45 m radius. The
+environment's own success term is stricter - it also requires torso height above 1.0 m and upright
+above 0.7 *at that step* - so a fall forward can land inside the radius and be paid nothing. Replaying
+the scored episodes into video (`bench_reach_definitions.py` re-scores them under both rules and
+refuses to write unless the distance-only column reproduces the committed artifact episode for episode)
+showed exactly that: the clip that "reached" at 0.430 m ends on the floor. Under the strict rule, in
+the published world the best arm in this repository arrives standing in **3 of 20 episodes (15%)** -
+SAC at `--utd-ratio 4` seed 7 / 3M and at ratio 1 seed 8 / 4M, whose distance-only rows read 25% and
+20% - and the 40M from-scratch curve's 20% at 5M is **10%** upright. PPO at 10M is the extreme: 25% and
+15% by distance, **5% and 0%** standing, because four of its five arrivals are collapses. The one arm
+where every arrival was clean is the `fast` world at 5M seed 8 (20% by both rules, 0 collapses), which
+is a reminder that the preset changes what arriving means, not just how long it takes.
+
+So the honest answer to "does an agent walk to the target?" is: **it walks - single-leg mid-stride at
+0.6 m/s in the near-miss clip, which misses by 1.8 cm - and it finishes the job standing in about one
+episode in seven.** That, not the distance column, is the number to train against.
+
 The standing rung splits the other way, and only the instrument that measures the torso can say so.
 On `bench_posture.py` at the settings the published posture table uses (50 seeded episodes, seed 11,
 `cuda`, torch threads pinned to 1) the curriculum row reproduced its committed number exactly -
@@ -1996,7 +2014,7 @@ Three facts to keep in mind:
 
 The suite is plain `unittest` (no pytest required) and covers the environment contract, the
 golden reward rollouts, the parallel/serial vector-env parity, checkpointing and the race
-harness — **297 tests, 190 s in this window** (`Ran 297 tests in 190.012s ... OK
+harness — **301 tests, 230 s in this window** (`Ran 301 tests in 230.180s ... OK
 (skipped=7)` under `.venv`). Windows of this suite have measured 176.3 s at 102 tests, 269.995 s
 at 121, 261.1 s at 127, 329.964 s at 128, 319.168 s at 130, 184.716 s, 203.108 s and 306.976 s at
 140, 144.678 s at 147, 230.268 s at 157, 171.016 s and 170.304 s at 194, and 174.008 s,
@@ -2059,7 +2077,7 @@ that they ran - see Phase 4, item 6. How each of those states was found, with th
 ## 🔬 Reproducing and measuring
 
 ```bash
-python -m unittest discover -s tests -t .   # 297 tests in .venv, 190 s; see "Running the tests"
+python -m unittest discover -s tests -t .   # 301 tests in .venv, 230 s; see "Running the tests"
 python bench_env.py --seconds 4             # env throughput, physics vs Python split
 python bench_mjx.py --sizes 32,128          # MJX/JAX batched stepping
 python verify.py                            # Phase-2 artifact check (exits 2 when missing)
@@ -2073,6 +2091,9 @@ python bench_posture.py --episodes 50           # does it stand? torso height pe
 python bench_posture.py --compare-devices       # the same rows on cuda and cpu, and what moves
 python bench_physics_presets.py --skip-divergence  # what each physics_preset costs, back to back
 python bench_physics_presets.py --skip-throughput  # how far each one drifts from v9, same actions
+python bench_reach_definitions.py             # arrival by distance vs arrival standing, both rules,
+                                              # and it refuses to write unless the loose column
+                                              # reproduces each committed artifact episode for episode
 python train_walker.py --algo sac --run-id preset_sac_euler_1m --seed 7 --total-timesteps 1000000 \
   --num-envs 8 --task-phase target --reset-mode mixed --target-forward-velocity 1.2 \
   --checkpoint-interval 500000 --device cuda --physics-preset euler

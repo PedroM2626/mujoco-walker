@@ -1206,6 +1206,108 @@ def euler_screen_5m_draws(out="benchmarks/physics_presets_screen5m_euler_draws.j
     }, out
 
 
+PPO_10M_SEED8_WALL_CLOCK = {
+    # chain29's launcher log. The same recipe, in the same world, took 2.28x the clock of chain25's
+    # window - which is why every cross-algorithm rate in this section is now labelled with the window
+    # it came from.
+    "seconds": 3636, "scoring_seconds": 132,
+    "window": "2026-10-07 07:12:18 -> 08:12:54",
+}
+
+
+def ppo_10m_draws(out="benchmarks/ppo_10m_draws.json"):
+    """PPO at 10M twice: the behaviour replicates, the clock does not.
+
+    Draw 1 (seed 7, chain25) stood, walked and reached: mean from **-813.28** to **43,439.25**, best
+    reach **15%** at 5,046,272. Draw 2 (seed 8, chain29) repeats the shape - mean 4,397.74 to
+    **34,707.81** with its own best reach of **25%** at 7,012,352 - so "PPO needed ten times the budget,
+    it did not need a different algorithm" survives two draws, and the level column swings between them
+    exactly as it does for SAC.
+
+    The clock is the finding that did not survive. The identical recipe cost **1,594 s** in one window
+    and **3,636 s** in the next: **2.28x**, on a laptop that was on AC power in both. That refutes the
+    sentence published from draw 1 - that the whole PPO curve costs less clock than one SAC 5M arm in
+    this world - because 3,636 s is *more* than SAC's ratio-1 arms (2,399 s and 2,529 s) and less than
+    its ratio-4 arms (6,494 s and 6,824 s). The honest statement is "PPO at 10M and SAC at 5M cost about
+    the same, straddling SAC's dose choice", and the rate ratios quoted from draw 1 (3.0x, 11.2x) are
+    cross-window numbers, not a property of the two trainers.
+
+    Nothing here can say *why* the two windows differ by 2.28x: chain28's two-hour GPU run ended four
+    minutes before chain29 started, so sustained thermal throttling is the obvious candidate and an
+    idle-gap replication is the obvious test. Both are recorded as open rather than resolved, and the
+    numbers are labelled per window so a later reader cannot quietly reuse one as a constant.
+    """
+    draws = {}
+    for tag, fname, clock in (("seed7", "ppo_learning_curve_10m_v9.json", PPO_10M_WALL_CLOCK),
+                              ("seed8", "ppo_learning_curve_10m_v9_seed8.json",
+                               PPO_10M_SEED8_WALL_CLOCK)):
+        data = json.load(open(os.path.join(ROOT, "benchmarks", fname), encoding="utf-8"))
+        budgets = sorted(data["models"], key=lambda k: int(k[1:]))
+        total = int(budgets[-1][1:])
+        best_step = max(budgets, key=lambda b: data["models"][b]["reached_target_pct"])
+        peak_step = max(budgets, key=lambda b: data["models"][b]["mean"])
+        draws[tag] = {
+            "seed": 7 if tag == "seed7" else 8,
+            "collected_steps": total, "wall_clock_seconds": clock["seconds"],
+            "wall_clock_window": clock["window"], "scoring_seconds": clock["scoring_seconds"],
+            "env_steps_per_second": round(total / clock["seconds"], 1),
+            "seconds_per_1m": round(clock["seconds"] / (total / 1e6), 1),
+            "device": data.get("device"), "torch_threads": data.get("torch_threads"),
+            "scored_in_version": data.get("scored_in_version"),
+            "physics_preset": data.get("physics_preset"),
+            "checkpoint_run": data["models"][budgets[0]]["checkpoint"].split("/")[1],
+            "best_reach": {"step": int(best_step[1:]),
+                           "reached_pct": data["models"][best_step]["reached_target_pct"],
+                           "mean": data["models"][best_step]["mean"],
+                           "mean_min_target_distance":
+                               data["models"][best_step]["mean_min_target_distance"]},
+            "peak_mean": {"step": int(peak_step[1:]),
+                          "mean": data["models"][peak_step]["mean"],
+                          "falls_per_episode": data["models"][peak_step]["falls_per_episode"]},
+            "final": {"step": total, "mean": data["models"][budgets[-1]]["mean"],
+                      "reached_pct": data["models"][budgets[-1]]["reached_target_pct"]},
+            "curve": {b: {k: data["models"][b][k] for k in ("mean", "reached_target_pct",
+                                                            "mean_min_target_distance",
+                                                            "mean_x_velocity",
+                                                            "standing_at_end_pct",
+                                                            "falls_per_episode")} for b in budgets},
+        }
+    d7, d8 = draws["seed7"], draws["seed8"]
+    sac = json.load(open(os.path.join(ROOT, "benchmarks", "utd_dose_draws.json"), encoding="utf-8"))
+    return {
+        "protocol": ("PPO, num_envs=32, task_phase=target, reset_mode=mixed, "
+                     "target_forward_velocity=1.2, 10M requested and 9,961,472 collected at rollout "
+                     "boundaries, once per seed (7 in chain25, 8 in chain29), each checkpoint scored "
+                     "with eval_phase1.py --num-episodes 20 --seed 11 in v9"),
+        "draws": draws,
+        "same_recipe_two_windows": {
+            "seconds": [d7["wall_clock_seconds"], d8["wall_clock_seconds"]],
+            "env_steps_per_second": [d7["env_steps_per_second"], d8["env_steps_per_second"]],
+            "spread_ratio": round(d8["wall_clock_seconds"] / d7["wall_clock_seconds"], 3),
+            "both_on_ac_power": True,
+            "candidate_explanation_not_tested": ("chain28 ran 2 h of GPU immediately before chain29; "
+                                                 "sustained throttling is the obvious suspect and an "
+                                                 "idle-gap replication is the obvious test, neither "
+                                                 "measured here"),
+        },
+        "against_sac_5m_arms_other_windows": {
+            "sac_ratio1_seconds": [sac["draws"][t]["arms"]["1"]["wall_clock_seconds"]
+                                   for t in ("seed7", "seed8")],
+            "sac_ratio4_seconds": [sac["draws"][t]["arms"]["4"]["wall_clock_seconds"]
+                                   for t in ("seed7", "seed8")],
+            "ppo_seconds": [d7["wall_clock_seconds"], d8["wall_clock_seconds"]],
+            "caveat": ("no SAC arm ran in either PPO window, so every ratio across the two algorithms "
+                       "here is cross-window; draw 1 alone made PPO look 1.5x cheaper than SAC's "
+                       "ratio-1 5M arm and draw 2 makes it 1.5x dearer"),
+        },
+        "behaviour_replicates": {
+            "best_reach_pct": [d7["best_reach"]["reached_pct"], d8["best_reach"]["reached_pct"]],
+            "peak_mean": [d7["peak_mean"]["mean"], d8["peak_mean"]["mean"]],
+            "final_mean": [d7["final"]["mean"], d8["final"]["mean"]],
+        },
+    }, out
+
+
 TEACHER_EVENTS = os.path.join("openai_walker", "sac_walker_tensorboard", "SAC_2",
                               "events.out.tfevents.1780843517.pedro.36828.0")
 
@@ -1307,6 +1409,8 @@ BENCHMARKS = [
     utd_dose_draws,
     # PPO at ten times the budget it was dismissed at, against the clock of every SAC arm.
     ppo_10m_against_sac,
+    # That PPO run drawn a second time: the behaviour replicates, the wall clock does not.
+    ppo_10m_draws,
     # The third physics world at the budget where reaching is observable, drawn twice.
     euler_screen_5m_draws,
     # The teacher's own 100-episode evaluations, mined from its committed TensorBoard log: the only

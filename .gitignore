@@ -61,6 +61,7 @@ htmlcov/
 !chain26_evidence.log
 !chain27_evidence.log
 !chain28_evidence.log
+!chain29_evidence.log
 runs/
 checkpoints/
 *.pt

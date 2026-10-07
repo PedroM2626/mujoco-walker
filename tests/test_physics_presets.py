@@ -429,6 +429,26 @@ class TestWallClockProvenanceSurvivesTheLogs(unittest.TestCase):
             self.assertEqual(art["draws"][tag]["v9_same_draw_seconds"],
                              draws["draws"][tag]["arms"]["v9"]["wall_clock_seconds"])
 
+    def test_the_ppo_second_draw_matches_chain29(self):
+        """The 2.28x spread between two windows of one recipe is only a fact if both clocks are."""
+        art = json.load(open(os.path.join(ROOT, "benchmarks", "ppo_10m_draws.json"),
+                             encoding="utf-8"))
+        spec = {"seed7": (25, "PPO 10M target n=32 v9", "score the PPO 10M curve"),
+                "seed8": (29, "PPO 10M target n=32 v9 seed 8", "score the PPO 10M curve seed 8")}
+        for tag, (chain, train_label, score_label) in spec.items():
+            arm = art["draws"][tag]
+            start, end = self.parse_window(arm["wall_clock_window"])
+            self.assertEqual(end, self.find_span(chain, train_label, start),
+                             f"{tag}: chain{chain} has no completed {train_label!r} at that start")
+            self.assertEqual(arm["wall_clock_seconds"], self.seconds_between(start, end))
+            span = [(s, e) for label, s, e, code in self.spans(chain)
+                    if label == score_label and code == 0 and s]
+            self.assertEqual(len(span), 1, f"{tag}: the scoring span is not in chain{chain}")
+            self.assertEqual(self.seconds_between(*span[0]), arm["scoring_seconds"])
+        self.assertEqual(art["same_recipe_two_windows"]["spread_ratio"],
+                         round(art["draws"]["seed8"]["wall_clock_seconds"]
+                               / art["draws"]["seed7"]["wall_clock_seconds"], 3))
+
     def test_the_gail_retrain_matches_chain13(self):
         art = json.load(open(os.path.join(ROOT, "benchmarks", "phase4_gail_retrain.json"),
                              encoding="utf-8"))

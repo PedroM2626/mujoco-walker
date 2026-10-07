@@ -1,0 +1,9 @@
+07:11:18 lock held by pid 65004
+07:11:18 machine claimed
+07:12:18 machine clear, proceeding
+07:12:18 START PPO 10M target n=32 v9 seed 8
+08:12:54 DONE  PPO 10M target n=32 v9 seed 8 (exit 0)
+08:12:54 scoring 10 rollout-boundary checkpoints
+08:12:54 START score the PPO 10M curve seed 8
+08:15:06 DONE  score the PPO 10M curve seed 8 (exit 0)
+08:15:06 chain29 complete

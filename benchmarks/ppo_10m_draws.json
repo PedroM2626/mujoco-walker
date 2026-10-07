@@ -1,0 +1,271 @@
+{
+  "protocol": "PPO, num_envs=32, task_phase=target, reset_mode=mixed, target_forward_velocity=1.2, 10M requested and 9,961,472 collected at rollout boundaries, once per seed (7 in chain25, 8 in chain29), each checkpoint scored with eval_phase1.py --num-episodes 20 --seed 11 in v9",
+  "draws": {
+    "seed7": {
+      "seed": 7,
+      "collected_steps": 9961472,
+      "wall_clock_seconds": 1594,
+      "wall_clock_window": "2026-10-06 23:03:01 -> 23:29:35",
+      "scoring_seconds": 130,
+      "env_steps_per_second": 6249.4,
+      "seconds_per_1m": 160.0,
+      "device": "cuda",
+      "torch_threads": 24,
+      "scored_in_version": "standup_balance_walk_curriculum_v9",
+      "physics_preset": "v9",
+      "checkpoint_run": "ppo_10m_target_v9",
+      "best_reach": {
+        "step": 5046272,
+        "reached_pct": 15.0,
+        "mean": 33204.98,
+        "mean_min_target_distance": 2.179
+      },
+      "peak_mean": {
+        "step": 8060928,
+        "mean": 43439.25,
+        "falls_per_episode": 3.2
+      },
+      "final": {
+        "step": 9961472,
+        "mean": 39232.09,
+        "reached_pct": 5.0
+      },
+      "curve": {
+        "s1048576": {
+          "mean": -813.28,
+          "reached_target_pct": 0.0,
+          "mean_min_target_distance": 3.145,
+          "mean_x_velocity": 0.007,
+          "standing_at_end_pct": 0.0,
+          "falls_per_episode": 0.1
+        },
+        "s2031616": {
+          "mean": 11594.52,
+          "reached_target_pct": 0.0,
+          "mean_min_target_distance": 3.075,
+          "mean_x_velocity": -0.0079,
+          "standing_at_end_pct": 0.0,
+          "falls_per_episode": 0.15
+        },
+        "s3014656": {
+          "mean": 17863.01,
+          "reached_target_pct": 0.0,
+          "mean_min_target_distance": 2.853,
+          "mean_x_velocity": 0.0068,
+          "standing_at_end_pct": 0.0,
+          "falls_per_episode": 0.4
+        },
+        "s4063232": {
+          "mean": 24717.01,
+          "reached_target_pct": 10.0,
+          "mean_min_target_distance": 2.811,
+          "mean_x_velocity": -0.0083,
+          "standing_at_end_pct": 0.0,
+          "falls_per_episode": 1.0
+        },
+        "s5046272": {
+          "mean": 33204.98,
+          "reached_target_pct": 15.0,
+          "mean_min_target_distance": 2.179,
+          "mean_x_velocity": 0.0148,
+          "standing_at_end_pct": 5.0,
+          "falls_per_episode": 1.8
+        },
+        "s6029312": {
+          "mean": 36235.22,
+          "reached_target_pct": 5.0,
+          "mean_min_target_distance": 2.352,
+          "mean_x_velocity": -0.0016,
+          "standing_at_end_pct": 5.0,
+          "falls_per_episode": 2.55
+        },
+        "s7012352": {
+          "mean": 39643.14,
+          "reached_target_pct": 10.0,
+          "mean_min_target_distance": 2.69,
+          "mean_x_velocity": -0.0496,
+          "standing_at_end_pct": 10.0,
+          "falls_per_episode": 2.55
+        },
+        "s8060928": {
+          "mean": 43439.25,
+          "reached_target_pct": 5.0,
+          "mean_min_target_distance": 2.041,
+          "mean_x_velocity": 0.0427,
+          "standing_at_end_pct": 5.0,
+          "falls_per_episode": 3.2
+        },
+        "s9043968": {
+          "mean": 39970.99,
+          "reached_target_pct": 5.0,
+          "mean_min_target_distance": 2.194,
+          "mean_x_velocity": 0.0113,
+          "standing_at_end_pct": 5.0,
+          "falls_per_episode": 2.7
+        },
+        "s9961472": {
+          "mean": 39232.09,
+          "reached_target_pct": 5.0,
+          "mean_min_target_distance": 2.387,
+          "mean_x_velocity": 0.0491,
+          "standing_at_end_pct": 0.0,
+          "falls_per_episode": 2.85
+        }
+      }
+    },
+    "seed8": {
+      "seed": 8,
+      "collected_steps": 9961472,
+      "wall_clock_seconds": 3636,
+      "wall_clock_window": "2026-10-07 07:12:18 -> 08:12:54",
+      "scoring_seconds": 132,
+      "env_steps_per_second": 2739.7,
+      "seconds_per_1m": 365.0,
+      "device": "cuda",
+      "torch_threads": 24,
+      "scored_in_version": "standup_balance_walk_curriculum_v9",
+      "physics_preset": "v9",
+      "checkpoint_run": "ppo_10m_target_v9_seed8",
+      "best_reach": {
+        "step": 7012352,
+        "reached_pct": 25.0,
+        "mean": 30633.56,
+        "mean_min_target_distance": 2.138
+      },
+      "peak_mean": {
+        "step": 9961472,
+        "mean": 34707.81,
+        "falls_per_episode": 3.05
+      },
+      "final": {
+        "step": 9961472,
+        "mean": 34707.81,
+        "reached_pct": 0.0
+      },
+      "curve": {
+        "s1048576": {
+          "mean": 4397.74,
+          "reached_target_pct": 0.0,
+          "mean_min_target_distance": 3.321,
+          "mean_x_velocity": -0.0384,
+          "standing_at_end_pct": 0.0,
+          "falls_per_episode": 0.1
+        },
+        "s2031616": {
+          "mean": 11259.37,
+          "reached_target_pct": 0.0,
+          "mean_min_target_distance": 2.826,
+          "mean_x_velocity": 0.013,
+          "standing_at_end_pct": 0.0,
+          "falls_per_episode": 0.15
+        },
+        "s3014656": {
+          "mean": 16387.0,
+          "reached_target_pct": 5.0,
+          "mean_min_target_distance": 2.678,
+          "mean_x_velocity": -0.006,
+          "standing_at_end_pct": 0.0,
+          "falls_per_episode": 0.3
+        },
+        "s4063232": {
+          "mean": 24108.51,
+          "reached_target_pct": 0.0,
+          "mean_min_target_distance": 2.718,
+          "mean_x_velocity": -0.0382,
+          "standing_at_end_pct": 0.0,
+          "falls_per_episode": 0.7
+        },
+        "s5046272": {
+          "mean": 25093.31,
+          "reached_target_pct": 10.0,
+          "mean_min_target_distance": 2.698,
+          "mean_x_velocity": -0.0364,
+          "standing_at_end_pct": 0.0,
+          "falls_per_episode": 1.2
+        },
+        "s6029312": {
+          "mean": 23828.45,
+          "reached_target_pct": 10.0,
+          "mean_min_target_distance": 2.537,
+          "mean_x_velocity": -0.1384,
+          "standing_at_end_pct": 0.0,
+          "falls_per_episode": 1.75
+        },
+        "s7012352": {
+          "mean": 30633.56,
+          "reached_target_pct": 25.0,
+          "mean_min_target_distance": 2.138,
+          "mean_x_velocity": 0.1014,
+          "standing_at_end_pct": 0.0,
+          "falls_per_episode": 2.1
+        },
+        "s8060928": {
+          "mean": 31341.11,
+          "reached_target_pct": 5.0,
+          "mean_min_target_distance": 2.546,
+          "mean_x_velocity": -0.1378,
+          "standing_at_end_pct": 5.0,
+          "falls_per_episode": 2.6
+        },
+        "s9043968": {
+          "mean": 29941.44,
+          "reached_target_pct": 0.0,
+          "mean_min_target_distance": 2.15,
+          "mean_x_velocity": -0.0053,
+          "standing_at_end_pct": 0.0,
+          "falls_per_episode": 2.25
+        },
+        "s9961472": {
+          "mean": 34707.81,
+          "reached_target_pct": 0.0,
+          "mean_min_target_distance": 2.565,
+          "mean_x_velocity": 0.0249,
+          "standing_at_end_pct": 0.0,
+          "falls_per_episode": 3.05
+        }
+      }
+    }
+  },
+  "same_recipe_two_windows": {
+    "seconds": [
+      1594,
+      3636
+    ],
+    "env_steps_per_second": [
+      6249.4,
+      2739.7
+    ],
+    "spread_ratio": 2.281,
+    "both_on_ac_power": true,
+    "candidate_explanation_not_tested": "chain28 ran 2 h of GPU immediately before chain29; sustained throttling is the obvious suspect and an idle-gap replication is the obvious test, neither measured here"
+  },
+  "against_sac_5m_arms_other_windows": {
+    "sac_ratio1_seconds": [
+      2399,
+      2529
+    ],
+    "sac_ratio4_seconds": [
+      6494,
+      6824
+    ],
+    "ppo_seconds": [
+      1594,
+      3636
+    ],
+    "caveat": "no SAC arm ran in either PPO window, so every ratio across the two algorithms here is cross-window; draw 1 alone made PPO look 1.5x cheaper than SAC's ratio-1 5M arm and draw 2 makes it 1.5x dearer"
+  },
+  "behaviour_replicates": {
+    "best_reach_pct": [
+      15.0,
+      25.0
+    ],
+    "peak_mean": [
+      43439.25,
+      34707.81
+    ],
+    "final_mean": [
+      39232.09,
+      34707.81
+    ]
+  }
+}

@@ -353,3 +353,26 @@ where both readings are identical. The loss logging stayed **outside**, because 
 tensorboard series the training-rate summaries read. REDQ already had this knob as `--utd-ratio 20`,
 and its loop carries the same comment about gating on `global_step` inside a UTD loop - the pattern
 was documented in one trainer and quietly absent from the two that ran most of the research.
+
+## A rate published from one window was refuted by the next window of the same recipe
+
+The PPO re-run at 10M cost **1,594 s** in chain25's window, and the paragraph written from it said the
+whole curve costs less clock than a SAC 5M arm in this world. Chain29 ran the identical recipe - same
+config, seed 8 - and took **3,636 s**: 2,739.7 env-steps/s where chain25 measured 6,249.4, a **2.28x**
+spread, both windows on AC power, and 3,636 s is more than either SAC ratio-1 arm (2,399 s, 2,529 s)
+and less than either ratio-4 arm (6,494 s, 6,824 s). The published sentence was true of a measurement
+and false as a property, and the only thing that caught it was running the same thing again.
+
+**Why this one stings more than the usual per-window noise:** SAC's four 5M arms across two nights
+disagreed by 5.4% in seconds per 1M at fixed dose (479.8 and 505.8), and its dose ratio replicated to
+0.3% (2.707 and 2.698). PPO's own rate moved 2.28x. A trainer whose update is one big vectorised pass
+per rollout appears to read the machine's state far more strongly than one whose update is a small
+batched step - so "PPO is Nx faster than SAC" is a claim about two windows as much as about two
+algorithms, and here neither PPO window shared a machine moment with a SAC arm at all, so an honest
+within-window PPO-vs-SAC ratio does not exist in this repository yet.
+
+**How to apply:** a rate gets the window it was measured in named next to it, and a cross-algorithm rate
+needs both arms in one window or it is not a ratio, it is a coincidence of two. Where the honest ratio
+cannot be built, publish the straddle ("comparable, between SAC's ratio-1 and ratio-4 arms") and record
+what would settle it - an idle-gap replication of chain25, to see whether the fast window is reproducible
+at all.

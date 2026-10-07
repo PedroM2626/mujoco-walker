@@ -322,6 +322,38 @@ class TestWallClockProvenanceSurvivesTheLogs(unittest.TestCase):
         self.assertEqual(scored["score the second draw in v9"], arms["v9"]["scoring_seconds"])
         self.assertEqual(scored["score the second draw in fast"], arms["fast"]["scoring_seconds"])
 
+    def test_the_utd_pair_matches_chain24(self):
+        """The 2.707x price of the update is only meaningful if both arms shared a window.
+
+        So this checks the adjacency, not just the two spans: the ratio-4 arm has to start at the
+        minute the ratio-1 arm's scoring finished, with nothing else claimed in between.
+        """
+        art = json.load(open(os.path.join(ROOT, "benchmarks", "utd_dose_pair.json"),
+                             encoding="utf-8"))
+        arms = art["arms"]
+        labels = {"n32_r1": "SAC 5M n=32 utd=1", "n32_r4": "SAC 5M n=32 utd=4"}
+        for name, arm in arms.items():
+            start, end = self.parse_window(arm["wall_clock_window"])
+            self.assertEqual(end, self.find_span(24, labels[name], start))
+            self.assertEqual(arm["wall_clock_seconds"], self.seconds_between(start, end))
+        scored = {label: (start, end) for label, start, end, code in self.spans(24)
+                  if code == 0 and start and label.startswith("score SAC 5M")}
+        for name in arms:
+            label = f"score SAC 5M n=32 utd={arms[name]['utd_ratio']}"
+            self.assertEqual(self.seconds_between(*scored[label]),
+                             arms[name]["scoring_seconds"], f"{name}: scoring span disagrees")
+        r1, r4 = arms["n32_r1"], arms["n32_r4"]
+        self.assertEqual(self.parse_window(r4["wall_clock_window"])[0],
+                         scored["score SAC 5M n=32 utd=1"][1],
+                         "the ratio-4 arm did not start right after the ratio-1 arm was scored, so "
+                         "their ratio is a cross-window comparison and the README must say so")
+        # The smoke arm that validated --utd-ratio before the long runs: it completed, and it is the
+        # only thing in this chain that ran the new loop on CUDA before the two arms did.
+        smoke = [self.seconds_between(s, e) for label, s, e, code in self.spans(24)
+                 if label == "SAC utd smoke, 4096 steps at ratio 3" and code == 0 and s]
+        self.assertTrue(smoke and smoke[0] < 120,
+                        "the ratio-3 smoke arm is missing from chain24 or never finished quickly")
+
     def test_the_gail_retrain_matches_chain13(self):
         art = json.load(open(os.path.join(ROOT, "benchmarks", "phase4_gail_retrain.json"),
                              encoding="utf-8"))

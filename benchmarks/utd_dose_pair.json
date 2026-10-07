@@ -1,0 +1,152 @@
+{
+  "protocol": "SAC 5M, seed 7, task_phase=target, reset_mode=mixed, target_forward_velocity=1.2, num_envs=32, one arm at --utd-ratio 1 and one at 4, back to back in one window, checkpointed every 1M; each scored with eval_phase1.py --num-episodes 20 --seed 11 in v9",
+  "arms": {
+    "n32_r1": {
+      "num_envs": 32,
+      "utd_ratio": 1,
+      "seed": 7,
+      "physics_preset": "v9",
+      "device": "cuda",
+      "torch_threads": 24,
+      "scored_in_version": "standup_balance_walk_curriculum_v9",
+      "checkpoint_run": "utd_sac_n32_r1_5m",
+      "updates_per_environment_step": 0.0312,
+      "wall_clock_seconds": 2399,
+      "wall_clock_window": "2026-10-06 20:15:05 -> 20:55:04",
+      "seconds_per_1m": 479.8,
+      "scoring_seconds": 81,
+      "by_budget": {
+        "s1000000": {
+          "mean": 12157.92,
+          "std": 8338.36,
+          "reached_target_pct": 0.0,
+          "mean_min_target_distance": 2.623,
+          "mean_x_velocity": 0.0513,
+          "standing_at_end_pct": 0.0,
+          "falls_per_episode": 0.3
+        },
+        "s2000000": {
+          "mean": 17698.63,
+          "std": 6863.26,
+          "reached_target_pct": 0.0,
+          "mean_min_target_distance": 2.842,
+          "mean_x_velocity": 0.0601,
+          "standing_at_end_pct": 0.0,
+          "falls_per_episode": 0.25
+        },
+        "s3000000": {
+          "mean": 27335.92,
+          "std": 12597.65,
+          "reached_target_pct": 5.0,
+          "mean_min_target_distance": 2.638,
+          "mean_x_velocity": 0.0298,
+          "standing_at_end_pct": 0.0,
+          "falls_per_episode": 1.1
+        },
+        "s4000000": {
+          "mean": 33986.53,
+          "std": 16564.96,
+          "reached_target_pct": 15.0,
+          "mean_min_target_distance": 2.632,
+          "mean_x_velocity": 0.0559,
+          "standing_at_end_pct": 5.0,
+          "falls_per_episode": 1.5
+        },
+        "s5000000": {
+          "mean": 36623.52,
+          "std": 18806.99,
+          "reached_target_pct": 5.0,
+          "mean_min_target_distance": 2.029,
+          "mean_x_velocity": 0.1182,
+          "standing_at_end_pct": 5.0,
+          "falls_per_episode": 1.9
+        }
+      }
+    },
+    "n32_r4": {
+      "num_envs": 32,
+      "utd_ratio": 4,
+      "seed": 7,
+      "physics_preset": "v9",
+      "device": "cuda",
+      "torch_threads": 24,
+      "scored_in_version": "standup_balance_walk_curriculum_v9",
+      "checkpoint_run": "utd_sac_n32_r4_5m",
+      "updates_per_environment_step": 0.125,
+      "wall_clock_seconds": 6494,
+      "wall_clock_window": "2026-10-06 20:56:25 -> 22:44:39",
+      "seconds_per_1m": 1298.8,
+      "scoring_seconds": 84,
+      "by_budget": {
+        "s1000000": {
+          "mean": 7885.16,
+          "std": 9465.38,
+          "reached_target_pct": 0.0,
+          "mean_min_target_distance": 3.048,
+          "mean_x_velocity": -0.0613,
+          "standing_at_end_pct": 0.0,
+          "falls_per_episode": 0.3
+        },
+        "s2000000": {
+          "mean": 30900.47,
+          "std": 16145.14,
+          "reached_target_pct": 5.0,
+          "mean_min_target_distance": 2.572,
+          "mean_x_velocity": 0.048,
+          "standing_at_end_pct": 10.0,
+          "falls_per_episode": 1.4
+        },
+        "s3000000": {
+          "mean": 33811.81,
+          "std": 27759.34,
+          "reached_target_pct": 25.0,
+          "mean_min_target_distance": 1.706,
+          "mean_x_velocity": 0.1941,
+          "standing_at_end_pct": 0.0,
+          "falls_per_episode": 2.0
+        },
+        "s4000000": {
+          "mean": 31976.66,
+          "std": 25108.07,
+          "reached_target_pct": 10.0,
+          "mean_min_target_distance": 1.867,
+          "mean_x_velocity": 0.2,
+          "standing_at_end_pct": 5.0,
+          "falls_per_episode": 1.55
+        },
+        "s5000000": {
+          "mean": 24137.34,
+          "std": 19688.09,
+          "reached_target_pct": 20.0,
+          "mean_min_target_distance": 2.228,
+          "mean_x_velocity": 0.1345,
+          "standing_at_end_pct": 0.0,
+          "falls_per_episode": 1.3
+        }
+      }
+    }
+  },
+  "ratio_4_over_ratio_1_seconds": 2.707,
+  "derived_from_the_two_measurements": {
+    "update_seconds_at_ratio_1": 1365.0,
+    "collection_seconds": 1034.0,
+    "update_share_of_ratio_1_clock_pct": 56.9,
+    "equations": "C + U = 2399 and C + 4U = 6494, where U is the cost of the updates one ratio-1 run performs and C the collection it shares with the ratio-4 run"
+  },
+  "dose_matched_against_the_committed_8_env_arm": {
+    "n8_ratio1_seconds": 8992,
+    "n8_ratio1_source": "benchmarks/physics_presets_screen5m_paired.json (chain18, 2026-10-05)",
+    "updates_per_environment_step": 0.125,
+    "speedup_of_n32_ratio4": 1.385,
+    "caveat": "a different window on a different night: the same world at 8 envs ran at 1,798.4 s per 1M there and 1,877.2 s per 1M in chain23, so this ratio carries the per-window spread every other pair in the README does"
+  },
+  "reach_pct_at_5m": {
+    "n32_r1": 5.0,
+    "n32_r4": 20.0
+  },
+  "mean_at_5m": {
+    "n32_r1": 36623.52,
+    "n32_r4": 24137.34
+  },
+  "note": "the two columns rank the arms in opposite directions, which is the point: the mean return is mostly posture shaping and the reach column is the task's own criterion"
+}

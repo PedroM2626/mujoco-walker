@@ -627,6 +627,95 @@ def physics_preset_second_draw(out="benchmarks/physics_presets_screen5m_draws.js
     }, out
 
 
+UTD_5M_WALL_CLOCK = {
+    # Recorded from chain24's launcher log: the two arms ran back to back in one window, which is
+    # what makes their ratio the quotable figure and the comparison against the committed 8-env arm
+    # (chain18, a different night) the one that needs the caveat.
+    "n32_r1": {"seconds": 2399, "scoring_seconds": 81,
+               "window": "2026-10-06 20:15:05 -> 20:55:04"},
+    "n32_r4": {"seconds": 6494, "scoring_seconds": 84,
+               "window": "2026-10-06 20:56:25 -> 22:44:39"},
+}
+
+
+def utd_dose_pair(out="benchmarks/utd_dose_pair.json"):
+    """What it costs to buy the same optimisation dose at 32 environments instead of 8.
+
+    `--utd-ratio` 4 at `num_envs=32` performs the same number of gradient updates per environment
+    step as the committed screens at `num_envs=8` ratio 1, so the two arms of this pair differ in
+    collection plumbing and update count, not in how hard each environment step is optimised.
+
+    The clock says the update is most of the bill but not all of it: ratio 4 took 2.707x ratio 1 in
+    the same window, not 4x. Solving the two measurements as C + U = 2,399 and C + 4U = 6,494 puts
+    1,365 s in updates and 1,034 s in collection, i.e. **57%** of a ratio-1 run at 32 envs is the
+    gradient step. The Dreamer loop split reaches 78.6% by instrumenting one iteration of a different
+    trainer, so these are two methods agreeing on a direction - the update is the larger half - and
+    not one number confirming another.
+
+    The score columns disagree with each other in the way this repository has learned to expect: the
+    under-dosed arm posted the higher mean return (36,623.52 against 24,137.34) while the dose-matched
+    arm reached the target in 20% of episodes at 5M and 25% at 3M against 5% and 15%. The return
+    column is posture; the reach column is the task. One draw per arm, and today's own measurement put
+    the within-world band at ~20k of mean and 0-10% of reach, so the behavioural half is directional
+    and only the cost decomposition is a number.
+    """
+    arms = {}
+    for name, ratio in (("n32_r1", 1), ("n32_r4", 4)):
+        data = json.load(open(os.path.join(ROOT, "benchmarks", f"utd_sac_{name}_5m.json"),
+                              encoding="utf-8"))
+        clock = UTD_5M_WALL_CLOCK[name]
+        arms[name] = {
+            "num_envs": 32, "utd_ratio": ratio, "seed": 7, "physics_preset": data["physics_preset"],
+            "device": data.get("device"), "torch_threads": data.get("torch_threads"),
+            "scored_in_version": data.get("scored_in_version"),
+            "checkpoint_run": data["models"]["s1000000"]["checkpoint"].split("/")[1],
+            "updates_per_environment_step": round(ratio / 32.0, 4),
+            "wall_clock_seconds": clock["seconds"], "wall_clock_window": clock["window"],
+            "seconds_per_1m": round(clock["seconds"] / 5.0, 1),
+            "scoring_seconds": clock["scoring_seconds"],
+            "by_budget": {
+                budget: {k: model[k] for k in ("mean", "std", "reached_target_pct",
+                                               "mean_min_target_distance", "mean_x_velocity",
+                                               "standing_at_end_pct", "falls_per_episode")}
+                for budget, model in sorted(data["models"].items(), key=lambda kv: int(kv[0][1:]))
+            },
+        }
+    r1, r4 = arms["n32_r1"], arms["n32_r4"]
+    cost_ratio = r4["wall_clock_seconds"] / r1["wall_clock_seconds"]
+    update_seconds = (r4["wall_clock_seconds"] - r1["wall_clock_seconds"]) / 3.0
+    collection_seconds = r1["wall_clock_seconds"] - update_seconds
+    at5 = lambda arm: arm["by_budget"]["s5000000"]
+    return {
+        "protocol": ("SAC 5M, seed 7, task_phase=target, reset_mode=mixed, "
+                     "target_forward_velocity=1.2, num_envs=32, one arm at --utd-ratio 1 and one at "
+                     "4, back to back in one window, checkpointed every 1M; each scored with "
+                     "eval_phase1.py --num-episodes 20 --seed 11 in v9"),
+        "arms": arms,
+        "ratio_4_over_ratio_1_seconds": round(cost_ratio, 3),
+        "derived_from_the_two_measurements": {
+            "update_seconds_at_ratio_1": round(update_seconds, 1),
+            "collection_seconds": round(collection_seconds, 1),
+            "update_share_of_ratio_1_clock_pct": round(100 * update_seconds
+                                                       / r1["wall_clock_seconds"], 1),
+            "equations": ("C + U = 2399 and C + 4U = 6494, where U is the cost of the updates one "
+                          "ratio-1 run performs and C the collection it shares with the ratio-4 run"),
+        },
+        "dose_matched_against_the_committed_8_env_arm": {
+            "n8_ratio1_seconds": 8992,
+            "n8_ratio1_source": "benchmarks/physics_presets_screen5m_paired.json (chain18, 2026-10-05)",
+            "updates_per_environment_step": round(1 / 8.0, 4),
+            "speedup_of_n32_ratio4": round(8992 / r4["wall_clock_seconds"], 3),
+            "caveat": ("a different window on a different night: the same world at 8 envs ran at "
+                       "1,798.4 s per 1M there and 1,877.2 s per 1M in chain23, so this ratio carries "
+                       "the per-window spread every other pair in the README does"),
+        },
+        "reach_pct_at_5m": {name: at5(arm)["reached_target_pct"] for name, arm in arms.items()},
+        "mean_at_5m": {name: at5(arm)["mean"] for name, arm in arms.items()},
+        "note": ("the two columns rank the arms in opposite directions, which is the point: the mean "
+                 "return is mostly posture shaping and the reach column is the task's own criterion"),
+    }, out
+
+
 TRAINER_PAIR_WALL_CLOCK = {
     # Recorded from the launcher logs of chains 19 and 20, which ran back to back on an idle
     # machine: PPO v9 at 01:42:06 -> 01:46:48, PPO fast at 01:46:48 -> 01:50:52, SAC at n=32 at
@@ -910,6 +999,8 @@ BENCHMARKS = [
     physics_preset_dreamer_pair,
     # All three physics worlds trained end to end at 1M, so the step ratio is not quoted alone.
     physics_presets_sac_triple,
+    # The same optimisation dose bought at 32 envs instead of 8: what the update is really worth.
+    utd_dose_pair,
     # The teacher's own 100-episode evaluations, mined from its committed TensorBoard log: the only
     # pre-retraction evaluation series in the repo, and an independent protocol.
     teacher_eval_curve,

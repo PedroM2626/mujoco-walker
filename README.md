@@ -1157,9 +1157,27 @@ the `v9` arm of the 5M pair ran at **1,798.4 s per 1M steps** at 8 envs while th
 sustained **467.4 s per 1M**, and 1798.4/467.4 is **3.85x**, which is the 4x update ratio and not an
 engineering win. Collecting at 32 envs is cheaper precisely because it trains less per step. The
 trainer now has the explicit knob the REDQ side already had (`--utd-ratio`, G updates per collection
-iteration, default **1** - the shipped schedule, so no committed run moves). What the knob costs and
-what it buys at 32 envs is **not measured yet**: the arm that decides it is queued, and this sentence
-should be replaced by its numbers rather than re-read as a claim.
+iteration, default **1** - the shipped schedule, so no committed run moves).
+
+**The arms that decide what it costs ran the same night** (`benchmarks/utd_dose_pair.json`): 5M at 32
+envs, ratio 1 then ratio 4 back to back in one window - **2,399 s against 6,494 s, which is 2.707x and
+not 4x**. Reading that pair as `C + U = 2,399` and `C + 4U = 6,494` (the updates one ratio-1 run
+performs, plus the collection the two arms share) puts **1,365 s in the gradient step and 1,034 s in
+collection: 56.9%** of a ratio-1 SAC run at 32 envs is the update. The Dreamer loop split reaches its
+78.6% by instrumenting one iteration of a different trainer, so the two shares are two methods on two
+trainers rather than one number confirming the other - what they agree on is only the direction, that
+the update is the larger half. Buying the committed 8-env arm's dose at 32 envs cost **6,494 s where
+that arm took 8,992 s (1.385x)**, and that is the one figure here carrying a window caveat: the two
+arms were trained on different nights, and the same world at 8 envs ran at 1,798.4 s per 1M in one of
+them and 1,877.2 s per 1M in the other.
+
+The behavioural half goes the other way and refuses to be a number. The dose-matched arm reaches more
+often at two of the three upper budgets (**25% against 5%** at 3M, **20% against 5%** at 5M) and
+*less* at 4M (10% against 15%), while the under-dosed arm posted the higher mean return at 5M -
+**36,623.52 against 24,137.34**. One draw per arm, in a world whose own band today ran from
++18,956.17 to -763.96. So the part of this that repeats is the cost arithmetic; the score comparison
+is directional, and it is one more instance of the rule this section keeps re-learning: the return
+column is posture, the reach column is the task.
 
 And the caveat that limits what a screen can ask. Scored at the published protocol, the two arms
 reach the target in 0 of 20 episodes each (`benchmarks/physics_presets_screen_v9.json`,
@@ -1919,13 +1937,13 @@ Three facts to keep in mind:
 
 The suite is plain `unittest` (no pytest required) and covers the environment contract, the
 golden reward rollouts, the parallel/serial vector-env parity, checkpointing and the race
-harness — **273 tests, 192 s in this window** (`Ran 273 tests in 191.909s ... OK
+harness — **279 tests, 206 s in this window** (`Ran 279 tests in 206.150s ... OK
 (skipped=7)` under `.venv`). Windows of this suite have measured 176.3 s at 102 tests, 269.995 s
 at 121, 261.1 s at 127, 329.964 s at 128, 319.168 s at 130, 184.716 s, 203.108 s and 306.976 s at
 140, 144.678 s at 147, 230.268 s at 157, 171.016 s and 170.304 s at 194, and 174.008 s,
 170.391 s, 175.036 s, 168.775 s, 168.986 s and 166.606 s at 201/205/210, 169.919 s at 214,
-and 163.920 s and 161.829 s at 237, 165.360 s and 164.902 s at 243, 161.647 s and 162.674 s at 250, 162.726 s and 162.167 s at 251, 171.616 s and 163.434 s at 252, 163.769 s and 163.748 s at 255, 226.912 s and 217.651 s at 260, 193.167 s and 191.909 s at 273 -
-the 273 windows carry a dose test that runs three short CPU trainings, which are about 27 s of
+and 163.920 s and 161.829 s at 237, 165.360 s and 164.902 s at 243, 161.647 s and 162.674 s at 250, 162.726 s and 162.167 s at 251, 171.616 s and 163.434 s at 252, 163.769 s and 163.748 s at 255, 226.912 s and 217.651 s at 260, 193.167 s and 191.909 s at 273, 206.150 s at 279 -
+those last windows carry a dose test that runs three short CPU trainings, which are about 27 s of
 them, so that entry is not slower hardware; consecutive runs of one commit agree to 4%, where the
 147 and 157 windows an afternoon earlier were 1.6x apart for ten more tests. The
 duration belongs to the machine's state, the
@@ -1982,7 +2000,7 @@ that they ran - see Phase 4, item 6. How each of those states was found, with th
 ## 🔬 Reproducing and measuring
 
 ```bash
-python -m unittest discover -s tests -t .   # 273 tests in .venv, 192 s; see "Running the tests"
+python -m unittest discover -s tests -t .   # 279 tests in .venv, 206 s; see "Running the tests"
 python bench_env.py --seconds 4             # env throughput, physics vs Python split
 python bench_mjx.py --sizes 32,128          # MJX/JAX batched stepping
 python verify.py                            # Phase-2 artifact check (exits 2 when missing)

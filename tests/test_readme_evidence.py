@@ -3234,6 +3234,114 @@ class TestReadmePhysicsPresetCells(ReadmeGate, unittest.TestCase):
                     arms["v9"]["by_budget"]["s5000000"]["falls_per_episode"]], places=2)
 
 
+class TestReadmeUtdDoseCells(ReadmeGate, unittest.TestCase):
+    """The `--utd-ratio` pair: what a gradient update costs, and what the score column refuses to say.
+
+    Every cell is recomputed from `benchmarks/utd_dose_pair.json`, including the 56.9% share, which is
+    *solved* from the two wall clocks rather than stored - the artifact keeps the equations and this
+    class keeps the arithmetic honest, so a reworded paragraph cannot survive a changed measurement.
+    """
+
+    PAIR = os.path.join(ROOT, "benchmarks", "utd_dose_pair.json")
+    DRAWS = os.path.join(ROOT, "benchmarks", "physics_presets_screen5m_draws.json")
+    SCREENS5M = os.path.join(ROOT, "benchmarks", "physics_presets_screen5m_paired.json")
+    START = "**The `num_envs=8` in those screens is not only a plumbing choice"
+    END = "And the caveat that limits what a screen can ask."
+
+    def setUp(self):
+        with open(README, encoding="utf-8") as handle:
+            readme = handle.read()
+        start = readme.index(self.START)
+        self.block = readme[start:readme.index(self.END, start)]
+        self.pair, self.draws, self.screens5m = self.read_artifacts(
+            self.PAIR, self.DRAWS, self.SCREENS5M)
+        self.bad = []
+        self.what = "UTD dose"
+
+    def test_the_two_clocks_in_one_window_set_the_price_of_the_update(self):
+        arms = self.pair["arms"]
+        m = self.sentence(r"ratio 1 then ratio 4 back to back in one window - \*\*([\d,]+) s against "
+                          r"([\d,]+) s, which is ([\d.]+)x and\s*not 4x\*\*", "the two wall clocks")
+        self.check("ratio 1 clock", m.group(1), arms["n32_r1"]["wall_clock_seconds"], places=0)
+        self.check("ratio 4 clock", m.group(2), arms["n32_r4"]["wall_clock_seconds"], places=0)
+        self.check("cost ratio", m.group(3), self.pair["ratio_4_over_ratio_1_seconds"], places=3)
+        self.assertEqual(self.pair["ratio_4_over_ratio_1_seconds"],
+                         round(arms["n32_r4"]["wall_clock_seconds"]
+                               / arms["n32_r1"]["wall_clock_seconds"], 3))
+
+    def test_the_update_share_is_derived_from_the_pair_and_not_remembered(self):
+        arms, derived = self.pair["arms"], self.pair["derived_from_the_two_measurements"]
+        m = self.sentence(r"puts \*\*([\d,]+) s in the gradient step and ([\d,]+) s in\s*"
+                          r"collection: ([\d.]+)%\*\*", "the decomposition")
+        self.check("update and collection seconds", [m.group(1), m.group(2)],
+                   [derived["update_seconds_at_ratio_1"], derived["collection_seconds"]], places=1)
+        self.check("update share", m.group(3), derived["update_share_of_ratio_1_clock_pct"], places=1)
+        # The two equations the artifact names have to close against both measured clocks.
+        u, c = (derived["update_seconds_at_ratio_1"], derived["collection_seconds"])
+        self.assertAlmostEqual(c + u, arms["n32_r1"]["wall_clock_seconds"], delta=1)
+        self.assertAlmostEqual(c + 4 * u, arms["n32_r4"]["wall_clock_seconds"], delta=1)
+        self.assertLess(4 * u / (c + 4 * u), 1, "the ratio-4 run is not update-dominated in the way "
+                                               "the sentence says")
+
+    def test_the_dose_matched_cross_window_figure_carries_its_caveat(self):
+        cross = self.pair["dose_matched_against_the_committed_8_env_arm"]
+        m = self.sentence(r"cost \*\*([\d,]+) s where that arm took ([\d,]+) s "
+                          r"\(([\d.]+)x\)\*\*", "the dose-matched comparison")
+        self.check("n32 ratio 4", m.group(1), self.pair["arms"]["n32_r4"]["wall_clock_seconds"],
+                   places=0)
+        self.check("n8 ratio 1", m.group(2), cross["n8_ratio1_seconds"], places=0)
+        self.check("speedup", m.group(3), cross["speedup_of_n32_ratio4"], places=3)
+        # The committed 8,992 s the paragraph reuses has to still be the number the 5M pair stores.
+        self.assertEqual(cross["n8_ratio1_seconds"],
+                         self.screens5m["arms"]["v9"]["wall_clock_seconds"],
+                         "the 8-env arm quoted here is no longer the one the 5M pair recorded")
+        m = self.sentence(r"ran at ([\d,.]+) s per 1M in one of them and ([\d,.]+) s per 1M in the "
+                          r"other", "the per-window spread of the same world")
+        self.check("v9 per 1M, first window", m.group(1),
+                   self.draws["draws"]["seed7"]["arms"]["v9"]["seconds_per_1m"], places=1)
+        self.check("v9 per 1M, second window", m.group(2),
+                   self.draws["draws"]["seed8"]["arms"]["v9"]["seconds_per_1m"], places=1)
+
+    def test_the_two_columns_rank_the_arms_in_opposite_directions(self):
+        arms = self.pair["arms"]
+        at = lambda name, b: arms[name]["by_budget"][b]
+        m = self.sentence(r"(\d+)% against (\d+)%\*\*\s*at 3M, \*\*(\d+)% against (\d+)%\*\* at 5M\) "
+                          r"and\s*\*less\* at 4M \((\d+)% against (\d+)%\)", "the reach columns")
+        got = [m.group(i) for i in range(1, 7)]
+        want = [at("n32_r4", "s3000000")["reached_target_pct"], at("n32_r1", "s3000000")["reached_target_pct"],
+                at("n32_r4", "s5000000")["reached_target_pct"], at("n32_r1", "s5000000")["reached_target_pct"],
+                at("n32_r4", "s4000000")["reached_target_pct"], at("n32_r1", "s4000000")["reached_target_pct"]]
+        self.check("reach percentages", got, want, places=0)
+        m = self.sentence(r"higher mean return at 5M -\s*\*\*([\d,.]+) against ([\d,.]+)\*\*",
+                          "the two mean returns")
+        self.check("means at 5M", [m.group(1), m.group(2)],
+                   [at("n32_r1", "s5000000")["mean"], at("n32_r4", "s5000000")["mean"]], places=2)
+        self.assertGreater(at("n32_r1", "s5000000")["mean"], at("n32_r4", "s5000000")["mean"],
+                           "the under-dosed arm no longer posts the higher return, so the paragraph's "
+                           "opposite-ranking claim has to be rewritten")
+        self.assertGreater(at("n32_r4", "s5000000")["reached_target_pct"],
+                           at("n32_r1", "s5000000")["reached_target_pct"],
+                           "the dose-matched arm no longer reaches more often at 5M")
+
+    def test_the_dose_of_each_arm_is_what_the_protocol_claims(self):
+        arms = self.pair["arms"]
+        for name, ratio in (("n32_r1", 1), ("n32_r4", 4)):
+            arm = arms[name]
+            self.assertEqual(arm["num_envs"], 32)
+            self.assertEqual(arm["utd_ratio"], ratio)
+            self.assertEqual(arm["updates_per_environment_step"], round(ratio / 32.0, 4),
+                             f"{name}: the dose the artifact records is not ratio/num_envs")
+            self.assertEqual(arm["seed"], 7)
+            self.assertEqual(arm["device"], "cuda")
+            self.assertEqual(arm["torch_threads"], 24)
+            self.assertEqual(arm["scored_in_version"], "standup_balance_walk_curriculum_v9")
+        # Ratio 4 at 32 envs is the same dose the committed 8-env screens ran at - that is the whole
+        # reason the pair is comparable to them, and it is arithmetic on two recorded configs.
+        self.assertEqual(arms["n32_r4"]["updates_per_environment_step"], round(1 / 8.0, 4))
+        self.assertIn("num_envs=32", self.pair["protocol"])
+        self.assertIn("--utd-ratio 1 and one at", self.pair["protocol"])
+
+
 class TestReadmeTrainerPairCells(ReadmeGate, unittest.TestCase):
     """PPO against SAC: the rate claim and the behaviour claim are gated together or not at all.
 

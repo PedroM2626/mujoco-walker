@@ -1,0 +1,76 @@
+18:50:29 lock held by pid 27628
+18:50:29 machine held by pid 44136, waiting
+18:51:29 machine held by pid 44136, waiting
+18:52:29 machine held by pid 44136, waiting
+18:53:29 machine held by pid 44136, waiting
+18:54:29 machine held by pid 44136, waiting
+18:55:29 machine held by pid 44136, waiting
+18:56:29 machine held by pid 44136, waiting
+18:57:29 machine held by pid 44136, waiting
+18:58:29 machine held by pid 44136, waiting
+18:59:29 machine held by pid 44136, waiting
+19:00:30 machine held by pid 44136, waiting
+19:01:30 machine held by pid 44136, waiting
+19:02:30 machine held by pid 44136, waiting
+19:03:30 machine held by pid 44136, waiting
+19:04:30 machine held by pid 44136, waiting
+19:05:30 machine held by pid 44136, waiting
+19:06:30 machine held by pid 44136, waiting
+19:07:30 machine held by pid 44136, waiting
+19:08:30 machine held by pid 44136, waiting
+19:09:30 machine held by pid 44136, waiting
+19:10:30 machine held by pid 44136, waiting
+19:11:30 machine held by pid 44136, waiting
+19:12:30 machine held by pid 44136, waiting
+19:13:30 machine held by pid 44136, waiting
+19:14:30 machine held by pid 44136, waiting
+19:15:30 machine held by pid 44136, waiting
+19:16:30 machine held by pid 44136, waiting
+19:17:30 machine held by pid 44136, waiting
+19:18:30 machine held by pid 44136, waiting
+19:19:30 machine held by pid 44136, waiting
+19:20:30 machine held by pid 44136, waiting
+19:21:30 machine held by pid 44136, waiting
+19:22:30 machine held by pid 44136, waiting
+19:23:30 machine held by pid 44136, waiting
+19:24:30 machine held by pid 44136, waiting
+19:25:30 machine held by pid 44136, waiting
+19:26:30 machine held by pid 44136, waiting
+19:27:30 machine held by pid 44136, waiting
+19:28:30 machine held by pid 44136, waiting
+19:29:30 machine held by pid 44136, waiting
+19:30:30 machine held by pid 44136, waiting
+19:31:30 machine held by pid 44136, waiting
+19:32:30 machine held by pid 44136, waiting
+19:33:30 machine held by pid 44136, waiting
+19:34:30 machine held by pid 44136, waiting
+19:35:30 machine held by pid 44136, waiting
+19:36:30 machine held by pid 44136, waiting
+19:37:30 machine held by pid 44136, waiting
+19:38:30 machine held by pid 44136, waiting
+19:39:30 machine held by pid 44136, waiting
+19:40:30 machine held by pid 44136, waiting
+19:41:30 machine held by pid 44136, waiting
+19:42:30 machine held by pid 44136, waiting
+19:43:30 machine held by pid 44136, waiting
+19:44:30 machine held by pid 44136, waiting
+19:45:30 machine held by pid 44136, waiting
+19:46:30 machine held by pid 44136, waiting
+19:47:30 machine held by pid 44136, waiting
+19:48:30 machine held by pid 44136, waiting
+19:49:30 machine held by pid 44136, waiting
+19:50:30 machine held by pid 44136, waiting
+20:13:36 lock held by pid 59684
+20:13:36 machine claimed
+20:14:36 machine clear, proceeding
+20:14:36 START SAC utd smoke, 4096 steps at ratio 3
+20:15:05 DONE  SAC utd smoke, 4096 steps at ratio 3 (exit 0)
+20:15:05 START SAC 5M n=32 utd=1
+20:55:04 DONE  SAC 5M n=32 utd=1 (exit 0)
+20:55:04 START score SAC 5M n=32 utd=1
+20:56:25 DONE  score SAC 5M n=32 utd=1 (exit 0)
+20:56:25 START SAC 5M n=32 utd=4
+22:44:39 DONE  SAC 5M n=32 utd=4 (exit 0)
+22:44:39 START score SAC 5M n=32 utd=4
+22:46:03 DONE  score SAC 5M n=32 utd=4 (exit 0)
+22:46:03 chain24 complete

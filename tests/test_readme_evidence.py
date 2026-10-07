@@ -3702,7 +3702,7 @@ class TestReadmeArrivalDefinitionCells(ReadmeGate, unittest.TestCase):
     ARRIVAL = os.path.join(ROOT, "benchmarks", "reach_upright_arrival.json")
     DOSE = os.path.join(ROOT, "benchmarks", "utd_sac_n32_seed8_r4_5m.json")
     START = "**Every reach number above and below is distance-only"
-    END = "The standing rung splits the other way"
+    END = "**An upright arrival says the body was standing"
 
     def setUp(self):
         with open(README, encoding="utf-8") as handle:
@@ -3777,12 +3777,116 @@ class TestReadmeArrivalDefinitionCells(ReadmeGate, unittest.TestCase):
         misses = [t["min_target_distance"] for t in tele
                   if not t["reached_target"] and t["min_target_distance"] <= 0.5]
         self.assertEqual(misses, [0.468], "the 1.8 cm near miss the paragraph cites is gone")
-        m = self.sentence(r"which misses by ([\d.]+) cm", "the near miss")
-        self.check("centimetres", m.group(1), round((0.468 - 0.45) * 100, 1), places=1)
-        m = self.sentence(r"the clip that .reached. at ([\d.]+) m ends on the floor", "the clip")
-        self.check("clip distance", m.group(1), 0.430, places=3)
         reached = [t["min_target_distance"] for t in tele if t["reached_target"]]
-        self.assertIn(0.43, reached)
+        self.assertIn(0.299, reached, "the clip the paragraph quotes as a collapse arrival is gone")
+        # The sentences that quote the clips (the 1.8 cm miss, the 0.299 m collapse) are gated in
+        # TestReadmeApproachMechanismCells, which has the per-step traces they are read from.
+
+
+class TestReadmeApproachMechanismCells(ReadmeGate, unittest.TestCase):
+    """The step-level "walking or toppling?" block, against benchmarks/approach_mechanism.json.
+
+    This paragraph exists to take a claim back, so its figures carry more weight than a new
+    measurement would: they are the reason "it walks" was replaced. Every one of them is read out of the
+    pooled per-step traces the script writes, the clip sentences against the records of the four
+    episodes that were rendered into video, and the reach counts against the source artifacts the rows
+    were re-scored from - so a row that no longer reproduces its published telemetry fails here too, not
+    only at write time.
+    """
+
+    MECH = os.path.join(ROOT, "benchmarks", "approach_mechanism.json")
+    DOSE = os.path.join(ROOT, "benchmarks", "utd_sac_n32_seed8_r4_5m.json")
+    START = "**Every reach number above and below is distance-only"
+    END = "The standing rung splits the other way"
+
+    def setUp(self):
+        with open(README, encoding="utf-8") as handle:
+            readme = handle.read()
+        start = readme.index(self.START)
+        self.block = readme[start:readme.index(self.END, start)]
+        self.art, self.dose = self.read_artifacts(self.MECH, self.DOSE)
+        self.pooled = self.art["pooled_v9_reach_episodes"]
+        self.clips = {c["seed"]: c for c in self.art["rendered_clips"]}
+        self.v9 = [r for r in self.art["rows"] if r["physics_preset"] == "v9"]
+        self.bad = []
+        self.what = "approach mechanism"
+
+    def test_the_trace_covers_every_quoted_checkpoint(self):
+        m = self.sentence(r"which replays all (\d+) scored episodes of the (\d+) quoted checkpoints",
+                          "the coverage claim")
+        episodes = sum(r["episodes"] for r in self.art["rows"])
+        self.check("episodes traced", [m.group(1), m.group(2)], [episodes, len(self.art["rows"])],
+                   places=0)
+        self.assertEqual(episodes, 20 * len(self.art["rows"]),
+                         "the rows no longer carry the same number of episodes")
+
+    def test_each_row_still_reproduces_the_reach_count_it_was_scored_from(self):
+        for r in self.art["rows"]:
+            art = json.load(open(os.path.join(ROOT, r["artifact"]), encoding="utf-8"))
+            published = art["models"][r["model"]]["reached_target_pct"] * r["episodes"] / 100.0
+            self.assertEqual(r["reach_episodes"]["n"], round(published),
+                             f"{r['label']}: the traced reach count moved away from the published row")
+
+    def test_the_reach_episodes_split_of_ground_between_standing_and_down(self):
+        m = self.sentence(r"the (\d+) episodes the distance rule counts as reaches in the published "
+                          r"world close \*\*([\d.]+) m at in-band steps against ([\d.]+) m with the "
+                          r"torso below the band\*\* \(([\d.]+)% of the ground\)", "the closing split")
+        standing, down = self.pooled["closing_while_standing_m"], self.pooled["closing_while_down_m"]
+        self.check("reach episodes", m.group(1), self.pooled["episodes"], places=0)
+        self.check("metres standing / metres down", [m.group(2), m.group(3)], [standing, down],
+                   places=2)
+        self.check("share standing", m.group(4), 100.0 * standing / (standing + down), places=1)
+        self.check("pooled share field", self.pooled["share_while_standing"],
+                   standing / (standing + down), places=3)
+
+    def test_most_closest_approaches_come_after_the_first_fall(self):
+        m = self.sentence(r"and \*\*(\d+) of those (\d+) closest approaches come after the episode's "
+                          r"first fall\*\*", "the after-fall count")
+        self.check("after a fall", [m.group(1), m.group(2)],
+                   [self.pooled["closest_approach_after_first_fall"], self.pooled["episodes"]],
+                   places=0)
+
+    def test_the_standing_time_is_short_and_broken_into_runs(self):
+        m = self.sentence(r"Those episodes spend ([\d.]+)% of their steps in the band but never more "
+                          r"than \*\*([\d.]+) s\*\* at a stretch", "the continuity claim")
+        self.check("in-band steps", m.group(1), self.pooled["mean_pct_steps_in_band"], places=1)
+        self.check("longest run", m.group(2), self.pooled["max_longest_band_run_s"], places=2)
+        self.assertLess(self.pooled["max_longest_band_run_s"], 2.0,
+                        "a reaching episode now stands for two continuous seconds, so the README's "
+                        "'never stands for two continuous seconds' has to be rewritten")
+        self.assertEqual(self.pooled["episodes_with_band_run_ge_2s"], 0)
+
+    def test_direction_survives_where_the_gait_does(self):
+        m = self.sentence(r"the body moves toward the target at ([\d.]+) to ([\d.]+) m/s depending on "
+                          r"the arm, and the best near miss in the repository comes to ([\d.]+) cm "
+                          r"inside the radius", "the heading-velocity range")
+        rates = [r["reach_episodes"]["mean_heading_velocity_in_band_mps"] for r in self.v9
+                 if r["reach_episodes"]["n"]]
+        self.check("min/max in-band heading velocity", [m.group(1), m.group(2)],
+                   [min(rates), max(rates)], places=2)
+        tele = self.dose["per_episode"]["s4000000__telemetry"]
+        miss = [t["min_target_distance"] for t in tele
+                if not t["reached_target"] and t["min_target_distance"] <= 0.5]
+        self.assertEqual(len(miss), 1, "the near miss the sentence cites is no longer unique")
+        self.check("centimetres", m.group(3), round((miss[0] - 0.45) * 100, 1), places=1)
+
+    def test_the_clip_quoted_as_a_collapse_arrival_is_the_measured_episode(self):
+        m = self.sentence(r"the clip that .reached. at ([\d.]+) m got there at a step with the torso "
+                          r"at ([\d.]+) m, and it ends ([\d.]+) m from the marker, motionless, "
+                          r"([\d.]+) s later", "the collapse-arrival clip")
+        clip = self.clips.get(25)
+        self.assertIsNotNone(clip, "the rendered clip at seed 25 is no longer in the artifact")
+        self.assertEqual(clip["rendered_as"], "reached")
+        self.check("closest approach", m.group(1), clip["min_target_distance"], places=3)
+        self.check("torso height at arrival", m.group(2), clip["min_dist_z"], places=3)
+        self.check("distance at the end", m.group(3), clip["final_distance"], places=2)
+        self.check("seconds after arrival", m.group(4),
+                   clip["seconds_between_arrival_and_end"], places=1)
+        self.assertLess(clip["final_root_speed_mps"], 0.01,
+                        "the episode is no longer motionless at the end, so 'motionless' is wrong")
+        self.assertFalse(clip["reached_target_upright"],
+                         "this arrival is now upright, so it is no longer the collapse the paragraph "
+                         "quotes")
 
 
 class TestReadmeTrainerPairCells(ReadmeGate, unittest.TestCase):

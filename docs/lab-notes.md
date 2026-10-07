@@ -376,3 +376,29 @@ needs both arms in one window or it is not a ratio, it is a coincidence of two. 
 cannot be built, publish the straddle ("comparable, between SAC's ratio-1 and ratio-4 arms") and record
 what would settle it - an idle-gap replication of chain25, to see whether the fast window is reproducible
 at all.
+
+## An episode mean cannot tell a walk from a fall forward
+
+The README said the agent "walks", and the evidence was two numbers: `mean_x_velocity` per episode, and
+`reached_target_pct` per checkpoint. The user watched the rendered clips and said the thing they saw was
+an agent trying to stand up. Both readings cannot be about the same trajectory, so the trace was split per
+step at whether the torso was inside the standing band (`bench_approach_mechanism.py`, which replays the
+same 280 published episodes and refuses to write unless each reproduces its committed telemetry). In the
+published world, the 35 episodes the distance rule counts as reaches close 46.61 m at in-band steps and
+43.43 m below the band; 30 of their 35 closest approaches come after the episode's first fall; and the
+longest continuous in-band run in any reaching episode is 1.47 s, with none reaching two seconds. The
+verb was doing work the metric could not carry.
+
+**Why the mean was so misleading:** it integrates over exactly the distinction being asked about. An
+episode that walks 3 m at 0.4 m/s and an episode that topples forward twice and covers the same ground
+both report `mean_x_velocity = 0.4`. Nothing in the episode-level record separates them, so the sentence
+"the arriving group averages 0.36-0.42 m/s" was read as locomotion while being equally a description of
+falling. The stricter arrival rule - torso above 1.0 m and upright above 0.7 *at* the step inside the
+radius - fixes what counts as arriving and still says nothing about how the body travelled, which is why
+13 of the 16 upright arrivals in the published world also have their closest approach after a fall.
+
+**How to apply:** when a claim uses a verb that describes a process ("walks", "reaches", "stands",
+"recovers"), the metric has to be computed at the time resolution the verb implies - per step for a
+process, not per episode for an outcome. If the only available metric is an episode aggregate, say what
+it can and cannot express instead of choosing the reading that matches the video. And note which
+instrument settled it: not a new experiment, the same fidelity-gated replay one level down.

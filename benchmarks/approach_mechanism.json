@@ -166,6 +166,18 @@
       "seed": 11,
       "reached_distance_only": 6,
       "reached_upright": 2,
+      "reach_episode_indices": [
+        3,
+        5,
+        10,
+        14,
+        15,
+        17
+      ],
+      "upright_arrival_indices": [
+        3,
+        15
+      ],
       "mean_start_z": 0.5128,
       "episodes_starting_in_band": 2,
       "mean_pct_steps_in_band": 11.97,
@@ -210,6 +222,18 @@
       "seed": 11,
       "reached_distance_only": 5,
       "reached_upright": 3,
+      "reach_episode_indices": [
+        5,
+        11,
+        14,
+        15,
+        17
+      ],
+      "upright_arrival_indices": [
+        5,
+        15,
+        17
+      ],
       "mean_start_z": 0.5128,
       "episodes_starting_in_band": 2,
       "mean_pct_steps_in_band": 12.185,
@@ -254,6 +278,17 @@
       "seed": 11,
       "reached_distance_only": 4,
       "reached_upright": 3,
+      "reach_episode_indices": [
+        2,
+        5,
+        8,
+        17
+      ],
+      "upright_arrival_indices": [
+        2,
+        5,
+        8
+      ],
       "mean_start_z": 0.5128,
       "episodes_starting_in_band": 2,
       "mean_pct_steps_in_band": 7.245,
@@ -298,6 +333,14 @@
       "seed": 11,
       "reached_distance_only": 3,
       "reached_upright": 1,
+      "reach_episode_indices": [
+        5,
+        8,
+        17
+      ],
+      "upright_arrival_indices": [
+        8
+      ],
       "mean_start_z": 0.5128,
       "episodes_starting_in_band": 2,
       "mean_pct_steps_in_band": 8.925,
@@ -342,6 +385,16 @@
       "seed": 11,
       "reached_distance_only": 5,
       "reached_upright": 1,
+      "reach_episode_indices": [
+        6,
+        10,
+        12,
+        17,
+        19
+      ],
+      "upright_arrival_indices": [
+        10
+      ],
       "mean_start_z": 0.5128,
       "episodes_starting_in_band": 2,
       "mean_pct_steps_in_band": 6.61,
@@ -386,6 +439,12 @@
       "seed": 11,
       "reached_distance_only": 3,
       "reached_upright": 0,
+      "reach_episode_indices": [
+        3,
+        4,
+        14
+      ],
+      "upright_arrival_indices": [],
       "mean_start_z": 0.5128,
       "episodes_starting_in_band": 2,
       "mean_pct_steps_in_band": 7.54,
@@ -430,6 +489,16 @@
       "seed": 11,
       "reached_distance_only": 4,
       "reached_upright": 2,
+      "reach_episode_indices": [
+        1,
+        5,
+        13,
+        17
+      ],
+      "upright_arrival_indices": [
+        1,
+        17
+      ],
       "mean_start_z": 0.5128,
       "episodes_starting_in_band": 2,
       "mean_pct_steps_in_band": 8.405,
@@ -474,6 +543,15 @@
       "seed": 11,
       "reached_distance_only": 3,
       "reached_upright": 2,
+      "reach_episode_indices": [
+        6,
+        13,
+        18
+      ],
+      "upright_arrival_indices": [
+        6,
+        13
+      ],
       "mean_start_z": 0.5128,
       "episodes_starting_in_band": 2,
       "mean_pct_steps_in_band": 10.295,
@@ -518,6 +596,14 @@
       "seed": 11,
       "reached_distance_only": 2,
       "reached_upright": 2,
+      "reach_episode_indices": [
+        5,
+        17
+      ],
+      "upright_arrival_indices": [
+        5,
+        17
+      ],
       "mean_start_z": 0.5128,
       "episodes_starting_in_band": 2,
       "mean_pct_steps_in_band": 5.605,
@@ -562,6 +648,8 @@
       "seed": 11,
       "reached_distance_only": 0,
       "reached_upright": 0,
+      "reach_episode_indices": [],
+      "upright_arrival_indices": [],
       "mean_start_z": 0.5128,
       "episodes_starting_in_band": 2,
       "mean_pct_steps_in_band": 0.85,
@@ -606,6 +694,13 @@
       "seed": 11,
       "reached_distance_only": 2,
       "reached_upright": 1,
+      "reach_episode_indices": [
+        5,
+        19
+      ],
+      "upright_arrival_indices": [
+        5
+      ],
       "mean_start_z": 0.5128,
       "episodes_starting_in_band": 2,
       "mean_pct_steps_in_band": 10.985,
@@ -650,6 +745,18 @@
       "seed": 11,
       "reached_distance_only": 4,
       "reached_upright": 4,
+      "reach_episode_indices": [
+        1,
+        6,
+        13,
+        14
+      ],
+      "upright_arrival_indices": [
+        1,
+        6,
+        13,
+        14
+      ],
       "mean_start_z": 0.5128,
       "episodes_starting_in_band": 2,
       "mean_pct_steps_in_band": 23.84,
@@ -694,6 +801,8 @@
       "seed": 11,
       "reached_distance_only": 0,
       "reached_upright": 0,
+      "reach_episode_indices": [],
+      "upright_arrival_indices": [],
       "mean_start_z": 0.5128,
       "episodes_starting_in_band": 2,
       "mean_pct_steps_in_band": 0.785,
@@ -738,6 +847,11 @@
       "seed": 11,
       "reached_distance_only": 2,
       "reached_upright": 0,
+      "reach_episode_indices": [
+        5,
+        17
+      ],
+      "upright_arrival_indices": [],
       "mean_start_z": 0.5128,
       "episodes_starting_in_band": 2,
       "mean_pct_steps_in_band": 2.135,

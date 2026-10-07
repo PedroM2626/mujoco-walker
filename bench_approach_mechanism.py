@@ -252,6 +252,12 @@ def main():
             "checkpoint": model["checkpoint"], "physics_preset": preset, "algo": algo,
             "device": device, "episodes": args.episodes, "seed": args.seed,
             "reached_distance_only": len(loose), "reached_upright": len(strict),
+            # Which episodes, by index and by the seed the protocol used (seed + ep): this is what a
+            # clip has to be selected from, so the choice is reproducible from the committed artifact
+            # instead of from a scratch re-run.
+            "reach_episode_indices": [i for i, t in enumerate(traces) if t["reached_target"]],
+            "upright_arrival_indices": [i for i, t in enumerate(traces)
+                                        if t["reached_target_upright"]],
             "mean_start_z": _mean([t["z_at_reset"] for t in traces]),
             "episodes_starting_in_band": sum(1 for t in traces if t["start_in_band"]),
             "mean_pct_steps_in_band": _mean([t["pct_steps_in_band"] for t in traces]),

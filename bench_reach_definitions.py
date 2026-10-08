@@ -42,6 +42,16 @@ CHECKPOINTS = [
     ("benchmarks/physics_presets_screen5m_seed8_fast.json", "s5000000", "fast world, 5M, seed 8"),
     ("benchmarks/physics_presets_screen5m_euler.json", "s5000000", "euler world, 5M, seed 7"),
     ("benchmarks/physics_presets_screen5m_seed8_euler.json", "s5000000", "euler world, 5M, seed 8"),
+    # The two gait arms from chain30b. Arm A raises the target-phase stability reward, arm B trains
+    # under the target distance curriculum - and its transfer column is the same checkpoints scored
+    # without it, which is the only way to ask whether the curriculum taught anything transferable.
+    ("benchmarks/stab60_sac_n32_r4_5m_curve.json", "s4000000", "stability 60, seed 7, best cell"),
+    ("benchmarks/stab60_sac_n32_r4_5m_curve.json", "s5000000", "stability 60, seed 7, endpoint"),
+    ("benchmarks/stab60_sac_n32_r4_5m_seed8_curve.json", "s4000000", "stability 60, seed 8, best cell"),
+    ("benchmarks/tcur_sac_n32_r4_5m_curve.json", "s4000000", "curriculum, seed 7, in-task"),
+    ("benchmarks/tcur_sac_n32_r4_5m_seed8_curve.json", "s2000000", "curriculum, seed 8, in-task"),
+    ("benchmarks/tcur_sac_n32_r4_5m_transfer.json", "x4000000", "curriculum, seed 7, on 2-5 m"),
+    ("benchmarks/tcur_sac_n32_r4_5m_seed8_transfer.json", "x5000000", "curriculum, seed 8, on 2-5 m"),
 ]
 
 
@@ -60,12 +70,15 @@ def main():
         model = art["models"][key]
         tele = art["per_episode"][f"{key}__telemetry"]
         preset = art.get("physics_preset", "v9")
+        # Read back from the artifact: scoring a curriculum checkpoint on the published 2-5 m is a
+        # different question from scoring it in its own task, and the row label says which one it is.
+        curriculum = bool(model.get("target_curriculum"))
         algo, phase, width, policy, on_start, _ = eval_phase1.build_policy(
             os.path.join(ROOT, model["checkpoint"]), art.get("device") or "cpu")
         _, _, _, new_tele = eval_phase1.score(
             policy, args.episodes, args.seed, model["task_phase"], args.steps, "mixed",
             on_episode_start=on_start, reward_kwargs=model.get("reward_kwargs"),
-            physics_preset=preset)
+            physics_preset=preset, target_curriculum=curriculum)
 
         # Fidelity: the loose column must be the published one, episode for episode.
         loose_old = [bool(t["reached_target"]) for t in tele]
@@ -80,6 +93,7 @@ def main():
         rows.append({
             "label": label, "artifact": artifact, "model": key,
             "checkpoint": model["checkpoint"], "physics_preset": preset,
+            "target_curriculum": curriculum,
             "algo": model["algo"], "episodes": args.episodes, "seed": args.seed,
             "reached_distance_only_pct": model["reached_target_pct"],
             "reached_upright_pct": round(100.0 * float(np.mean(strict)), 1),

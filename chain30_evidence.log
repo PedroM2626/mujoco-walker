@@ -1,0 +1,30 @@
+13:58:25 lock held by pid 63380
+13:58:25 machine claimed
+13:59:26 machine clear, proceeding
+13:59:26 START SAC 5M target n=32 utd=4 stab60_sac_n32_r4_5m seed 7
+15:39:35 DONE  SAC 5M target n=32 utd=4 stab60_sac_n32_r4_5m seed 7 (exit 0)
+-- chain30 died here: the scoring helper threw on [int]'sac_actor_5000000' (BaseName has no extension) and ErrorActionPreference=Stop ended the chain after arm A seed 7 had trained.
+15:44:56 lock held by pid 69468
+15:44:56 clearing stale machine lock from pid 63380
+15:44:56 machine claimed
+15:45:56 machine clear, proceeding
+15:45:56 SKIP training stab60_sac_n32_r4_5m: chain30 already produced its checkpoints
+15:45:56 START score benchmarks/stab60_sac_n32_r4_5m_curve.json (5 checkpoints)
+15:47:10 DONE  score benchmarks/stab60_sac_n32_r4_5m_curve.json (5 checkpoints) (exit 0)
+15:47:10 START SAC 5M target n=32 utd=4 stab60_sac_n32_r4_5m_seed8 seed 8
+17:50:46 DONE  SAC 5M target n=32 utd=4 stab60_sac_n32_r4_5m_seed8 seed 8 (exit 0)
+17:50:46 START score benchmarks/stab60_sac_n32_r4_5m_seed8_curve.json (5 checkpoints)
+17:51:59 DONE  score benchmarks/stab60_sac_n32_r4_5m_seed8_curve.json (5 checkpoints) (exit 0)
+17:51:59 START SAC 5M target n=32 utd=4 tcur_sac_n32_r4_5m seed 7
+20:05:44 DONE  SAC 5M target n=32 utd=4 tcur_sac_n32_r4_5m seed 7 (exit 0)
+20:05:44 START score benchmarks/tcur_sac_n32_r4_5m_curve.json (5 checkpoints)
+20:07:15 DONE  score benchmarks/tcur_sac_n32_r4_5m_curve.json (5 checkpoints) (exit 0)
+20:07:15 START score benchmarks/tcur_sac_n32_r4_5m_transfer.json (5 checkpoints)
+20:08:25 DONE  score benchmarks/tcur_sac_n32_r4_5m_transfer.json (5 checkpoints) (exit 0)
+20:08:25 START SAC 5M target n=32 utd=4 tcur_sac_n32_r4_5m_seed8 seed 8
+21:47:39 DONE  SAC 5M target n=32 utd=4 tcur_sac_n32_r4_5m_seed8 seed 8 (exit 0)
+21:47:39 START score benchmarks/tcur_sac_n32_r4_5m_seed8_curve.json (5 checkpoints)
+21:48:53 DONE  score benchmarks/tcur_sac_n32_r4_5m_seed8_curve.json (5 checkpoints) (exit 0)
+21:48:53 START score benchmarks/tcur_sac_n32_r4_5m_seed8_transfer.json (5 checkpoints)
+21:50:11 DONE  score benchmarks/tcur_sac_n32_r4_5m_seed8_transfer.json (5 checkpoints) (exit 0)
+21:50:11 chain30b complete

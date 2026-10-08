@@ -62,6 +62,7 @@ htmlcov/
 !chain27_evidence.log
 !chain28_evidence.log
 !chain29_evidence.log
+!chain30_evidence.log
 runs/
 checkpoints/
 # The trainers' --capture-video output lands here; it is evidence to look at, not to version, and

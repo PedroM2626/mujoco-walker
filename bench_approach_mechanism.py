@@ -54,6 +54,15 @@ CHECKPOINTS = [
     ("benchmarks/physics_presets_screen5m_seed8_fast.json", "s5000000", "fast world, 5M, seed 8"),
     ("benchmarks/physics_presets_screen5m_euler.json", "s5000000", "euler world, 5M, seed 7"),
     ("benchmarks/physics_presets_screen5m_seed8_euler.json", "s5000000", "euler world, 5M, seed 8"),
+    # The two gait arms (chain30b). Arm A raises the stability reward; arm B trains under the target
+    # distance curriculum, and its transfer column is the same checkpoints scored without it.
+    ("benchmarks/stab60_sac_n32_r4_5m_curve.json", "s4000000", "stability 60, seed 7, best cell"),
+    ("benchmarks/stab60_sac_n32_r4_5m_curve.json", "s5000000", "stability 60, seed 7, endpoint"),
+    ("benchmarks/stab60_sac_n32_r4_5m_seed8_curve.json", "s4000000", "stability 60, seed 8, best cell"),
+    ("benchmarks/tcur_sac_n32_r4_5m_curve.json", "s4000000", "curriculum, seed 7, in-task"),
+    ("benchmarks/tcur_sac_n32_r4_5m_seed8_curve.json", "s2000000", "curriculum, seed 8, in-task"),
+    ("benchmarks/tcur_sac_n32_r4_5m_transfer.json", "x4000000", "curriculum, seed 7, on 2-5 m"),
+    ("benchmarks/tcur_sac_n32_r4_5m_seed8_transfer.json", "x5000000", "curriculum, seed 8, on 2-5 m"),
 ]
 
 BAND_Z, BAND_UPRIGHT = 1.0, 0.7
@@ -224,12 +233,17 @@ def main():
         old = art["per_episode"][f"{key}__telemetry"]
         preset = art.get("physics_preset", "v9")
         device = art.get("device") or "cpu"
+        # The task the artifact was scored under, read back rather than assumed: a curriculum
+        # checkpoint traced without its curriculum is a different MDP, and its transfer column is the
+        # same checkpoints traced with it off. The row label says which one this is.
+        curriculum = bool(model.get("target_curriculum"))
         algo, phase, width, policy, on_start, _ = eval_phase1.build_policy(
             os.path.join(ROOT, model["checkpoint"]), device)
 
         env = gym.make("WalkerRagdoll-v0", reset_mode="mixed", task_phase="target",
                        **(model.get("reward_kwargs") or {}),
-                       **({} if preset == "v9" else {"physics_preset": preset}))
+                       **({} if preset == "v9" else {"physics_preset": preset}),
+                       **({"target_curriculum": True} if curriculum else {}))
         radius = float(env.unwrapped._target_radius)
         traces = [trace_episode(env, policy, on_start, args.seed, ep, args.steps, radius)
                   for ep in range(args.episodes)]
@@ -250,6 +264,11 @@ def main():
         rows.append({
             "label": label, "artifact": artifact, "model": key,
             "checkpoint": model["checkpoint"], "physics_preset": preset, "algo": algo,
+            # The gait arms are a separate comparison: pooling them with the previously published rows
+            # would silently move every figure the existing paragraph quotes.
+            "arm_class": ("gait" if os.path.basename(artifact).startswith(("stab60_", "tcur_"))
+                          else ""),
+            "target_curriculum": curriculum,
             "device": device, "episodes": args.episodes, "seed": args.seed,
             "reached_distance_only": len(loose), "reached_upright": len(strict),
             # Which episodes, by index and by the seed the protocol used (seed + ep): this is what a
@@ -321,10 +340,13 @@ def main():
             print("FIDELITY FAILURE:", f)
         raise SystemExit(1)
 
-    v9 = [r for r in rows if r["physics_preset"] == "v9"]
-    v9_traces = [t for r in rows if r["physics_preset"] == "v9"
+    v9 = [r for r in rows if r["physics_preset"] == "v9" and not r["arm_class"]]
+    v9_gait = [r for r in rows if r["physics_preset"] == "v9" and r["arm_class"]]
+    v9_traces = [t for r in rows if r["physics_preset"] == "v9" and not r["arm_class"]
                  for t in all_traces[f"{r['artifact']}:{r['model']}"]]
     v9_reach = [t for t in v9_traces if t["reached_target"]]
+    gait_traces = [t for r in v9_gait for t in all_traces[f"{r['artifact']}:{r['model']}"]]
+    gait_reach = [t for t in gait_traces if t["reached_target"]]
 
     def _pooled(traces):
         runs = [t["longest_band_run_s"] for t in traces]
@@ -378,6 +400,9 @@ def main():
         "rows": rows,
         "pooled_v9_all_episodes": _pooled(v9_traces),
         "pooled_v9_reach_episodes": _pooled(v9_reach),
+        "pooled_v9_gait_rows": [r["label"] for r in v9_gait],
+        "pooled_v9_gait_all_episodes": _pooled(gait_traces),
+        "pooled_v9_gait_reach_episodes": _pooled(gait_reach) if gait_reach else None,
         "pooled_all_rows_reach_episodes": _pooled(
             [t for r in rows for t in all_traces[f"{r['artifact']}:{r['model']}"]
              if t["reached_target"]]),

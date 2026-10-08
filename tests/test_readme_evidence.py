@@ -3728,13 +3728,19 @@ class TestReadmeArrivalDefinitionCells(ReadmeGate, unittest.TestCase):
                              f"{r['label']}: the re-score disagrees with the committed row, so the "
                              "two columns are not two definitions of one measurement")
 
-    def test_the_best_arm_in_the_published_world_arrives_standing_three_times(self):
-        m = self.sentence(r"arrives standing in \*\*(\d+) of (\d+) episodes \((\d+)%\)\*\* -\s*"
-                          r"SAC at `--utd-ratio 4` seed 7 / (\d)M and at ratio 1 seed 8 / (\d)M, whose "
-                          r"distance-only rows read ([\d.]+)% and\s*([\d.]+)%", "the strict best")
-        best = self.art["best_upright_arrivals"]
+    def test_the_best_published_arm_arrives_standing_three_times(self):
+        m = self.sentence(r"the best arm in the published world for everything published before the "
+                          r"reward-override experiment arrives standing in \*\*(\d+) of (\d+) episodes "
+                          r"\((\d+)%\)\*\* -\s*SAC at `--utd-ratio 4` seed 7 / (\d)M and at ratio 1 seed "
+                          r"8 / (\d)M, whose\s*distance-only rows read ([\d.]+)% and ([\d.]+)%",
+                          "the strict best among the pre-override arms")
+        # The ceiling the override arm broke, so it is read off the pre-override rows only.
+        ceiling = [r for r in self.art["rows"] if r["physics_preset"] == "v9"
+                   and not r["label"].startswith("stability 60")]
+        best_before = max(ceiling, key=lambda r: r["reached_upright_count"])
         self.check("upright episodes", [m.group(1), m.group(3)],
-                   [best["reached_upright_count"], best["reached_upright_pct"]], places=0)
+                   [best_before["reached_upright_count"], best_before["reached_upright_pct"]],
+                   places=0)
         self.check("episodes per arm", m.group(2), 20, places=0)
         d4 = self.row("benchmarks/utd_sac_n32_r4_5m.json", "s3000000")
         d1 = self.row("benchmarks/utd_sac_n32_seed8_r1_5m.json", "s4000000")
@@ -3860,8 +3866,10 @@ class TestReadmeApproachMechanismCells(ReadmeGate, unittest.TestCase):
         m = self.sentence(r"the body moves toward the target at ([\d.]+) to ([\d.]+) m/s depending on "
                           r"the arm, and the best near miss in the repository comes to ([\d.]+) cm "
                           r"inside the radius", "the heading-velocity range")
+        # The sentence describes the arms published before the reward override, so the range is read
+        # off those rows only - the gait arms are quoted in their own paragraph below.
         rates = [r["reach_episodes"]["mean_heading_velocity_in_band_mps"] for r in self.v9
-                 if r["reach_episodes"]["n"]]
+                 if r["reach_episodes"]["n"] and not r["arm_class"]]
         self.check("min/max in-band heading velocity", [m.group(1), m.group(2)],
                    [min(rates), max(rates)], places=2)
         tele = self.dose["per_episode"]["s4000000__telemetry"]
@@ -3887,6 +3895,153 @@ class TestReadmeApproachMechanismCells(ReadmeGate, unittest.TestCase):
         self.assertFalse(clip["reached_target_upright"],
                          "this arrival is now upright, so it is no longer the collapse the paragraph "
                          "quotes")
+
+
+class TestReadmeGaitArmCells(ReadmeGate, unittest.TestCase):
+    """The two gait arms, against the arrival table and the step-level traces they were read from.
+
+    This is the first paragraph in the repository that claims an intervention *worked*, so every figure
+    in it is tied to one of the two artifacts, including the negative one. It also gates the claim that
+    killed the other candidate arm before it was run: that `stillness_penalty` is dead code in the target
+    phase, which is a statement about the environment's source and is checked against the source.
+    """
+
+    ARRIVAL = os.path.join(ROOT, "benchmarks", "reach_upright_arrival.json")
+    MECH = os.path.join(ROOT, "benchmarks", "approach_mechanism.json")
+    START = "**So the experiment was to change the gait"
+    END = "The standing rung splits the other way"
+
+    def setUp(self):
+        with open(README, encoding="utf-8") as handle:
+            readme = handle.read()
+        start = readme.index(self.START)
+        self.block = readme[start:readme.index(self.END, start)]
+        self.arr, self.mech = self.read_artifacts(self.ARRIVAL, self.MECH)
+        self.rows = {(r["artifact"].split("/")[-1], r["model"]): r for r in self.arr["rows"]}
+        self.mrows = {(r["artifact"].split("/")[-1], r["model"]): r for r in self.mech["rows"]}
+        self.bad = []
+        self.what = "gait arms"
+
+    def arrival(self, artifact, model):
+        key = (artifact.split("/")[-1], model)
+        self.assertIn(key, self.rows, f"{artifact}:{model} is no longer re-scored")
+        return self.rows[key]
+
+    def mech_row(self, artifact, model):
+        key = (artifact.split("/")[-1], model)
+        self.assertIn(key, self.mrows, f"{artifact}:{model} is no longer traced")
+        return self.mrows[key]
+
+    def test_the_dead_candidate_arm_is_dead_in_the_source_not_just_in_the_prose(self):
+        with open(os.path.join(ROOT, "envs", "walker_ragdoll_env.py"), encoding="utf-8") as handle:
+            lines = handle.read().splitlines()
+        m = self.sentence(r"`stillness_penalty` is only\s*computed when `task_phase == \"balance\"` "
+                          r"\(`envs/walker_ragdoll_env\.py:(\d+)-(\d+)`\)", "the dead-arm citation")
+        lo, hi = int(m.group(1)), int(m.group(2))
+        window = "\n".join(lines[lo - 1:hi])
+        self.assertIn("stillness_penalty = (", window,
+                      "the cited range no longer holds the stillness penalty's only assignment")
+        self.assertIn('if task_phase == "balance":', window,
+                      "the cited range no longer shows the balance guard that makes it dead in target")
+        outside = "\n".join(lines[:lo - 1] + lines[hi:])
+        self.assertNotIn("stillness_penalty = (", outside,
+                         "a second non-zero assignment appeared, so the term is live in another phase "
+                         "and the arm is not dead after all")
+
+    def test_arm_a_moves_the_strict_column_for_the_first_time(self):
+        m = self.sentence(r"\*\*(\d+) of (\d+) episodes \((\d+)%\) arrive\s*standing\*\* at its 4M "
+                          r"checkpoint on seed 7, where (\d+) of 20 had been the ceiling, and its seed 8 "
+                          r"best cell lands back on (\d+) of 20", "arm A's arrival counts")
+        a7 = self.arrival("benchmarks/stab60_sac_n32_r4_5m_curve.json", "s4000000")
+        a8 = self.arrival("benchmarks/stab60_sac_n32_r4_5m_seed8_curve.json", "s4000000")
+        self.check("seed 7 upright", [m.group(1), m.group(3)],
+                   [a7["reached_upright_count"], a7["reached_upright_pct"]], places=0)
+        self.check("episodes", m.group(2), a7["episodes"], places=0)
+        self.check("seed 8 upright", m.group(5), a8["reached_upright_count"], places=0)
+        pre = [r for r in self.arr["rows"] if r["physics_preset"] == "v9"
+               and not r["label"].startswith(("stability 60", "curriculum"))]
+        self.check("the ceiling it broke", m.group(4),
+                   max(r["reached_upright_count"] for r in pre), places=0)
+        self.assertGreater(a7["reached_upright_count"], int(m.group(4)),
+                           "arm A no longer beats the pre-override ceiling")
+        self.assertEqual((a7["reached_upright_count"], a8["reached_upright_count"]), (4, 3),
+                         "the paragraph's replicate story (peak, then back to the ceiling) changed")
+
+    def test_arm_b_is_reported_as_the_negative_it_is(self):
+        m = self.sentence(r"(\d+) of 20 upright at its best in-task cell and (\d+) of 20 when the same "
+                          r"checkpoints are scored on the published 2-5 m, having spent ([\d.]+)-"
+                          r"([\d.]+)% of its steps in the band against the published arms' ([\d.]+)% and"
+                          r"\s*falling ([\d.]+) to ([\d.]+) times an episode against arm A's ([\d.]+) to "
+                          r"([\d.]+) per episode", "arm B's negative result")
+        in_task = [self.arrival(f, k) for f, k in
+                   (("benchmarks/tcur_sac_n32_r4_5m_curve.json", "s4000000"),
+                    ("benchmarks/tcur_sac_n32_r4_5m_seed8_curve.json", "s2000000"))]
+        transfer = [self.arrival(f, k) for f, k in
+                    (("benchmarks/tcur_sac_n32_r4_5m_transfer.json", "x4000000"),
+                     ("benchmarks/tcur_sac_n32_r4_5m_seed8_transfer.json", "x5000000"))]
+        self.check("best in-task / best transfer", [m.group(1), m.group(2)],
+                   [max(r["reached_upright_count"] for r in in_task),
+                    max(r["reached_upright_count"] for r in transfer)], places=0)
+        banded = [self.mech_row(f, k)["mean_pct_steps_in_band"] for f, k in
+                  (("benchmarks/tcur_sac_n32_r4_5m_curve.json", "s4000000"),
+                   ("benchmarks/tcur_sac_n32_r4_5m_seed8_curve.json", "s2000000"),
+                   ("benchmarks/tcur_sac_n32_r4_5m_transfer.json", "x4000000"),
+                   ("benchmarks/tcur_sac_n32_r4_5m_seed8_transfer.json", "x5000000"))]
+        self.check("curriculum band share", [m.group(3), m.group(4)],
+                   [min(banded), max(banded)], places=1)
+        self.check("published pool band share", m.group(5),
+                   self.mech["pooled_v9_reach_episodes"]["mean_pct_steps_in_band"], places=1)
+        falls_b = [self.arrival(f, k) for f, k in
+                   (("benchmarks/tcur_sac_n32_r4_5m_curve.json", "s4000000"),
+                    ("benchmarks/tcur_sac_n32_r4_5m_seed8_curve.json", "s2000000"),
+                    ("benchmarks/tcur_sac_n32_r4_5m_transfer.json", "x4000000"),
+                    ("benchmarks/tcur_sac_n32_r4_5m_seed8_transfer.json", "x5000000"))]
+        falls_a = [self.arrival(f, k) for f, k in
+                   (("benchmarks/stab60_sac_n32_r4_5m_curve.json", "s4000000"),
+                    ("benchmarks/stab60_sac_n32_r4_5m_curve.json", "s5000000"),
+                    ("benchmarks/stab60_sac_n32_r4_5m_seed8_curve.json", "s4000000"))]
+        self.check("falls per episode, arm B", [m.group(6), m.group(7)],
+                   [min(r["falls_per_episode"] for r in falls_b),
+                    max(r["falls_per_episode"] for r in falls_b)], places=1)
+        self.check("falls per episode, arm A", [m.group(8), m.group(9)],
+                   [min(r["falls_per_episode"] for r in falls_a),
+                    max(r["falls_per_episode"] for r in falls_a)], places=1)
+
+    def test_the_trace_says_arm_a_bought_more_than_a_lucky_arrival_frame(self):
+        m = self.sentence(r"the reach\s*episodes close \*\*([\d.]+)% to ([\d.]+)% of their ground inside "
+                          r"the band\*\* against the published pool's ([\d.]+)%, they\s*are in the band "
+                          r"for ([\d.]+)-([\d.]+)% of their steps against ([\d.]+)%, and the best cell's "
+                          r"upright arrivals hold the\s*band for ([\d.]+) s at a stretch",
+                          "arm A's step-level split")
+        a_rows = [self.mech_row(f, k) for f, k in
+                  (("benchmarks/stab60_sac_n32_r4_5m_curve.json", "s4000000"),
+                   ("benchmarks/stab60_sac_n32_r4_5m_curve.json", "s5000000"),
+                   ("benchmarks/stab60_sac_n32_r4_5m_seed8_curve.json", "s4000000"))]
+        shares = [100.0 * r["reach_episodes"]["mean_share_while_standing"] for r in a_rows]
+        self.check("share closed in band", [m.group(1), m.group(2)],
+                   [min(shares), max(shares)], places=1)
+        self.check("published pool share", m.group(3),
+                   100.0 * self.mech["pooled_v9_reach_episodes"]["share_while_standing"], places=1)
+        banded = [r["mean_pct_steps_in_band"] for r in a_rows]
+        self.check("arm A band time", [m.group(4), m.group(5)], [min(banded), max(banded)], places=1)
+        self.check("published pool band time", m.group(6),
+                   self.mech["pooled_v9_reach_episodes"]["mean_pct_steps_in_band"], places=1)
+        self.check("best cell upright hold", m.group(7),
+                   a_rows[0]["upright_arrival_episodes"]["mean_longest_band_run_s"], places=2)
+
+    def test_the_gait_still_does_not_last_two_seconds(self):
+        m = self.sentence(r"over all\s*\*\*(\d+)\*\* reaching episodes now traced in the published world, "
+                          r"the longest continuous stand is still \*\*([\d.]+) s\*\* and none of them "
+                          r"reaches two seconds", "the open problem")
+        pub, gait = (self.mech["pooled_v9_reach_episodes"],
+                     self.mech["pooled_v9_gait_reach_episodes"])
+        self.check("reaching episodes", m.group(1),
+                   pub["episodes"] + gait["episodes"], places=0)
+        longest = max(pub["max_longest_band_run_s"], gait["max_longest_band_run_s"])
+        self.check("longest continuous stand", m.group(2), longest, places=2)
+        self.assertEqual(pub["episodes_with_band_run_ge_2s"] + gait["episodes_with_band_run_ge_2s"], 0,
+                         "an arm now holds the band for two seconds, so the paragraph's open problem "
+                         "is solved and has to be rewritten")
 
 
 class TestReadmeTrainerPairCells(ReadmeGate, unittest.TestCase):

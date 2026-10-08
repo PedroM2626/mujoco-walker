@@ -402,3 +402,34 @@ radius - fixes what counts as arriving and still says nothing about how the body
 process, not per episode for an outcome. If the only available metric is an episode aggregate, say what
 it can and cannot express instead of choosing the reading that matches the video. And note which
 instrument settled it: not a new experiment, the same fidelity-gated replay one level down.
+
+## The reward knob that was dead in the phase being trained
+
+The experiment designed to turn "advances in bursts" into walking had two arms, and the first one was
+`stillness_penalty_weight` 5 to 50 - a lever on the freeze-while-standing failure. It cost nothing to
+check before spending 7.6 GPU-hours on it, and the check killed it: `stillness_penalty` is assigned inside
+`if task_phase == "balance":` (`envs/walker_ragdoll_env.py:493-498`) and initialised to `0.0` otherwise, so
+in the target phase its contribution to every gradient is identically zero. The arm would have been a
+duplicate of the control at a different price, and its result would have been read as "raising the
+stillness penalty does not help".
+
+The live anti-collapse term in the target phase is `stability_reward_weight` - `standing_gate ×
+exp(-0.25 · angular speed) × one foot down with no bad contacts` - and tripling it through the new
+`--reward-override` is the first intervention in this repository that moves the strict arrival column:
+4 of 20 episodes arrive standing where 3 of 20 had been the ceiling, with the direction replicated on a
+second seed. The other arm, the target distance curriculum, is reported as the negative it is: 1 of 20
+upright in its own task and 1 of 20 on the published 2-5 m.
+
+**Why this is a class of error and not one mistake:** `TRAINING_REWARD_KWARGS` lists seven weights with
+identical names, types and plumbing, and one of them does nothing in the phase being trained. Nothing in
+the dict distinguishes a live knob from a dead one, and the evaluator scores a run trained under either.
+The same asymmetry hid in the environment's own vocabulary: `_curriculum_level` counted targets reached
+for the whole life of this repository and nothing read it, which is why the "curriculum" in
+`standup_balance_walk_curriculum_v9` was resampling alone until this week.
+
+**How to apply:** before pricing an arm, read the branch the term lives in and the phase guard around it.
+The README's "this arm was dead" sentence is now gated on the source - the cited range has to contain the
+assignment *and* the `balance` guard, and no second non-zero assignment may exist outside it - so the day
+the term goes live in target, the claim fails loudly instead of rotting quietly. Related:
+[[judge-a-result-against-the-task-s-own-success-criterion]],
+[[an-episode-mean-cannot-carry-a-verb]].

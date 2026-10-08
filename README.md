@@ -381,17 +381,18 @@ above 0.7 *at that step* - so a fall forward can land inside the radius and be p
 the scored episodes into video (`bench_reach_definitions.py` re-scores them under both rules and
 refuses to write unless the distance-only column reproduces the committed artifact episode for episode)
 showed exactly that: the clip that "reached" at 0.299 m got there at a step with the torso at 0.405 m,
-and it ends 1.23 m from the marker, motionless, 7.5 s later. Under the strict rule, in the published
-world the best arm in this repository arrives standing in **3 of 20 episodes (15%)** - SAC at
-`--utd-ratio 4` seed 7 / 3M and at ratio 1 seed 8 / 4M, whose distance-only rows read 25% and
-20% - and the 40M from-scratch curve's 20% at 5M is **10%** upright. PPO at 10M is the extreme: 25% and
-15% by distance, **5% and 0%** standing, because four of its five arrivals are collapses. The one arm
-where every arrival was clean is the `fast` world at 5M seed 8 (20% by both rules, 0 collapses), which
-is a reminder that the preset changes what arriving means, not just how long it takes.
+and it ends 1.23 m from the marker, motionless, 7.5 s later. Under the strict rule, the best arm in the
+published world for everything published before the reward-override experiment arrives standing in
+**3 of 20 episodes (15%)** - SAC at `--utd-ratio 4` seed 7 / 3M and at ratio 1 seed 8 / 4M, whose
+distance-only rows read 25% and 20% - and the 40M from-scratch curve's 20% at 5M is **10%** upright. PPO
+at 10M is the extreme: 25% and 15% by distance, **5% and 0%** standing, because four of its five arrivals
+are collapses. The one arm among them where every arrival was clean is the `fast` world at 5M seed 8 (20%
+by both rules, 0 collapses), which is a reminder that the preset changes what arriving means, not just how
+long it takes.
 
 **An upright arrival says the body was standing at that moment; the step trace says it still was not
 walking.** Splitting every step of the same published episodes at whether the torso was in the band then
-- `bench_approach_mechanism.py`, which replays all 280 scored episodes of the 14 quoted checkpoints and
+- `bench_approach_mechanism.py`, which replays all 420 scored episodes of the 21 quoted checkpoints and
 refuses to write unless each one reproduces its committed telemetry - the 35 episodes the distance rule
 counts as reaches in the published world close **46.61 m at in-band steps against 43.43 m with the torso
 below the band** (51.8% of the ground), and **30 of those 35 closest approaches come after the episode's
@@ -401,10 +402,35 @@ published world ever stands for two continuous seconds - which is what the clips
 is direction: at in-band steps the body moves toward the target at 0.34 to 1.58 m/s depending on the arm,
 and the best near miss in the repository comes to 1.8 cm inside the radius.
 
+**So the experiment was to change the gait, and one of the two arms did.** Both run at the dose the last
+two nights fixed (5M steps, `num_envs=32`, `--utd-ratio 4`, two seeds each), and each changes one thing
+the target phase actually computes. One candidate died before it was run: `stillness_penalty` is only
+computed when `task_phase == "balance"` (`envs/walker_ragdoll_env.py:493-498`), so raising
+`stillness_penalty_weight` in the target task changes no gradient at all - which is what the first draft of
+this experiment proposed. The live "do not collapse" term in target is `stability_reward_weight`, so arm A
+triples it, 20 to 60, through the new `--reward-override`; arm B is the new `--target-curriculum`, targets
+at 2.0-2.5 m opening 0.5 m every three successes.
+
+Arm A is the first thing in this repository to move the strict column: **4 of 20 episodes (20%) arrive
+standing** at its 4M checkpoint on seed 7, where 3 of 20 had been the ceiling, and its seed 8 best cell
+lands back on 3 of 20 - the direction replicates, the peak does not, and both seeds fall off by 5M. Arm B
+beats nothing: 1 of 20 upright at its best in-task cell and 1 of 20 when the same checkpoints are scored on
+the published 2-5 m, having spent 4.35-10.86% of its steps in the band against the published arms' 12.7%
+and falling 0.6 to 1.5 times an episode against arm A's 2.05 to 2.6 per episode.
+
+The step trace says arm A bought more than a lucky arrival frame. Across its three quoted cells the reach
+episodes close **49.4% to 73.5% of their ground inside the band** against the published pool's 51.8%, they
+are in the band for 13.7-17.1% of their steps against 12.7%, and the best cell's upright arrivals hold the
+band for 1.17 s at a stretch. What it did not buy is the thing the paragraph above is about: over all
+**60** reaching episodes now traced in the published world, the longest continuous stand is still **1.47 s**
+and none of them reaches two seconds.
+
 So the honest answer to "does an agent walk to the target?" is: **the target is in the behaviour and the
 gait is not.** These policies head for the marker whenever they are up, arrive standing in about one
-episode in seven at best, and get there by rising, advancing for under a second, falling and repeating -
-not by walking the 2-5 m that separates them from it.
+episode in five at best, and get there by rising, advancing for under a second and falling again - not by
+walking the 2-5 m that separates them from it. Paying three times as much to hold a stable standing pose
+is the one lever measured so far that moves both the arrival column and the share of ground closed on
+feet; making the stand last longer than 1.5 s is still open.
 
 The standing rung splits the other way, and only the instrument that measures the torso can say so.
 On `bench_posture.py` at the settings the published posture table uses (50 seeded episodes, seed 11,
@@ -2028,12 +2054,12 @@ Three facts to keep in mind:
 
 The suite is plain `unittest` (no pytest required) and covers the environment contract, the
 golden reward rollouts, the parallel/serial vector-env parity, checkpointing and the race
-harness — **317 tests, 211 s in this window** (`Ran 317 tests in 211.202s ... OK
+harness — **322 tests, 195 s in this window** (`Ran 322 tests in 195.419s ... OK
 (skipped=7)` under `.venv`). Windows of this suite have measured 176.3 s at 102 tests, 269.995 s
 at 121, 261.1 s at 127, 329.964 s at 128, 319.168 s at 130, 184.716 s, 203.108 s and 306.976 s at
 140, 144.678 s at 147, 230.268 s at 157, 171.016 s and 170.304 s at 194, and 174.008 s,
 170.391 s, 175.036 s, 168.775 s, 168.986 s and 166.606 s at 201/205/210, 169.919 s at 214,
-and 163.920 s and 161.829 s at 237, 165.360 s and 164.902 s at 243, 161.647 s and 162.674 s at 250, 162.726 s and 162.167 s at 251, 171.616 s and 163.434 s at 252, 163.769 s and 163.748 s at 255, 226.912 s and 217.651 s at 260, 193.167 s and 191.909 s at 273, 206.150 s at 279, 193.904 s at 284, 201.464 s at 289, 189.864 s and 187.485 s at 294, 190.012 s at 297, 230.180 s at 301, 190.655 s at 311 -
+and 163.920 s and 161.829 s at 237, 165.360 s and 164.902 s at 243, 161.647 s and 162.674 s at 250, 162.726 s and 162.167 s at 251, 171.616 s and 163.434 s at 252, 163.769 s and 163.748 s at 255, 226.912 s and 217.651 s at 260, 193.167 s and 191.909 s at 273, 206.150 s at 279, 193.904 s at 284, 201.464 s at 289, 189.864 s and 187.485 s at 294, 190.012 s at 297, 230.180 s at 301, 190.655 s at 311, 211.202 s at 317 -
 those last windows carry a dose test that runs three short CPU trainings, which are about 27 s of
 them, so that entry is not slower hardware; consecutive runs of one commit agree to 4%, where the
 147 and 157 windows an afternoon earlier were 1.6x apart for ten more tests. The
@@ -2091,7 +2117,7 @@ that they ran - see Phase 4, item 6. How each of those states was found, with th
 ## 🔬 Reproducing and measuring
 
 ```bash
-python -m unittest discover -s tests -t .   # 317 tests in .venv, 211 s; see "Running the tests"
+python -m unittest discover -s tests -t .   # 322 tests in .venv, 195 s; see "Running the tests"
 python bench_env.py --seconds 4             # env throughput, physics vs Python split
 python bench_mjx.py --sizes 32,128          # MJX/JAX batched stepping
 python verify.py                            # Phase-2 artifact check (exits 2 when missing)
@@ -2107,8 +2133,7 @@ python bench_physics_presets.py --skip-divergence  # what each physics_preset co
 python bench_physics_presets.py --skip-throughput  # how far each one drifts from v9, same actions
 python bench_reach_definitions.py             # arrival by distance vs arrival standing, both rules,
                                               # and it refuses to write unless the loose column
-                                              # reproduces each committed artifact episode for episode
-python bench_approach_mechanism.py            # the same episodes step by step: metres of approach
+                                              # reproduces each committed artifact episode for episodepython bench_approach_mechanism.py            # the same episodes step by step: metres of approach
                                               # closed inside the standing band vs below it, longest
                                               # continuous stand, velocity toward the target while up
 python train_walker.py --algo sac --run-id preset_sac_euler_1m --seed 7 --total-timesteps 1000000 \
@@ -2125,6 +2150,22 @@ python train_walker.py --algo sac --run-id utd_sac_n32_r4_5m --seed 7 --total-ti
                                               # --utd-ratio is the optimisation dose: G gradient
                                               # updates per collection iteration. 1 is the shipped
                                               # schedule every committed run used
+python train_walker.py --algo sac --run-id stab60_sac_n32_r4_5m --seed 7 --total-timesteps 5000000 \
+  --num-envs 32 --utd-ratio 4 --task-phase target --reset-mode mixed \
+  --target-forward-velocity 1.2 --checkpoint-interval 1000000 --device cuda \
+  --no-save-replay-buffer --reward-override stability_reward_weight=60
+                                              # --reward-override replaces one shipped reward weight for
+                                              # one run; the effective dict is what the checkpoint records,
+                                              # and task parameters (radius, distance range, horizon) are
+                                              # refused on purpose
+python train_walker.py --algo sac --run-id tcur_sac_n32_r4_5m --seed 7 --total-timesteps 5000000 \
+  --num-envs 32 --utd-ratio 4 --task-phase target --reset-mode mixed \
+  --target-forward-velocity 1.2 --checkpoint-interval 1000000 --device cuda \
+  --no-save-replay-buffer --target-curriculum
+                                              # targets start at 2.0-2.5 m and open 0.5 m every three
+                                              # successes; the checkpoint stamps _tcur, and
+                                              # `eval_phase1 --target-curriculum off` asks the transfer
+                                              # question on the published 2-5 m
 python summarize_training_rate.py               # every run's real rate, from its own logged timestamps
 python summarize_curriculum_provenance.py       # the manual curriculum's order, widths and stage change
 python -m utils.gpu_window                    # the GPU window a long run would start into

@@ -297,9 +297,12 @@ def main():
             "checkpoint": model["checkpoint"], "physics_preset": preset, "algo": algo,
             # The gait arms are a separate comparison: pooling them with the previously published rows
             # would silently move every figure the existing paragraph quotes.
-            "arm_class": ("gait" if os.path.basename(artifact).startswith(("stab60_", "tcur_", "critic_"))
-                          else ""),
+            "arm_class": ("gait" if os.path.basename(artifact).startswith(
+                ("stab60_", "tcur_", "critic_", "vshape_")) else ""),
             "target_curriculum": curriculum,
+            # Carried so a shaped arm is recognisable in the trace itself. None also means "saved before
+            # the shaping existed", which can only mean unshaped.
+            "value_shaping": model.get("value_shaping"),
             "device": device, "episodes": args.episodes, "seed": args.seed,
             "reached_distance_only": len(loose), "reached_upright": len(strict),
             # Which episodes, by index and by the seed the protocol used (seed + ep): this is what a

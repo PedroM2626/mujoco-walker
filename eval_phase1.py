@@ -71,6 +71,10 @@ def reward_info_for(ck):
         str(ck.get("env_version") or "").endswith("_tcur")
     return {"reward_kwargs": kwargs, "reward_source": source,
             "env_version": ck.get("env_version"), "target_curriculum": curriculum,
+            # Recorded, never applied. A shaped checkpoint is scored on the published reward because this
+            # script builds its own environment; the field exists so the artifact says what the learner
+            # was shown while it was learning.
+            "value_shaping": ck.get("value_shaping"),
             "target_forward_velocity":
             ck.get("target_forward_velocity")}
 
@@ -407,6 +411,12 @@ def main():
                   f"(--target-curriculum={args.target_curriculum}). "
                   + ("As distancias avaliadas nao sao as 2-5 m publicadas." if curriculum else
                      "Transferencia: o agente enfrenta a faixa publicada de 2-5 m."))
+        if rinfo["value_shaping"]:
+            vs = rinfo["value_shaping"]
+            print(f"[NOTE] {name}: treinado com shaping de potencial ({vs['checkpoint']}, weight "
+                  f"{vs['weight']:g}, R2 de validacao {vs['r2_holdout']}). O que segue e a recompensa "
+                  "publicada, sem shaping: a diferenca para um braco igual esta no que o learner viu, "
+                  "- nao no que esta sendo medido.")
         # The Dreamer actor samples its stochastic state, so scoring it twice gives two numbers
         # (the same checkpoint measured -3425.86, -3637.40 and -3278.44 in three unseeded runs).
         # Seed the policy RNG per model, exactly as openai_walker/evaluate_all.py had to.
@@ -431,6 +441,7 @@ def main():
             "checkpoint_env_version": rinfo["env_version"],
             "target_curriculum": bool(curriculum),
             "target_curriculum_trained": bool(rinfo["target_curriculum"]),
+            "value_shaping": rinfo["value_shaping"],
             "mean": round(float(arr.mean()), 2),
             "median": round(float(np.median(arr)), 2),
             "std": round(float(arr.std()), 2),

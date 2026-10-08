@@ -96,6 +96,7 @@ def main():
             "label": label, "artifact": artifact, "model": key,
             "checkpoint": model["checkpoint"], "physics_preset": preset,
             "target_curriculum": curriculum,
+            "value_shaping": model.get("value_shaping"),
             "algo": model["algo"], "episodes": args.episodes, "seed": args.seed,
             "reached_distance_only_pct": model["reached_target_pct"],
             "reached_upright_pct": round(100.0 * float(np.mean(strict)), 1),

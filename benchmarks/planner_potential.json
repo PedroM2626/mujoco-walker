@@ -1,0 +1,287 @@
+{
+ "demos": "benchmarks/demos/mpc_preference_demos.npz",
+ "arch": [
+  49,
+  128,
+  128,
+  1
+ ],
+ "obs_dim": 49,
+ "hidden": [
+  128,
+  128
+ ],
+ "epochs": 40,
+ "selected_epoch": 8,
+ "seed": 7,
+ "device": "cuda",
+ "lr": 0.001,
+ "batch": 512,
+ "clamp_value": [
+  217.624,
+  21593.135
+ ],
+ "value_mean": 4590.108,
+ "value_scale": 3752.273,
+ "holdout_episodes": [
+  25,
+  26,
+  27
+ ],
+ "holdout_seeds": [
+  426,
+  427,
+  428
+ ],
+ "val_rows": 3000,
+ "train_rows": 25000,
+ "r2_holdout": 0.7991,
+ "val_mse_holdout": 0.28362,
+ "r2_ridge_same_split": 0.7729,
+ "r2_ridge_raw_inputs": 0.7722,
+ "history": [
+  {
+   "epoch": 1,
+   "train_mse": 0.38052,
+   "val_mse": 0.32156,
+   "r2_holdout": 0.7722
+  },
+  {
+   "epoch": 2,
+   "train_mse": 0.25142,
+   "val_mse": 0.31537,
+   "r2_holdout": 0.7766
+  },
+  {
+   "epoch": 3,
+   "train_mse": 0.24198,
+   "val_mse": 0.31963,
+   "r2_holdout": 0.7736
+  },
+  {
+   "epoch": 4,
+   "train_mse": 0.232,
+   "val_mse": 0.30313,
+   "r2_holdout": 0.7853
+  },
+  {
+   "epoch": 5,
+   "train_mse": 0.21827,
+   "val_mse": 0.29509,
+   "r2_holdout": 0.791
+  },
+  {
+   "epoch": 6,
+   "train_mse": 0.20131,
+   "val_mse": 0.29666,
+   "r2_holdout": 0.7899
+  },
+  {
+   "epoch": 7,
+   "train_mse": 0.18115,
+   "val_mse": 0.2929,
+   "r2_holdout": 0.7925
+  },
+  {
+   "epoch": 8,
+   "train_mse": 0.16124,
+   "val_mse": 0.28362,
+   "r2_holdout": 0.7991
+  },
+  {
+   "epoch": 9,
+   "train_mse": 0.14691,
+   "val_mse": 0.29072,
+   "r2_holdout": 0.7941
+  },
+  {
+   "epoch": 10,
+   "train_mse": 0.13351,
+   "val_mse": 0.29198,
+   "r2_holdout": 0.7932
+  },
+  {
+   "epoch": 11,
+   "train_mse": 0.12174,
+   "val_mse": 0.30411,
+   "r2_holdout": 0.7846
+  },
+  {
+   "epoch": 12,
+   "train_mse": 0.11089,
+   "val_mse": 0.28613,
+   "r2_holdout": 0.7973
+  },
+  {
+   "epoch": 13,
+   "train_mse": 0.10109,
+   "val_mse": 0.30145,
+   "r2_holdout": 0.7865
+  },
+  {
+   "epoch": 14,
+   "train_mse": 0.09342,
+   "val_mse": 0.30884,
+   "r2_holdout": 0.7813
+  },
+  {
+   "epoch": 15,
+   "train_mse": 0.08585,
+   "val_mse": 0.31081,
+   "r2_holdout": 0.7799
+  },
+  {
+   "epoch": 16,
+   "train_mse": 0.08016,
+   "val_mse": 0.33508,
+   "r2_holdout": 0.7627
+  },
+  {
+   "epoch": 17,
+   "train_mse": 0.07471,
+   "val_mse": 0.32322,
+   "r2_holdout": 0.7711
+  },
+  {
+   "epoch": 18,
+   "train_mse": 0.07006,
+   "val_mse": 0.32723,
+   "r2_holdout": 0.7682
+  },
+  {
+   "epoch": 19,
+   "train_mse": 0.06475,
+   "val_mse": 0.32712,
+   "r2_holdout": 0.7683
+  },
+  {
+   "epoch": 20,
+   "train_mse": 0.06104,
+   "val_mse": 0.34744,
+   "r2_holdout": 0.7539
+  },
+  {
+   "epoch": 21,
+   "train_mse": 0.05854,
+   "val_mse": 0.3262,
+   "r2_holdout": 0.769
+  },
+  {
+   "epoch": 22,
+   "train_mse": 0.0555,
+   "val_mse": 0.32485,
+   "r2_holdout": 0.7699
+  },
+  {
+   "epoch": 23,
+   "train_mse": 0.05273,
+   "val_mse": 0.35969,
+   "r2_holdout": 0.7452
+  },
+  {
+   "epoch": 24,
+   "train_mse": 0.04906,
+   "val_mse": 0.34719,
+   "r2_holdout": 0.7541
+  },
+  {
+   "epoch": 25,
+   "train_mse": 0.04687,
+   "val_mse": 0.35979,
+   "r2_holdout": 0.7452
+  },
+  {
+   "epoch": 26,
+   "train_mse": 0.04491,
+   "val_mse": 0.34701,
+   "r2_holdout": 0.7542
+  },
+  {
+   "epoch": 27,
+   "train_mse": 0.04277,
+   "val_mse": 0.35779,
+   "r2_holdout": 0.7466
+  },
+  {
+   "epoch": 28,
+   "train_mse": 0.04091,
+   "val_mse": 0.34834,
+   "r2_holdout": 0.7533
+  },
+  {
+   "epoch": 29,
+   "train_mse": 0.03949,
+   "val_mse": 0.34876,
+   "r2_holdout": 0.753
+  },
+  {
+   "epoch": 30,
+   "train_mse": 0.03727,
+   "val_mse": 0.34684,
+   "r2_holdout": 0.7543
+  },
+  {
+   "epoch": 31,
+   "train_mse": 0.03582,
+   "val_mse": 0.34279,
+   "r2_holdout": 0.7572
+  },
+  {
+   "epoch": 32,
+   "train_mse": 0.0349,
+   "val_mse": 0.33593,
+   "r2_holdout": 0.7621
+  },
+  {
+   "epoch": 33,
+   "train_mse": 0.0334,
+   "val_mse": 0.34907,
+   "r2_holdout": 0.7528
+  },
+  {
+   "epoch": 34,
+   "train_mse": 0.03285,
+   "val_mse": 0.36664,
+   "r2_holdout": 0.7403
+  },
+  {
+   "epoch": 35,
+   "train_mse": 0.03116,
+   "val_mse": 0.35466,
+   "r2_holdout": 0.7488
+  },
+  {
+   "epoch": 36,
+   "train_mse": 0.03005,
+   "val_mse": 0.34294,
+   "r2_holdout": 0.7571
+  },
+  {
+   "epoch": 37,
+   "train_mse": 0.02964,
+   "val_mse": 0.33983,
+   "r2_holdout": 0.7593
+  },
+  {
+   "epoch": 38,
+   "train_mse": 0.02852,
+   "val_mse": 0.34329,
+   "r2_holdout": 0.7569
+  },
+  {
+   "epoch": 39,
+   "train_mse": 0.02738,
+   "val_mse": 0.35273,
+   "r2_holdout": 0.7502
+  },
+  {
+   "epoch": 40,
+   "train_mse": 0.02683,
+   "val_mse": 0.34598,
+   "r2_holdout": 0.7549
+  }
+ ],
+ "protocol": "Phi is fitted on benchmarks/demos/mpc_preference_demos.npz: the planner's own lookahead value per step, standardised by the demonstration observation statistics, episode-level hold-out (the last demonstrations are never trained on), checkpoint chosen by held-out MSE",
+ "eval_seeds_are_disjoint": true,
+ "reading": "the planner's value is fitted as a frozen state function so it can be handed to an online learner as a potential; unlike a critic learned during the run it never has to be trusted while it is still moving"
+}

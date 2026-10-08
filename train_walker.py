@@ -5,6 +5,7 @@ SAC / PPO Walker Ragdoll Training with CleanRL-style checkpointing.
 import argparse
 import copy
 import gc
+import json
 import os
 import random
 import sys
@@ -53,6 +54,9 @@ ENV_VARS = {
     "PHYSICS_PRESET": "v9",
     "TARGET_CURRICULUM": "0",
     "REWARD_OVERRIDE": "",
+    "VALUE_POTENTIAL": "",
+    "SHAPING_WEIGHT": "1.0",
+    "SHAPING_GAMMA": "",
     "TARGET_FORWARD_VELOCITY": "0.8",
     "INIT_FROM_RUN_ID": "",
     "INIT_FROM_CHECKPOINT_STEP": "",
@@ -321,6 +325,23 @@ def parse_args():
                              "dict is what the checkpoints record, so the scorer reads the reward the "
                              "policy actually optimised. Keys are limited to reward weights; the "
                              "default is envs.reward_shaping.TRAINING_REWARD_KWARGS.")
+    parser.add_argument("--value-potential", default=get_env_or_default(
+        "VALUE_POTENTIAL", ENV_VARS["VALUE_POTENTIAL"]), metavar="POTENTIAL.NPZ",
+        help="add potential-based shaping to the reward the *learner* sees, using a frozen state "
+             "value Phi(s) fitted by fit_planner_potential.py: r + weight*(gamma_s*Phi(s') - Phi(s)). "
+             "With a state-only potential and Phi=0 at a terminal state that term telescopes and the "
+             "optimal policy of the MDP is unchanged, so this is a learning signal and not a new task. "
+             "Recorded in every checkpoint, and never applied while scoring: eval builds its own "
+             "unshaped environment.")
+    parser.add_argument("--shaping-weight", type=float, default=float(get_env_or_default(
+        "SHAPING_WEIGHT", ENV_VARS["SHAPING_WEIGHT"])),
+        help="strength of the shaping term. 0 is refused rather than silently equivalent to no "
+             "--value-potential, because a run that claims a signal of weight zero is a control arm "
+             "wearing the shaped arm's provenance.")
+    parser.add_argument("--shaping-gamma", type=float, default=shaping_gamma_default(),
+                        help="discount used inside the shaping term. Default: this run's --gamma, which "
+                             "is what makes the term telescope against the same critic that bootstraps "
+                             "with it.")
     parser.add_argument("--use-supervisor-in-training", action="store_true", default=False, help="Use recovery supervisor during target phase training")
     # PPO-specific arguments
     parser.add_argument("--num-steps", type=int, default=int(get_env_or_default("NUM_STEPS", ENV_VARS["NUM_STEPS"])), help="PPO rollout length per env.")
@@ -355,6 +376,7 @@ def make_env(
     physics_preset="v9",
     reward_kwargs=None,
     target_curriculum=False,
+    value_shaping=None,
 ):
     def thunk():
         env_kwargs = {
@@ -380,6 +402,14 @@ def make_env(
         env = gym.wrappers.FlattenObservation(env)
         env = gym.wrappers.RecordEpisodeStatistics(env)
         env = wrap_clip_action(env)
+        if value_shaping:
+            # Imported here rather than at the top of the file: the potential reads its normalisation
+            # constants from evaluate_merging, and evaluate_merging imports this module.
+            from envs.value_potential import PotentialShaping, ValuePotential
+            # Outside RecordEpisodeStatistics on purpose: the episode return stays the published reward,
+            # and only what the learner is handed is shaped.
+            env = PotentialShaping(env, ValuePotential.load(resolve_potential_path(
+                value_shaping["checkpoint"])), value_shaping["weight"], value_shaping["gamma"])
         return env
 
     return thunk
@@ -400,6 +430,7 @@ def env_common_kwargs(args):
         "physics_preset": getattr(args, "physics_preset", "v9"),
         "reward_kwargs": effective_reward_kwargs(args),
         "target_curriculum": bool(getattr(args, "target_curriculum", False)),
+        "value_shaping": shaping_config(args),
     }
 
 
@@ -446,15 +477,80 @@ def effective_reward_kwargs(args):
     return kwargs
 
 
+def resolve_potential_path(path):
+    """Absolute path of a fitted potential, resolved against this file rather than the caller's cwd."""
+    return path if os.path.isabs(path) else os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), path)
+
+
+def shaping_gamma_default():
+    """The shaping discount read from the environment, or None meaning "this run's --gamma"."""
+    raw = str(get_env_or_default("SHAPING_GAMMA", ENV_VARS["SHAPING_GAMMA"])).strip()
+    return float(raw) if raw else None
+
+
+def shaping_config(args):
+    """The frozen potential this run shapes with, resolved once, or None when the run is unshaped.
+
+    What comes back is what every checkpoint of the run stores, so a shaped arm cannot be mistaken for a
+    plain one later: the held-out R2 and the clamp range travel with the policy, and they are read from
+    the provenance sidecar the fitter wrote next to the weights rather than typed in here.
+    """
+    path = str(getattr(args, "value_potential", "") or "").strip()
+    if not path:
+        return None
+    weight = float(getattr(args, "shaping_weight", 1.0))
+    if weight == 0.0:
+        raise SystemExit("--shaping-weight 0 shapes nothing: drop --value-potential to run the control "
+                         "arm, which is what this run would otherwise be")
+    full = resolve_potential_path(path)
+    if not os.path.exists(full):
+        raise SystemExit(f"--value-potential {path} does not exist; fit it with "
+                         "fit_planner_potential.py first")
+    sidecar = full + ".json"
+    if not os.path.exists(sidecar):
+        raise SystemExit(f"--value-potential {path} has no provenance sidecar at {sidecar}. A potential "
+                         "whose held-out accuracy is unknown cannot be quoted as a result")
+    with open(sidecar, encoding="utf-8") as handle:
+        meta = json.load(handle)
+    gamma = args.gamma if getattr(args, "shaping_gamma", None) is None else float(args.shaping_gamma)
+    return {
+        "checkpoint": path, "weight": weight, "gamma": float(gamma),
+        "demos": meta["demos"], "arch": meta["arch"], "obs_dim": meta["obs_dim"],
+        "selected_epoch": meta["selected_epoch"], "r2_holdout": meta["r2_holdout"],
+        "clamp_value": meta["clamp_value"], "holdout_seeds": meta["holdout_seeds"],
+    }
+
+
+def announce_shaping(args):
+    """Say once, in the run's own log, what the learner is being shown instead of the published reward.
+
+    The shaping is invisible in the numbers the repo publishes - `eval_phase1` builds an unshaped
+    environment, and `RecordEpisodeStatistics` sits inside the wrapper - so the log is where the difference
+    between two arms has to be legible while the run is still running.
+    """
+    shaping = shaping_config(args)
+    if shaping is None:
+        print("[SHAPING] off - the learner sees the published reward")
+        return None
+    print(f"[SHAPING] {shaping['checkpoint']} weight={shaping['weight']:g} "
+          f"gamma={shaping['gamma']:g} (held-out R2 {shaping['r2_holdout']}, value clamp "
+          f"{shaping['clamp_value']}). Only the reward the learner reads is shaped; episode returns and "
+          f"scoring stay on the published reward.")
+    return shaping
+
+
 def task_record(args):
     """The task fields every checkpoint has to carry, so a scorer can rebuild the MDP.
 
-    `reward_kwargs` is the effective dict rather than the module default, and `target_curriculum`
-    says whether the target distance was being widened - both are things the evaluation reads back.
+    `reward_kwargs` is the effective dict rather than the module default, `target_curriculum` says whether
+    the target distance was being widened, and `value_shaping` says whether the reward the *learner* saw
+    was being shaped by a frozen potential - all three are things the evaluation reads back.
     """
     return {
         "reward_kwargs": effective_reward_kwargs(args),
         "target_curriculum": bool(getattr(args, "target_curriculum", False)),
+        "value_shaping": shaping_config(args),
     }
 
 
@@ -1086,6 +1182,7 @@ def save_sac_checkpoint(
     target_forward_velocity=None,
     reward_kwargs=None,
     target_curriculum=False,
+    value_shaping=None,
     save_replay_buffer=True,
 ):
     os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -1099,6 +1196,7 @@ def save_sac_checkpoint(
             "target_forward_velocity": target_forward_velocity,
             "reward_kwargs": dict(reward_kwargs or TRAINING_REWARD_KWARGS),
             "target_curriculum": bool(target_curriculum),
+            "value_shaping": value_shaping,
             "global_step": global_step,
             "num_envs": envs.num_envs,
             "buffer_size": replay_buffer.size,
@@ -1143,6 +1241,7 @@ def save_sac_checkpoint(
             "target_forward_velocity": target_forward_velocity,
             "reward_kwargs": dict(reward_kwargs or TRAINING_REWARD_KWARGS),
             "target_curriculum": bool(target_curriculum),
+            "value_shaping": value_shaping,
             "global_step": global_step,
             "actor_state_dict": actor.state_dict(),
             "obs_rms": get_obs_rms(envs),
@@ -1282,7 +1381,7 @@ class TD3Agent(nn.Module):
         return torch.tanh(self.fc_mean(x)) * self.action_scale + self.action_bias
 
 
-def save_td3_checkpoint(path, global_step, agent, qf1, qf2, optimizer, q_optimizer, envs, task_phase=None, target_forward_velocity=None, reward_kwargs=None, target_curriculum=False):
+def save_td3_checkpoint(path, global_step, agent, qf1, qf2, optimizer, q_optimizer, envs, task_phase=None, target_forward_velocity=None, reward_kwargs=None, target_curriculum=False, value_shaping=None):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     checkpoint = {
         "algo": "td3",
@@ -1291,6 +1390,7 @@ def save_td3_checkpoint(path, global_step, agent, qf1, qf2, optimizer, q_optimiz
         "target_forward_velocity": target_forward_velocity,
         "reward_kwargs": dict(reward_kwargs or TRAINING_REWARD_KWARGS),
         "target_curriculum": bool(target_curriculum),
+        "value_shaping": value_shaping,
         "global_step": global_step,
         "agent_state_dict": agent.state_dict(),
         "qf1_state_dict": qf1.state_dict(),
@@ -1317,7 +1417,7 @@ def latest_td3_checkpoint(ckpt_dir):
     return max(candidates)[1] if candidates else None
 
 
-def save_ppo_checkpoint(path, global_step, agent, optimizer, envs, task_phase=None, target_forward_velocity=None, reward_kwargs=None, target_curriculum=False):
+def save_ppo_checkpoint(path, global_step, agent, optimizer, envs, task_phase=None, target_forward_velocity=None, reward_kwargs=None, target_curriculum=False, value_shaping=None):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     checkpoint = {
         "algo": "ppo",
@@ -1326,6 +1426,7 @@ def save_ppo_checkpoint(path, global_step, agent, optimizer, envs, task_phase=No
         "target_forward_velocity": target_forward_velocity,
         "reward_kwargs": dict(reward_kwargs or TRAINING_REWARD_KWARGS),
         "target_curriculum": bool(target_curriculum),
+        "value_shaping": value_shaping,
         "global_step": global_step,
         "agent_state_dict": agent.state_dict(),
         "optimizer_state_dict": optimizer.state_dict(),
@@ -1380,6 +1481,7 @@ def train_ppo(start_time=None):
     torch.backends.cudnn.deterministic = True
     device = select_device(args)
     print(f"Using device: {device}")
+    announce_shaping(args)
 
     envs = build_vec_env(args, run_name)
     envs = wrap_normalize_observation(envs)
@@ -1611,6 +1713,7 @@ def train_td3(start_time=None):
     torch.backends.cudnn.deterministic = True
     device = select_device(args)
     print(f"Using device: {device}")
+    announce_shaping(args)
 
     envs = build_vec_env(args, run_name)
     envs = wrap_normalize_observation(envs)
@@ -1841,12 +1944,21 @@ def train(start_time=None):
     torch.backends.cudnn.deterministic = True
     device = select_device(args)
     print(f"Using device: {device}")
+    shaping = announce_shaping(args)
 
     envs = build_vec_env(args, run_name)
     envs = wrap_normalize_observation(envs)
     envs = wrap_transform_observation(envs, lambda obs: np.clip(obs, -10, 10))
 
     obs_dim = int(np.prod(envs.single_observation_space.shape))
+    if shaping is not None and int(shaping["obs_dim"]) != obs_dim:
+        # The observation width follows task_phase, so a potential fitted on target-phase states
+        # literally cannot see the states of a run in another phase. Better to stop here than to
+        # let the first reset of the first worker raise a broadcast error.
+        raise SystemExit(
+            f"--value-potential {shaping['checkpoint']} was fitted on "
+            f"{shaping['obs_dim']}-wide observations and this run's {args.task_phase} phase "
+            f"emits {obs_dim}; the potential cannot score the states it is being asked about")
     action_dim = int(np.prod(envs.single_action_space.shape))
     actor = SACAgent(obs_dim, envs.single_action_space).to(device)
     qf1 = SoftQNetwork(obs_dim, action_dim).to(device)
@@ -1885,6 +1997,20 @@ def train(start_time=None):
             if checkpoint.get("buffer_size") is not None and int(checkpoint["buffer_size"]) != args.buffer_size:
                 raise ValueError(
                     f"Replay buffer size mismatch for resume: checkpoint={checkpoint['buffer_size']} current={args.buffer_size}"
+                )
+            # The shaping is not part of the env version - the environment is the same MDP - so a resume
+            # that added or dropped it would silently change what the critic is being asked to predict
+            # while leaving the version string untouched. Compare it explicitly.
+            resumed_shaping = checkpoint.get("value_shaping")
+            current_shaping = shaping_config(args)
+            if resumed_shaping != current_shaping and not args.allow_mismatched_env_version:
+                raise ValueError(
+                    "Value-shaping mismatch on resume: checkpoint "
+                    f"{resumed_shaping and resumed_shaping.get('checkpoint')} "
+                    f"(weight {resumed_shaping and resumed_shaping.get('weight')}), this run "
+                    f"{current_shaping and current_shaping['checkpoint']} (weight "
+                    f"{current_shaping and current_shaping.get('weight')}). The reward the learner sees "
+                    "would change under a replay buffer full of the other one."
                 )
             actor.load_state_dict(checkpoint["actor_state_dict"])
             qf1.load_state_dict(checkpoint["qf1_state_dict"])

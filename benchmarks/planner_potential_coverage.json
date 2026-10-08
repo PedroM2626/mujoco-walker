@@ -1,0 +1,71 @@
+{
+ "protocol": "the checkpoint is rolled through WalkerRagdoll-v0 in task_phase=target on the published seeds (11..30), one env step per action, and every state it visits is scored with the frozen potential checkpoints\\planner_potential\\potential_best8.npz; the shaping term is measured at weight 1 so the scale is the arm's own, not an artefact of the weight",
+ "potential": {
+  "checkpoint": "checkpoints\\planner_potential\\potential_best8.npz",
+  "obs_dim": 49,
+  "r2_holdout": 0.7991,
+  "clamp_value": [
+   217.624,
+   21593.135
+  ],
+  "demos": "benchmarks/demos/mpc_preference_demos.npz",
+  "selected_epoch": 8
+ },
+ "reward_fraction": 0.5,
+ "shaping_gamma": 0.99,
+ "cells": {
+  "control": {
+   "checkpoint": "checkpoints/utd_sac_n32_r4_5m/sac_actor_5000000.pt",
+   "algo": "sac_actor",
+   "task_phase_trained": "target",
+   "obs_width": 49,
+   "episodes": 20,
+   "seed": 11,
+   "steps": 20000,
+   "mean_episode_steps": 1000.0,
+   "mean_abs_task_reward_per_step": 30.2923,
+   "mean_abs_shaping_at_weight_1": 79.6693,
+   "shaping_to_reward_ratio_at_weight_1": 2.63,
+   "weight_by_rule": 0.1901,
+   "pct_states_clamped": 37.31,
+   "pct_states_clamped_low": 37.31,
+   "pct_states_clamped_high": 0.0,
+   "unit_shaping_range": [
+    -1699.323,
+    1883.608
+   ],
+   "phi_range_on_this_policy": [
+    217.624,
+    19159.27
+   ],
+   "mean_return_published": 25916.66
+  },
+  "stab60": {
+   "checkpoint": "checkpoints/stab60_sac_n32_r4_5m/sac_actor_5000000.pt",
+   "algo": "sac_actor",
+   "task_phase_trained": "target",
+   "obs_width": 49,
+   "episodes": 20,
+   "seed": 11,
+   "steps": 20000,
+   "mean_episode_steps": 1000.0,
+   "mean_abs_task_reward_per_step": 45.3712,
+   "mean_abs_shaping_at_weight_1": 140.4126,
+   "shaping_to_reward_ratio_at_weight_1": 3.095,
+   "weight_by_rule": 0.1616,
+   "pct_states_clamped": 19.11,
+   "pct_states_clamped_low": 19.11,
+   "pct_states_clamped_high": 0.0,
+   "unit_shaping_range": [
+    -1958.029,
+    3134.478
+   ],
+   "phi_range_on_this_policy": [
+    217.624,
+    19353.836
+   ],
+   "mean_return_published": 43511.47
+  }
+ },
+ "reading": "the weight is set by the rule stated in the script - the largest alpha whose mean shaping magnitude stays under the given fraction of the mean task reward on the control arm's own trajectory - so the arm's strength is a design decision recorded before its outcome is known"
+}

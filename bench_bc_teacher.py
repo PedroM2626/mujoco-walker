@@ -58,7 +58,13 @@ def knn_predict(x_tr, y_tr, x_va, k, exemplars=6000, seed=0):
 
 
 def student_val_mse(ckpt_path, obs, act, eps, val):
-    """Re-run the student on the same held-out rows the regressors are scored on."""
+    """Re-run a trained student on the same held-out rows the regressors are scored on.
+
+    Both student kinds are accepted: the behaviour-cloning checkpoints carry a "bc" block and the
+    offline-critic ones a "critic" block. They are the same object in the pipeline's eyes - a trained
+    policy over the same observation - and an instrument that crashes on the second kind silently
+    drops the arm it was built to compare.
+    """
     # weights_only=False is the repo's convention for its own checkpoints: they carry the observation
     # normaliser as a Python object, which a weights-only load refuses.
     ck = torch.load(ckpt_path, map_location="cpu", weights_only=False)
@@ -73,7 +79,7 @@ def student_val_mse(ckpt_path, obs, act, eps, val):
     with torch.no_grad():
         out, _ = agent(x)
         pred = np.tanh(out.numpy())
-    return float(np.mean((pred - act[val]) ** 2)), ck["bc"]
+    return float(np.mean((pred - act[val]) ** 2)), ck.get("bc") or ck.get("critic") or {}
 
 
 def jitter(act, eps):
@@ -84,6 +90,33 @@ def jitter(act, eps):
     return {"consecutive_action_mse": round(float(np.mean((act[idx] - act[idx - 1]) ** 2)), 4),
             "action_energy": round(float(np.mean(act ** 2)), 4),
             "mean_abs_change_per_actuator": round(float(np.abs(act[idx] - act[idx - 1]).mean()), 4)}
+
+
+def _student_row(m):
+    """One scored student, plus the epoch its checkpoint was selected at.
+
+    BC checkpoints carry that record under "bc" and offline-critic ones under "critic"; the instrument
+    reports both kinds side by side, so the block is looked up rather than assumed.
+    """
+    ck = torch.load(os.path.join(ROOT, m["checkpoint"]), map_location="cpu", weights_only=False)
+    block = ck.get("bc") or ck.get("critic") or {}
+    hist = block.get("history") or []
+    row = {"checkpoint": m["checkpoint"], "mean_return": m["mean"],
+           "reached_pct": m["reached_target_pct"],
+           "upright_arrival_pct": m["reached_target_upright_pct"],
+           "falls_per_episode": m["falls_per_episode"],
+           "standing_at_end_pct": m["standing_at_end_pct"],
+           "selected_epoch": block.get("selected_epoch"),
+           "kind": "offline_critic" if "critic" in ck else "bc"}
+    # The training curve travels with the student. The checkpoints themselves are gitignored, so a
+    # claim about how the held-out TD error moved has to sit in a committed artifact to be gated.
+    if "val_td_mse" in block:
+        row.update({"val_td_mse_selected": block.get("val_td_mse"),
+                    "val_td_mse_first": hist[0]["val_td_mse"] if hist else None,
+                    "val_td_mse_last": hist[-1]["val_td_mse"] if hist else None,
+                    "epochs_run": len(hist), "actor_mode": block.get("actor_mode"),
+                    "bc_lambda": block.get("bc_lambda")})
+    return row
 
 
 def main():
@@ -201,14 +234,7 @@ def main():
             "transitions": dmeta["summary"]["transitions"],
             "transitions_in_band": dmeta["summary"]["transitions_in_band"],
         },
-        "students": {key: {
-            "checkpoint": m["checkpoint"], "mean_return": m["mean"],
-            "reached_pct": m["reached_target_pct"], "upright_arrival_pct": m["reached_target_upright_pct"],
-            "falls_per_episode": m["falls_per_episode"],
-            "standing_at_end_pct": m["standing_at_end_pct"],
-            "selected_epoch": torch.load(os.path.join(ROOT, m["checkpoint"]), map_location="cpu",
-                                         weights_only=False)["bc"]["selected_epoch"],
-        } for key, m in students["models"].items()},
+        "students": {key: _student_row(m) for key, m in students["models"].items()},
         "reading": ("no predictor of the teacher's action from the 49-wide observation beats the "
                     "constant baseline, including the trained students, so the BC failure is a property "
                     "of the recorded target - the argmin of a stochastic search - and not of the student "

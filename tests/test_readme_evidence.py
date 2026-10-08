@@ -4231,9 +4231,10 @@ class TestReadmeBcTeacherCells(ReadmeGate, unittest.TestCase):
                            "magnitude, so the mechanism the paragraph names is gone")
 
     def test_the_value_is_predictable_where_the_action_is_not(self):
-        m = self.sentence(r"the same episode-level probe against that scalar gives ridge R² \*\*([\d.]+)\*\*"
-                          r" on held-out\s*episodes, where restricting the regression to the three target"
-                          r" components of the observation gives\s*\*\*([−-][\d.]+)\*\*",
+        m = self.sentence(r"the same episode-level probe against that scalar, on the first 8 collected "
+                          r"episodes, gives\s*ridge R² \*\*([\d.]+)\*\* on held-out episodes, where "
+                          r"restricting the regression to the three target components of the "
+                          r"observation gives\s*\*\*([−-][\d.]+)\*\*",
                           "the value-predictability claim")
         v = self.val.get("teacher_value_predictability")
         self.assertIsNotNone(v, "the planner's lookahead value was never recorded, so the R² in that "
@@ -4273,6 +4274,123 @@ class TestReadmeBcTeacherCells(ReadmeGate, unittest.TestCase):
         self.check("elite-mean reached", [m.group(6), m.group(7)],
                    [cmp_block["reached"], cmp_block["episodes"]], places=0)
         self.assertEqual(cmp_block["upright_arrivals"], 0)
+
+
+class TestReadmeCriticStudentCells(ReadmeGate, unittest.TestCase):
+    """The offline-critic route, against the preference-set benchmark and the two student evals.
+
+    This paragraph makes two claims in opposite directions - the planner's value is learnable and the
+    policy trained against it is not - so each half needs its own artifact: the first would be false if
+    the R² ever collapses, the second would be false if a student ever reached. The divergence sentence
+    is gated on the ordering of the held-out TD curve rather than only its endpoints, because "the
+    checkpoint validation selects is from epoch 5" is a claim about the whole curve being unusable after
+    that point.
+    """
+
+    BENCH = os.path.join(ROOT, "benchmarks", "critic_teacher_benchmark.json")
+    PROBE = os.path.join(ROOT, "benchmarks", "planner_value_predictability.json")
+    STUDENTS = os.path.join(ROOT, "benchmarks", "critic_mpc_students.json")
+    TRACES = os.path.join(ROOT, "benchmarks", "approach_mechanism.json")
+    START = "**The value transfers to a regressor"
+    END = 'So the honest answer to "does an agent walk'
+
+    def setUp(self):
+        with open(README, encoding="utf-8") as handle:
+            readme = handle.read()
+        start = readme.index(self.START)
+        self.block = readme[start:readme.index(self.END, start)]
+        self.art, self.probe, self.stu, self.traces = self.read_artifacts(
+            self.BENCH, self.PROBE, self.STUDENTS, self.TRACES)
+        self.val = self.art["teacher_value_predictability"]
+        self.mse = self.art["predictability_val_mse"]
+        self.rows = {r["model"]: r for r in self.traces["rows"]
+                     if r.get("artifact") == "benchmarks/critic_mpc_students.json"}
+        self.bad = []
+        self.what = "offline critic student"
+
+    def test_the_value_is_learnable_at_the_full_scale(self):
+        m = self.sentence(r"Re-measured on the full (\d+)-episode preference set, ridge predicts the "
+                          r"teacher's lookahead value with R² \*\*([\d.]+)\*\* - up from ([\d.]+) on "
+                          r"the 8-episode probe that motivated the route - while the three target "
+                          r"components of the\s*observation alone give \*\*(-[\d.]+)\*\*",
+                          "the value-predictability re-measure")
+        self.check("preference episodes", m.group(1), self.art["teacher"]["episodes"], places=0)
+        self.check("ridge R2 on the value", m.group(2), self.val["r2_ridge"], places=3)
+        self.check("ridge R2 on the 8-episode probe", m.group(3),
+                   self.probe["teacher_value_predictability"]["r2_ridge"], places=3)
+        self.check("ridge R2 from target dims only", m.group(4),
+                   self.val["r2_ridge_target_dims_only"], places=3)
+        self.assertEqual(self.art["teacher"]["transitions"], 28000,
+                         "the preference set is no longer the 28 x 1000-step collection the "
+                         "8-episode probe is being compared against")
+        self.assertGreater(self.val["r2_ridge"], 0.5,
+                           "the value is no longer learnable at full scale, so the paragraph's "
+                           "'transfers to a regressor' half is stale")
+        self.assertLess(self.val["r2_ridge_target_dims_only"], 0.0,
+                        "the goal geometry alone now explains the value, which is the alternative the "
+                        "sentence rules out")
+
+    def test_both_students_fail_the_published_protocol(self):
+        m = self.sentence(r"Both students reach in \*\*(\d+) of (\d+)\*\* and arrive standing in "
+                          r"(\d+) of \d+, at mean return ([\d,.]*\d) and ([\d,.]*\d)",
+                          "the student scores")
+        self.check("reach and arrive standing", [m.group(1), m.group(2), m.group(3)], [0, 20, 0],
+                   places=0)
+        for key, typed in (("critic_q", m.group(4)), ("critic_q_bc", m.group(5))):
+            row = self.stu["models"][key]
+            self.assertEqual(row["episodes"], int(m.group(2)))
+            self.check(f"{key} mean return", typed.replace(",", ""), row["mean"], places=2)
+            self.assertEqual([row["reached_target_pct"], row["reached_target_upright_pct"]], [0.0, 0.0],
+                             f"{key} now reaches the target, so 'does not transfer to a policy' is "
+                             "no longer the result")
+
+    def test_the_band_time_contrast_is_measured_per_step(self):
+        m = self.sentence(r"spending \*\*([\d.]+)%\*\* of their steps inside the standing band where "
+                          r"the teacher spends ([\d.]+)%", "the band-time contrast")
+        self.check("teacher band time", m.group(2), self.art["teacher"]["pct_steps_in_band"], places=1)
+        self.assertEqual(len(self.rows), 2, "the critic students are not both traced in "
+                                           "benchmarks/approach_mechanism.json")
+        for key, row in self.rows.items():
+            self.check(f"{key} band time", m.group(1), row["mean_pct_steps_in_band"], places=1)
+            self.assertEqual([row["reached_distance_only"], row["reached_upright"]], [0, 0],
+                             f"{key} reached in the per-step trace but not in the phase-1 eval")
+        self.assertLess(float(m.group(1)), self.art["teacher"]["pct_steps_in_band"] / 20,
+                        "the students now hold the band at a nontrivial share of the teacher's time, "
+                        "so the contrast sentence no longer makes the point it makes")
+
+    def test_their_actions_are_further_from_the_teacher_than_zero_is(self):
+        m = self.sentence(r"their executed actions are further from the teacher's \(MSE ([\d.]+)\) "
+                          r"than a constant zero \(([\d.]+)\), because ascending a learned Q "
+                          r"saturates the outputs", "the action-distance claim")
+        self.check("student action MSE", m.group(1), self.mse["student_critic_q"], places=3)
+        self.check("constant-zero action MSE", m.group(2), self.mse["zero"], places=3)
+        self.assertEqual(self.mse["student_critic_q_bc"], self.mse["student_critic_q"],
+                         "the two actor modes now differ in action distance, so the sentence quoting "
+                         "one MSE for both is wrong")
+        self.assertGreater(self.mse["student_critic_q"], self.mse["zero"],
+                           "a student now predicts the teacher better than a constant does, so the "
+                           "'saturates the outputs' mechanism is gone")
+
+    def test_the_training_curve_backs_the_divergence_claim(self):
+        m = self.sentence(r"held-out TD error grows from ([\d,.]+) to ([\d,.]+) over (\d+) epochs, "
+                          r"so the checkpoint validation selects is from epoch (\d+), before the "
+                          r"actor has anything to exploit, and at that epoch the two actor modes are "
+                          r"indistinguishable", "the divergence")
+        s = self.art["students"]
+        self.check("q-ascent TD first and last", [m.group(1), m.group(2)],
+                   [s["critic_q"]["val_td_mse_first"], s["critic_q"]["val_td_mse_last"]], places=1)
+        self.check("epochs run", m.group(3), s["critic_q"]["epochs_run"], places=0)
+        self.check("selected epoch", m.group(4), s["critic_q"]["selected_epoch"], places=0)
+        self.assertGreater(s["critic_q"]["val_td_mse_last"], 10 * s["critic_q"]["val_td_mse_first"],
+                           "the held-out TD error no longer diverges by an order of magnitude, so the "
+                           "paragraph's diagnosis of the failure has to be re-read")
+        self.assertEqual([s[k]["selected_epoch"] for k in ("critic_q", "critic_q_bc")], [5, 5],
+                         "the two actor modes no longer pick the same epoch")
+        spread = abs(s["critic_q"]["mean_return"] - s["critic_q_bc"]["mean_return"])
+        self.assertLess(spread, 0.01 * abs(s["critic_q"]["mean_return"]),
+                        "the two actor modes' returns have separated, so 'indistinguishable' is wrong")
+        self.assertEqual(s["critic_q"]["bc_lambda"], 0.0)
+        self.assertEqual(s["critic_q_bc"]["bc_lambda"], 1.0)
 
 
 class TestReadmeTrainerPairCells(ReadmeGate, unittest.TestCase):

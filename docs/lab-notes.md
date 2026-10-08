@@ -491,3 +491,37 @@ itself from the mean, the project is not "train a better student", it is "the te
 function of what the student can see", and the fix belongs on the teacher's extraction or the observation,
 not on the loss. Related: [[an-episode-mean-cannot-carry-a-verb]],
 [[quantify-cost-dont-claim-impossibility]].
+
+## A predictable value is not a trainable policy
+
+The note above says the planner's *action* cannot be predicted from the observation: nothing beats a
+constant. So the next thing to ask was whether anything else about the planner is predictable, and the
+answer is yes. Recording the search's own lookahead value per step and running the same episode-level
+probe gives ridge R² 0.7722 on held-out episodes over the 28-episode preference set, against -0.0013 when
+the regression is restricted to the three target components of the observation. The value is not the
+distance-to-marker feature re-derived; it carries posture, contact and velocity, and a regressor can read
+it.
+
+That is what made the offline critic worth an hour: fit a twin critic by TD on the planner's transitions,
+ascend the actor through it, with and without a TD3+BC in-distribution term. Both students reach in 0 of
+20 and arrive standing in 0 of 20, at mean return 1,013.50 and 1,013.32, and spend 0.22% of their steps in
+the standing band where the teacher spends 12.64%. Their executed actions sit at MSE 1.3736 from the
+teacher's against a constant zero's 0.3774 - further from the teacher than doing nothing, which is what a
+Q-ascent looks like when the outputs saturate. The training curve explains the checkpoint rather than the
+eval: held-out TD error grows from 4,949.97 to 240,268.17 across 60 epochs, so validation keeps epoch 5,
+five epochs in the actor has nothing to exploit, and the two actor modes are indistinguishable because
+neither has yet diverged.
+
+**Why the pairing matters:** learnability of a signal and trainability of a policy from that signal are
+different properties, and the first does not imply the second. The R² said the planner's judgement was
+recoverable from the observation; it said nothing about whether gradient ascent through a critic fitted on
+25,000 off-policy rows is a stable way to get an action out of one. The failure is in the loop - a
+bootstrapped TD target on data that never covers the actor's own states - not in the prediction.
+
+**How to apply:** report both halves. "The teacher is not imitable" alone would have closed the line early
+and wrongly; "the value is learnable but the offline actor-critic diverges" is the actual boundary, and it
+names the route still open - the learned value as an auxiliary signal inside an online loop, rather than a
+policy trained on planner transitions alone. And when a critic trains without erroring, check the shape of
+the TD target: a (batch,) reward broadcast against a (batch,1) Q produces a (batch,batch) target, which
+will minimize perfectly happily and print a plausible loss while meaning nothing. Related:
+[[probe-teacher-predictability-before-training-a-student]].

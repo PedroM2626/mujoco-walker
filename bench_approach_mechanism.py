@@ -63,6 +63,9 @@ CHECKPOINTS = [
     ("benchmarks/tcur_sac_n32_r4_5m_seed8_curve.json", "s2000000", "curriculum, seed 8, in-task"),
     ("benchmarks/tcur_sac_n32_r4_5m_transfer.json", "x4000000", "curriculum, seed 7, on 2-5 m"),
     ("benchmarks/tcur_sac_n32_r4_5m_seed8_transfer.json", "x5000000", "curriculum, seed 8, on 2-5 m"),
+    # The offline-critic students: trained on the planner's transitions, scored like everything else.
+    ("benchmarks/critic_mpc_students.json", "critic_q", "offline critic, Q-ascent actor"),
+    ("benchmarks/critic_mpc_students.json", "critic_q_bc", "offline critic, TD3+BC actor"),
 ]
 
 BAND_Z, BAND_UPRIGHT = 1.0, 0.7
@@ -294,7 +297,7 @@ def main():
             "checkpoint": model["checkpoint"], "physics_preset": preset, "algo": algo,
             # The gait arms are a separate comparison: pooling them with the previously published rows
             # would silently move every figure the existing paragraph quotes.
-            "arm_class": ("gait" if os.path.basename(artifact).startswith(("stab60_", "tcur_"))
+            "arm_class": ("gait" if os.path.basename(artifact).startswith(("stab60_", "tcur_", "critic_"))
                           else ""),
             "target_curriculum": curriculum,
             "device": device, "episodes": args.episodes, "seed": args.seed,

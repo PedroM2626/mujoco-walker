@@ -52,6 +52,8 @@ CHECKPOINTS = [
     ("benchmarks/tcur_sac_n32_r4_5m_seed8_curve.json", "s2000000", "curriculum, seed 8, in-task"),
     ("benchmarks/tcur_sac_n32_r4_5m_transfer.json", "x4000000", "curriculum, seed 7, on 2-5 m"),
     ("benchmarks/tcur_sac_n32_r4_5m_seed8_transfer.json", "x5000000", "curriculum, seed 8, on 2-5 m"),
+    ("benchmarks/critic_mpc_students.json", "critic_q", "offline critic, Q-ascent actor"),
+    ("benchmarks/critic_mpc_students.json", "critic_q_bc", "offline critic, TD3+BC actor"),
 ]
 
 

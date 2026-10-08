@@ -392,7 +392,7 @@ long it takes.
 
 **An upright arrival says the body was standing at that moment; the step trace says it still was not
 walking.** Splitting every step of the same published episodes at whether the torso was in the band then
-- `bench_approach_mechanism.py`, which replays all 420 scored episodes of the 21 quoted checkpoints and
+- `bench_approach_mechanism.py`, which replays all 460 scored episodes of the 23 quoted checkpoints and
 refuses to write unless each one reproduces its committed telemetry - the 35 episodes the distance rule
 counts as reaches in the published world close **46.61 m at in-band steps against 43.43 m with the torso
 below the band** (51.8% of the ground), and **30 of those 35 closest approaches come after the episode's
@@ -466,12 +466,27 @@ search.
 
 **What the planner knows is predictable, even though what it does is not.** The upgraded collector also
 records the teacher's own lookahead value per step - the return of the best sequence it found from that
-state - and the same episode-level probe against that scalar gives ridge R² **0.4738** on held-out
-episodes, where restricting the regression to the three target components of the observation gives
-**−0.0677**, no better than the mean. So the value is not the distance-to-target feature re-derived; it
-carries posture, contact and velocity. Whether a policy trained by ascending such a critic beats one
-trained by experience is not yet measured - this is the claim that would have to be tested before the
-planner is useful for anything beyond its own episodes.
+state - and the same episode-level probe against that scalar, on the first 8 collected episodes, gives
+ridge R² **0.4738** on held-out episodes, where restricting the regression to the three target components
+of the observation gives **−0.0677**, no better than the mean. So the value is not the distance-to-target
+feature re-derived; it carries posture, contact and velocity. That is the one property of the planner that
+survives the observation, and it is what the next paragraph tests.
+
+**The value transfers to a regressor; on this data it does not transfer to a policy.** Re-measured on the
+full 28-episode preference set, ridge predicts the teacher's lookahead value with R² **0.7722** - up from
+0.4738 on the 8-episode probe that motivated the route - while the three target components of the
+observation alone give **-0.0013**, so the signal is state and not goal geometry.
+`train_offline_critic.py` fits a twin critic by TD on those same transitions and ascends the actor through
+it, with and without a TD3+BC in-distribution term. Both students reach in **0 of 20** and arrive standing
+in 0 of 20, at mean return 1,013.50 and 1,013.32, spending **0.22%** of their steps inside the standing
+band where the teacher spends 12.64% - and their executed actions are further from the teacher's (MSE
+1.3736) than a constant zero (0.3774), because ascending a learned Q saturates the outputs. The training
+curve locates the failure: held-out TD error grows from 4,949.97 to 240,268.17 over 60 epochs, so the
+checkpoint validation selects is from epoch 5, before the actor has anything to exploit, and at that epoch
+the two actor modes are indistinguishable. So the planner's judgement is learnable as a critic and, trained
+offline against that critic, not usable as a gait. The route this leaves untested is putting the learned
+value inside the online loop as an auxiliary signal, rather than training a policy on planner transitions
+alone.
 
 So the honest answer to "does an agent walk to the target?" is: **the target is in the behaviour and the
 gait is not.** These policies head for the marker whenever they are up, arrive standing in about one
@@ -2103,12 +2118,12 @@ Three facts to keep in mind:
 
 The suite is plain `unittest` (no pytest required) and covers the environment contract, the
 golden reward rollouts, the parallel/serial vector-env parity, checkpointing and the race
-harness — **340 tests, 186 s in this window** (`Ran 340 tests in 185.556s ... OK
+harness — **351 tests, 193 s in this window** (`Ran 351 tests in 193.319s ... OK
 (skipped=7)` under `.venv`). Windows of this suite have measured 176.3 s at 102 tests, 269.995 s
 at 121, 261.1 s at 127, 329.964 s at 128, 319.168 s at 130, 184.716 s, 203.108 s and 306.976 s at
 140, 144.678 s at 147, 230.268 s at 157, 171.016 s and 170.304 s at 194, and 174.008 s,
 170.391 s, 175.036 s, 168.775 s, 168.986 s and 166.606 s at 201/205/210, 169.919 s at 214,
-and 163.920 s and 161.829 s at 237, 165.360 s and 164.902 s at 243, 161.647 s and 162.674 s at 250, 162.726 s and 162.167 s at 251, 171.616 s and 163.434 s at 252, 163.769 s and 163.748 s at 255, 226.912 s and 217.651 s at 260, 193.167 s and 191.909 s at 273, 206.150 s at 279, 193.904 s at 284, 201.464 s at 289, 189.864 s and 187.485 s at 294, 190.012 s at 297, 230.180 s at 301, 190.655 s at 311, 211.202 s at 317, 195.419 s at 322, 184.182 s at 326, 180.964 s at 326, 266.112 s and 191.187 s at 339 -
+and 163.920 s and 161.829 s at 237, 165.360 s and 164.902 s at 243, 161.647 s and 162.674 s at 250, 162.726 s and 162.167 s at 251, 171.616 s and 163.434 s at 252, 163.769 s and 163.748 s at 255, 226.912 s and 217.651 s at 260, 193.167 s and 191.909 s at 273, 206.150 s at 279, 193.904 s at 284, 201.464 s at 289, 189.864 s and 187.485 s at 294, 190.012 s at 297, 230.180 s at 301, 190.655 s at 311, 211.202 s at 317, 195.419 s at 322, 184.182 s at 326, 180.964 s at 326, 266.112 s and 191.187 s at 339, 185.556 s at 340 -
 those last windows carry a dose test that runs three short CPU trainings, which are about 27 s of
 them, so that entry is not slower hardware; consecutive runs of one commit agree to 4%, where the
 147 and 157 windows an afternoon earlier were 1.6x apart for ten more tests. The
@@ -2166,7 +2181,7 @@ that they ran - see Phase 4, item 6. How each of those states was found, with th
 ## 🔬 Reproducing and measuring
 
 ```bash
-python -m unittest discover -s tests -t .   # 340 tests in .venv, 186 s; see "Running the tests"
+python -m unittest discover -s tests -t .   # 351 tests in .venv, 193 s; see "Running the tests"
 python bench_env.py --seconds 4             # env throughput, physics vs Python split
 python bench_mjx.py --sizes 32,128          # MJX/JAX batched stepping
 python verify.py                            # Phase-2 artifact check (exits 2 when missing)
@@ -2182,7 +2197,8 @@ python bench_physics_presets.py --skip-divergence  # what each physics_preset co
 python bench_physics_presets.py --skip-throughput  # how far each one drifts from v9, same actions
 python bench_reach_definitions.py             # arrival by distance vs arrival standing, both rules,
                                               # and it refuses to write unless the loose column
-                                              # reproduces each committed artifact episode for episodepython bench_approach_mechanism.py            # the same episodes step by step: metres of approach
+                                              # reproduces each committed artifact episode for episode
+python bench_approach_mechanism.py            # the same episodes step by step: metres of approach
                                               # closed inside the standing band vs below it, longest
                                               # continuous stand, velocity toward the target while up
 python bench_mpc.py --episodes 20 --samples 24 --iterations 2 --elite 6 --horizon 60 --replan 10 \
@@ -2199,6 +2215,23 @@ python train_bc_ragdoll.py --filter raw     # BC student on the SACAgent archite
 python bench_bc_teacher.py --jitter-compare benchmarks/demos/probe_elite.npz \
                                           # is the teacher's action learnable at all? constant vs ridge
                                           # vs k-NN vs each student, on one episode-level split
+python collect_mpc_demos.py --episodes 28 --samples 48 --iterations 3 --elite 12 --horizon 100 \
+  --replan 20 --demo-seed-base 401 --out benchmarks/demos/mpc_preference_demos.npz
+                                          # the same teacher, now also recording its lookahead value per
+                                          # step, on seeds 401-428
+python train_offline_critic.py --actor q  # twin critic fitted by TD on those transitions and an actor
+                                          # ascended through it; --actor q_bc adds TD3+BC's
+                                          # in-distribution term. 60 epochs, 3 episodes held out, and
+                                          # the checkpoint is the best held-out TD error, not the last
+python eval_phase1.py --num-episodes 20 --seed 11 --reset-mode mixed \
+  --model critic_q=checkpoints/critic_mpc_q/critic_student_best5.pt \
+  --model critic_q_bc=checkpoints/critic_mpc_q_bc/critic_student_best5.pt \
+  --out benchmarks/critic_mpc_students.json   # both students on the published protocol
+python bench_bc_teacher.py --demos benchmarks/demos/mpc_preference_demos.npz \
+  --students benchmarks/critic_mpc_students.json \
+  --out benchmarks/critic_teacher_benchmark.json
+                                          # ridge R2 against the recorded value, and each student's
+                                          # action distance against a constant zero
 python train_walker.py --algo sac --run-id preset_sac_euler_1m --seed 7 --total-timesteps 1000000 \
   --num-envs 8 --task-phase target --reset-mode mixed --target-forward-velocity 1.2 \
   --checkpoint-interval 500000 --device cuda --physics-preset euler

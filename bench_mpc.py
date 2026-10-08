@@ -48,9 +48,15 @@ class CrossEntropyPlanner:
     """
 
     def __init__(self, horizon=30, samples=128, iterations=4, elite=16, replan=5,
-                 init_std=0.6, min_std=0.05, seed=0):
+                 init_std=0.6, min_std=0.05, seed=0, action="argmin"):
         self.horizon, self.samples, self.iterations = horizon, samples, iterations
         self.elite, self.replan, self.init_std, self.min_std = elite, replan, init_std, min_std
+        # "argmin" returns the winner of the search; "elite-mean" returns the mean of the elite set's
+        # first action, which is the standard policy-extraction trick for MPC and the thing a
+        # behaviour-cloning student can actually regress: the argmin flips between near-tied
+        # sequences, and measured on 28k teacher steps consecutive argmin actions differ by MSE 0.757
+        # against the action's own energy of 0.381, i.e. the recorded policy is close to white noise.
+        self.action_mode = action
         self.rng = np.random.default_rng(seed)
         self.env = None
         self.pending = []
@@ -111,7 +117,7 @@ class CrossEntropyPlanner:
         for i, a in enumerate(carried[:self.horizon]):
             prior[i] = a
         mean, std = prior.copy(), np.full((self.horizon, dim), self.init_std)
-        best_seq, best_ret = None, -np.inf
+        best_seq, best_ret, elite_first = None, -np.inf, None
         for _ in range(self.iterations):
             draws = np.clip(mean + std * self.rng.standard_normal(
                 (self.samples, self.horizon, dim)), -1.0, 1.0)
@@ -121,8 +127,15 @@ class CrossEntropyPlanner:
             keep = np.argsort(-returns)[:self.elite]
             mean = draws[keep].mean(axis=0)
             std = np.maximum(draws[keep].std(axis=0), self.min_std)
+            elite_first = draws[keep][:, 0, :].mean(axis=0)
             if returns[keep[0]] > best_ret:
                 best_ret, best_seq = float(returns[keep[0]]), draws[keep[0]]
+        if self.action_mode == "elite-mean":
+            # The committed first action is the elite average; the plan that continues the rollouts
+            # stays the winner's, so the search itself is unchanged and only the executed action is
+            # smoothed.
+            best_seq = best_seq.copy()
+            best_seq[0] = elite_first
         if unw._curriculum_level != level_before or not np.allclose(unw._target_xy, target_before):
             raise RuntimeError(
                 "a rollout moved the episode's target: the restore is incomplete, so the plan is "
@@ -150,6 +163,10 @@ def main():
     ap.add_argument("--iterations", type=int, default=4)
     ap.add_argument("--elite", type=int, default=16)
     ap.add_argument("--replan", type=int, default=5)
+    ap.add_argument("--action", choices=["argmin", "elite-mean"], default="argmin",
+                    help="which action the plan executes: the search winner, or the mean of the elite "
+                         "set's first action. The second is the smooth target a behaviour-cloning "
+                         "student can regress - the winner flips between near-tied sequences.")
     ap.add_argument("--device", default="cpu", help="the planner is one env; the GPU is for the "
                                                    "learned arms, and mixing them is what made two "
                                                    "earlier rate claims false")
@@ -158,7 +175,7 @@ def main():
 
     planner = CrossEntropyPlanner(horizon=args.horizon, samples=args.samples,
                                   iterations=args.iterations, elite=args.elite,
-                                  replan=args.replan, seed=args.seed)
+                                  replan=args.replan, seed=args.seed, action=args.action)
     env = gym.make("WalkerRagdoll-v0", reset_mode="mixed", task_phase="target",
                    **TRAINING_REWARD_KWARGS)
     radius = float(env.unwrapped._target_radius)
@@ -191,7 +208,7 @@ def main():
                      f"scored with {args.episodes} episodes, seed {args.seed}, reset_mode=mixed - "
                      "the same protocol and the same per-step trace as the learned rows"),
         "measured_with": "bench_approach_mechanism.trace_episode / .pooled",
-        "config": {"horizon": args.horizon, "samples": args.samples,
+        "config": {"action": args.action, "horizon": args.horizon, "samples": args.samples,
                    "iterations": args.iterations, "elite": args.elite, "replan": args.replan,
                    "episodes": args.episodes, "seed": args.seed, "device": args.device},
         "cost": {"wall_clock_s": round(wall, 1),

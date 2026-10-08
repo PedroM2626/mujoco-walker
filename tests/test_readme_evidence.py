@@ -4146,6 +4146,112 @@ class TestReadmeMpcBaselineCells(ReadmeGate, unittest.TestCase):
                    slack=0.25 * self.big["planning_s_per_episode"])
 
 
+class TestReadmeBcTeacherCells(ReadmeGate, unittest.TestCase):
+    """The planner-as-teacher benchmark, against benchmarks/bc_teacher_benchmark.json.
+
+    This paragraph reports a failure, and failures are where a prose claim most easily outruns its
+    evidence: "the teacher is bad" and "the teacher cannot be cloned" are different sentences with the
+    same-looking evidence, so the gate pins both the teacher's own arrival counts and the fact that no
+    predictor of its action beats a constant. The last test is the one that keeps the second claim honest -
+    it fails if any regressor ever separates itself from the trivial baseline, because then the paragraph
+    would be describing a student that could have learned and did not.
+    """
+
+    BENCH = os.path.join(ROOT, "benchmarks", "bc_teacher_benchmark.json")
+    STUDENTS = os.path.join(ROOT, "benchmarks", "bc_mpc_students.json")
+    START = "**Cloning the planner fails"
+    END = 'So the honest answer to "does an agent walk'
+
+    def setUp(self):
+        with open(README, encoding="utf-8") as handle:
+            readme = handle.read()
+        start = readme.index(self.START)
+        self.block = readme[start:readme.index(self.END, start)]
+        self.art, self.stu = self.read_artifacts(self.BENCH, self.STUDENTS)
+        self.mse = self.art["predictability_val_mse"]
+        self.bad = []
+        self.what = "planner-as-teacher benchmark"
+
+    def test_the_teacher_is_scored_on_its_own_episodes(self):
+        m = self.sentence(r"the teacher reaches in \*\*(\d+) of (\d+)\*\* and arrives standing in\s*"
+                          r"\*\*(\d+) of \d+\*\*, with ([\d.]+)% of its steps inside the band",
+                          "the teacher's own numbers")
+        t = self.art["teacher"]
+        self.check("teacher reached", [m.group(1), m.group(2)],
+                   [t["reached"], t["episodes"]], places=0)
+        self.check("teacher upright arrivals", m.group(3), t["upright_arrivals"], places=0)
+        self.check("teacher band time", m.group(4), t["pct_steps_in_band"], places=1)
+        self.assertGreater(t["upright_arrivals"], 0,
+                           "the teacher no longer arrives standing at all, so 'it is the cloning that "
+                           "fails' is no longer the right diagnosis")
+
+    def test_the_two_students_and_the_data_they_saw(self):
+        m = self.sentence(r"one imitating only\s*the in-band steps \(([\d,]+) of ([\d,]+) transitions\)"
+                          r"\. Both score \*\*(\d+) of (\d+)\*\* on the published protocol, at mean\s*"
+                          r"return ([\d,.]*\d) and ([\d,.]*\d)", "the student cells")
+        t = self.art["teacher"]
+        self.check("in-band over all transitions", [m.group(1).replace(",", ""),
+                                                    m.group(2).replace(",", "")],
+                   [t["transitions_in_band"], t["transitions"]], places=0)
+        self.check("student reach", [m.group(3), m.group(4)], [0, 20], places=0)
+        for key, value in (("bc_raw", m.group(5)), ("bc_band", m.group(6))):
+            self.check(f"{key} mean return", value.replace(",", ""),
+                       self.stu["models"][key]["mean"], places=2)
+            self.assertEqual(self.stu["models"][key]["reached_target_pct"], 0.0,
+                             f"{key} now reaches, so the paragraph's negative result is stale")
+        self.assertTrue(self.art["split"]["val_rows"] > 0)
+
+    def test_no_predictor_of_the_action_beats_a_constant_by_more_than_noise(self):
+        m = self.sentence(r"predicting a constant zero action gives validation MSE\s*\*\*([\d.]+)\*\*, "
+                          r"the per-dimension mean ([\d.]+), ridge ([\d.]+), nearest-neighbour "
+                          r"([\d.]+) at k=1 falling to\s*([\d.]+)\s*at k=32, and the trained students "
+                          r"([\d.]+) and ([\d.]+)", "the predictability table")
+        want = {"zero": m.group(1), "per_dim_mean_of_train": m.group(2),
+                "ridge_alpha100": m.group(3), "knn_k1": m.group(4), "knn_k32": m.group(5),
+                "student_bc_raw": m.group(6), "student_bc_band": m.group(7)}
+        for name, typed in want.items():
+            self.check(name, typed, self.mse[name], places=3)
+        baseline = min(self.mse["zero"], self.mse["per_dim_mean_of_train"])
+        for name, value in self.mse.items():
+            if name in ("zero", "per_dim_mean_of_train"):
+                continue
+            self.assertGreater(value, baseline * 0.98,
+                               f"{name} separates itself from the constant baseline, so 'nothing "
+                               "recovers any state-dependence' is no longer true")
+
+    def test_the_jitter_claim_is_the_recorded_signal_not_an_illustration(self):
+        m = self.sentence(r"consecutive recorded actions differ by MSE\s*\*\*([\d.]+)\*\* against the "
+                          r"action's own energy of ([\d.]+)", "the jitter")
+        j = self.art["teacher_jitter"]
+        self.check("consecutive difference", m.group(1), j["consecutive_action_mse"], places=3)
+        self.check("action energy", m.group(2), j["action_energy"], places=3)
+        self.assertGreater(j["consecutive_action_mse"], j["action_energy"],
+                           "the recorded action is no longer more variable step to step than its own "
+                           "magnitude, so the mechanism the paragraph names is gone")
+
+    def test_the_elite_mean_comparison_comes_from_a_committed_trajectory(self):
+        m = self.sentence(r"on a 4-episode probe the jitter moves from ([\d.]+) to\s*"
+                          r"([\d.]+), ridge \(([\d.]+)\) and nearest-neighbour \(([\d.]+)\) still lose to "
+                          r"the constant predictor \(([\d.]+)\), and\s*the teacher drops to (\d+) of "
+                          r"(\d+) reaching with no upright arrival", "the elite-mean comparison")
+        cmp_block = self.art.get("action_extraction_compare")
+        self.assertIsNotNone(cmp_block, "the elite-mean trajectories were never committed, so the "
+                                        "numbers in that clause have no artifact behind them")
+        self.check("jitter argmin -> elite-mean", [m.group(1), m.group(2)],
+                   [self.art["teacher_jitter"]["consecutive_action_mse"],
+                    cmp_block["jitter"]["consecutive_action_mse"]], places=3)
+        p2 = cmp_block["predictability_val_mse"]
+        self.check("ridge / knn / zero on the elite-mean split",
+                   [m.group(3), m.group(4), m.group(5)],
+                   [p2["ridge_alpha100"], p2["knn_k32"], p2["zero"]], places=3)
+        self.assertGreater(p2["ridge_alpha100"], p2["zero"],
+                           "ridge now beats the constant predictor on the elite-mean actions, so the "
+                           "extraction may be learnable after all and the clause has to be rewritten")
+        self.check("elite-mean reached", [m.group(6), m.group(7)],
+                   [cmp_block["reached"], cmp_block["episodes"]], places=0)
+        self.assertEqual(cmp_block["upright_arrivals"], 0)
+
+
 class TestReadmeTrainerPairCells(ReadmeGate, unittest.TestCase):
     """PPO against SAC: the rate claim and the behaviour claim are gated together or not at all.
 

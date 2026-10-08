@@ -445,6 +445,25 @@ arrival; what neither a planner with the true dynamics nor a policy with 5M step
 closing ground *on its feet* - and across every cell measured here, learned or planned, nothing holds the
 standing band for two continuous seconds.
 
+**Cloning the planner fails, and it is the cloning that fails.** `collect_mpc_demos.py` recorded the
+teacher's own trajectories on seeds 101-128 - disjoint from the 11-30 every published row is scored on, so
+a student cannot memorise its exam - and there the teacher reaches in **12 of 28** and arrives standing in
+**6 of 28**, with 12.4% of its steps inside the band. `train_bc_ragdoll.py` then trained two students on
+`SACAgent`, the same network the SAC rows use, one imitating every recorded step and one imitating only
+the in-band steps (3,477 of 28,000 transitions). Both score **0 of 20** on the published protocol, at mean
+return 2,941.05 and 841.61. `bench_bc_teacher.py` says why, on one episode-level split where every
+predictor is scored on the same held-out rows: predicting a constant zero action gives validation MSE
+**0.3753**, the per-dimension mean 0.3751, ridge 0.3758, nearest-neighbour 0.750 at k=1 falling to 0.3867
+at k=32, and the trained students 0.3730 and 0.3920 - nothing recovers any state-dependence from the
+49-wide observation. The reason is in the teacher's own signal: consecutive recorded actions differ by MSE
+**0.7567** against the action's own energy of 0.3806, because the executed action is the winner of a
+stochastic search and flips between near-tied sequences step to step. Averaging the elite set instead of
+taking its argmin does not fix that and costs arrival: on a 4-episode probe the jitter moves from 0.7567 to
+0.7408, ridge (0.4039) and nearest-neighbour (0.4072) still lose to the constant predictor (0.3952), and
+the teacher drops to 1 of 4 reaching with no upright arrival. So what the planner knows is not expressible
+as a policy over this observation - which is the honest obstacle in front of the residual idea, not the
+search.
+
 So the honest answer to "does an agent walk to the target?" is: **the target is in the behaviour and the
 gait is not.** These policies head for the marker whenever they are up, arrive standing in about one
 episode in five at best, and get there by rising, advancing for under a second and falling again - not by
@@ -2075,12 +2094,12 @@ Three facts to keep in mind:
 
 The suite is plain `unittest` (no pytest required) and covers the environment contract, the
 golden reward rollouts, the parallel/serial vector-env parity, checkpointing and the race
-harness — **326 tests, 181 s in this window** (`Ran 326 tests in 180.964s ... OK
+harness — **339 tests, 266 s in this window** (`Ran 339 tests in 266.112s ... OK
 (skipped=7)` under `.venv`). Windows of this suite have measured 176.3 s at 102 tests, 269.995 s
 at 121, 261.1 s at 127, 329.964 s at 128, 319.168 s at 130, 184.716 s, 203.108 s and 306.976 s at
 140, 144.678 s at 147, 230.268 s at 157, 171.016 s and 170.304 s at 194, and 174.008 s,
 170.391 s, 175.036 s, 168.775 s, 168.986 s and 166.606 s at 201/205/210, 169.919 s at 214,
-and 163.920 s and 161.829 s at 237, 165.360 s and 164.902 s at 243, 161.647 s and 162.674 s at 250, 162.726 s and 162.167 s at 251, 171.616 s and 163.434 s at 252, 163.769 s and 163.748 s at 255, 226.912 s and 217.651 s at 260, 193.167 s and 191.909 s at 273, 206.150 s at 279, 193.904 s at 284, 201.464 s at 289, 189.864 s and 187.485 s at 294, 190.012 s at 297, 230.180 s at 301, 190.655 s at 311, 211.202 s at 317, 195.419 s at 322, 184.182 s at 326 -
+and 163.920 s and 161.829 s at 237, 165.360 s and 164.902 s at 243, 161.647 s and 162.674 s at 250, 162.726 s and 162.167 s at 251, 171.616 s and 163.434 s at 252, 163.769 s and 163.748 s at 255, 226.912 s and 217.651 s at 260, 193.167 s and 191.909 s at 273, 206.150 s at 279, 193.904 s at 284, 201.464 s at 289, 189.864 s and 187.485 s at 294, 190.012 s at 297, 230.180 s at 301, 190.655 s at 311, 211.202 s at 317, 195.419 s at 322, 184.182 s at 326, 180.964 s at 326 -
 those last windows carry a dose test that runs three short CPU trainings, which are about 27 s of
 them, so that entry is not slower hardware; consecutive runs of one commit agree to 4%, where the
 147 and 157 windows an afternoon earlier were 1.6x apart for ten more tests. The
@@ -2138,7 +2157,7 @@ that they ran - see Phase 4, item 6. How each of those states was found, with th
 ## 🔬 Reproducing and measuring
 
 ```bash
-python -m unittest discover -s tests -t .   # 326 tests in .venv, 181 s; see "Running the tests"
+python -m unittest discover -s tests -t .   # 339 tests in .venv, 266 s; see "Running the tests"
 python bench_env.py --seconds 4             # env throughput, physics vs Python split
 python bench_mjx.py --sizes 32,128          # MJX/JAX batched stepping
 python verify.py                            # Phase-2 artifact check (exits 2 when missing)
@@ -2162,6 +2181,15 @@ python bench_mpc.py --episodes 20 --samples 24 --iterations 2 --elite 6 --horizo
                                               # per-step instrument; --samples 48 --iterations 3
                                               # --elite 12 --horizon 100 --replan 20 is the
                                               # bigger-search cell
+python collect_mpc_demos.py --episodes 28 --samples 48 --iterations 3 --elite 12 --horizon 100 \
+  --replan 20                               # the teacher's own trajectories, on seeds disjoint from the
+                                              # scored protocol (101+); arrays are gitignored, the
+                                              # sidecar .json with their provenance is not
+python train_bc_ragdoll.py --filter raw     # BC student on the SACAgent architecture; --filter band
+                                              # trains only on the teacher's in-band steps
+python bench_bc_teacher.py --jitter-compare benchmarks/demos/probe_elite.npz \
+                                          # is the teacher's action learnable at all? constant vs ridge
+                                          # vs k-NN vs each student, on one episode-level split
 python train_walker.py --algo sac --run-id preset_sac_euler_1m --seed 7 --total-timesteps 1000000 \
   --num-envs 8 --task-phase target --reset-mode mixed --target-forward-velocity 1.2 \
   --checkpoint-interval 500000 --device cuda --physics-preset euler

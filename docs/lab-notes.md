@@ -463,3 +463,31 @@ draw is what settles it, and here it settled.
 the same instrument as the learner and look at the path column, not the arrival column. If the planner wins
 arrival and loses gait, a residual on top of it inherits the gait problem, and the cheaper question is why
 the reward makes falling the cheapest way to move.
+
+## Before building the student, ask whether the teacher is predictable
+
+The planner-as-teacher line was built end to end - collector, BC trainer on the RL arms' own architecture,
+two cells (raw and in-band-filtered), scoring on the published protocol with disjoint seeds - and both
+students reached in 0 of 20. The diagnosis that explains it takes about a minute of numpy and would have
+been worth running first: on an episode-level split of the demonstrations, predict the teacher's action.
+A constant zero gives validation MSE 0.3753, the per-dimension mean 0.3751, ridge 0.3758, nearest-neighbour
+0.750 at k=1 down to 0.387 at k=32, and the trained students 0.373 and 0.392. Nothing beats the constant.
+The reason is in the signal itself: consecutive recorded actions differ by MSE 0.7567 while the action's own
+energy is 0.3806, because the executed action is the argmin of a stochastic search and flips between
+near-tied sequences. Replacing it with the elite-set mean - the standard MPC policy-extraction move - moves
+the jitter to 0.7408, still loses to the constant on the same test, and costs the teacher its arrival rate
+(1 of 4 reaching, down from 12 of 28).
+
+**Why the order matters:** every stage of the pipeline was individually sound - the seeds were disjoint, the
+split was by episode, the checkpoint loaded through the same scorer, the best-epoch weights were kept after
+the first pass showed validation worsening from epoch 1. None of that can recover a target that does not
+depend on the input. The predictability test is a property of the *teacher's output distribution* and is
+measured on data already collected, so it costs nothing once the demonstrations exist and everything once
+they do not.
+
+**How to apply:** when a teacher is proposed - a planner, an expert policy, a dataset from elsewhere - run
+the constant-vs-ridge-vs-k-NN probe on its actions before training a student. If no regressor separates
+itself from the mean, the project is not "train a better student", it is "the teacher's decisions are not a
+function of what the student can see", and the fix belongs on the teacher's extraction or the observation,
+not on the loss. Related: [[an-episode-mean-cannot-carry-a-verb]],
+[[quantify-cost-dont-claim-impossibility]].

@@ -65,6 +65,11 @@ htmlcov/
 !chain30_evidence.log
 runs/
 checkpoints/
+# MPC demonstrations are ~7 MB of trajectory arrays per collection, and the planner is not
+# bit-reproducible (its constraint solver jitters), so re-collecting would not return these bytes.
+# What is versioned is the sidecar .json: seeds, config, per-episode outcomes and the observation
+# normaliser, which is everything `bench_bc_teacher.py`'s committed result needs to be attributable.
+benchmarks/demos/*.npz
 # The trainers' --capture-video output lands here; it is evidence to look at, not to version, and
 # the renderings used to check a claim are re-derivable from the checkpoint plus the eval seed.
 videos/

@@ -63,12 +63,14 @@ class CrossEntropyPlanner:
         self.step_index = 0
         self.plan_ms = []
         self.rollout_steps = 0
+        self.last_value = 0.0
 
     # -- binding to the episode being scored -----------------------------------------------
     def bind(self, env):
         self.env = env
         self.pending = []
         self.step_index = 0
+        self.last_value = 0.0
         # plan_ms and rollout_steps accumulate across episodes on purpose: they are cost counters,
         # and resetting them here made the artifact report one episode's totals as the run's.
         if not hasattr(self, "plan_ms"):
@@ -146,8 +148,12 @@ class CrossEntropyPlanner:
     # -- the policy interface the trace expects ---------------------------------------------
     def __call__(self, obs):
         if self.step_index % self.replan == 0 or not self.pending:
-            seq, _ = self.plan()
+            seq, value = self.plan()
             self.pending = [a.copy() for a in seq]
+            # The plan's lookahead return, kept until the next replan. It is the teacher's own opinion
+            # about the state it is standing in, and unlike the executed action it is a scalar the
+            # student could regress - which is what makes it worth recording.
+            self.last_value = float(value)
         action = self.pending.pop(0)
         self.step_index += 1
         return action

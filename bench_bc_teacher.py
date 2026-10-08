@@ -101,6 +101,10 @@ def main():
         obs = handle["obs"].astype(np.float64)
         act = handle["action"].astype(np.float64)
         band = handle["in_band"].astype(bool)
+        # Files collected before the preference upgrade have no value column; the action probe below
+        # does not need it, so the absence is reported rather than treated as zero.
+        plan_value = handle["plan_value"].astype(np.float64) if "plan_value" in handle.files \
+            else None
     with open(os.path.join(ROOT, args.demos) + ".json", encoding="utf-8") as handle:
         dmeta = json.load(handle)
     eps = np.repeat(np.arange(len(dmeta["episodes"])), [e["steps"] for e in dmeta["episodes"]])
@@ -124,6 +128,30 @@ def main():
             continue
         value, binfo = student_val_mse(path, obs, act, eps, va)
         mse[f"student_{key}"] = round(value, 4)
+
+    value_probe = None
+    if plan_value is not None:
+        v_tr, v_va = plan_value[tr], plan_value[va]
+        ss = float(np.mean((v_va - v_tr.mean()) ** 2))
+        ridge_v = ridge_predict(obs[tr], v_tr.reshape(-1, 1), obs[va]).reshape(-1)
+        knn_v = knn_predict(obs[tr], v_tr.reshape(-1, 1), obs[va], 32).reshape(-1)
+        # The three target components are the last three of the 49 (relative x, relative y, clipped
+        # distance). If the value were predictable from those alone, a critic learned from the planner
+        # would be re-deriving a feature the observation already carries, and the approach would add
+        # nothing over the shaping.
+        tgt = list(range(obs.shape[1] - 3, obs.shape[1]))
+        ridge_t = ridge_predict(obs[tr][:, tgt], v_tr.reshape(-1, 1), obs[va][:, tgt]).reshape(-1)
+        value_probe = {
+            "constant_mse": round(ss, 3),
+            "ridge_mse": round(float(np.mean((v_va - ridge_v) ** 2)), 3),
+            "knn32_mse": round(float(np.mean((v_va - knn_v) ** 2)), 3),
+            "r2_ridge": round(1.0 - np.mean((v_va - ridge_v) ** 2) / ss, 4),
+            "r2_knn32": round(1.0 - np.mean((v_va - knn_v) ** 2) / ss, 4),
+            "r2_ridge_target_dims_only": round(1.0 - np.mean((v_va - ridge_t) ** 2) / ss, 4),
+            "target_dims": tgt,
+            "value_std": round(float(plan_value.std()), 3),
+            "val_rows": int(va.sum()),
+        }
 
     within = np.zeros(len(act), bool)
     within[1:] = eps[1:] == eps[:-1]
@@ -162,6 +190,7 @@ def main():
             name: (value < best_baseline) for name, value in mse.items()
             if name not in ("zero", "per_dim_mean_of_train")},
         "teacher_jitter": jitter(act, eps),
+        "teacher_value_predictability": value_probe,
         "action_extraction_compare": compare,
         "teacher": {
             "artifact": args.demos, "episodes": len(dmeta["episodes"]),

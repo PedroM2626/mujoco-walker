@@ -44,13 +44,13 @@ def collect(args):
     obs_dim = int(env.observation_space.shape[0])
     act_dim = int(np.prod(env.action_space.shape))
 
-    obs_all, act_all, band_all, dist_all, episodes = [], [], [], [], []
+    obs_all, act_all, band_all, dist_all, rew_all, val_all, episodes = [], [], [], [], [], [], []
     try:
         for ep in range(args.episodes):
             seed = args.demo_seed_base + ep
             obs, info = env.reset(seed=seed)
             planner.bind(env)
-            o, a, b, d = [], [], [], []
+            o, a, b, d, rw, pv = [], [], [], [], [], []
             min_dist = float(info["target_distance"])
             min_dist_band = float("inf")
             n_steps = n_falls = 0
@@ -69,14 +69,22 @@ def collect(args):
                     min_dist_band = min(min_dist_band, dist)
                 b.append(np.float32(in_band))
                 d.append(np.float32(dist))
+                # The reward the teacher's action actually earned, and the value the teacher had
+                # assigned to the state it acted from. Together they turn the file from an
+                # imitation dataset into a preference dataset: the second column is what a critic
+                # would have to learn, and it is scored on the same rows as the first.
+                rw.append(np.float32(reward))
+                pv.append(np.float32(planner.last_value))
                 healthy = unw.is_healthy
                 if was_healthy and not healthy:
                     n_falls += 1
                 was_healthy = healthy
                 if terminated:
                     break
-            o, a, b, d = np.stack(o), np.stack(a), np.stack(b), np.stack(d)
+            o, a, b, d, rw, pv = (np.stack(o), np.stack(a), np.stack(b), np.stack(d),
+                                  np.stack(rw), np.stack(pv))
             obs_all.append(o); act_all.append(a); band_all.append(b); dist_all.append(d)
+            rew_all.append(rw); val_all.append(pv)
             episodes.append({
                 "episode": ep, "seed": seed, "steps": int(n_steps),
                 "min_target_distance": round(min_dist, 3),
@@ -98,6 +106,7 @@ def collect(args):
     return {
         "obs": np.concatenate(obs_all), "action": np.concatenate(act_all),
         "in_band": np.concatenate(band_all), "distance": np.concatenate(dist_all),
+        "reward": np.concatenate(rew_all), "plan_value": np.concatenate(val_all),
     }, rms, episodes
 
 
@@ -144,6 +153,12 @@ def main():
             "pct_in_band": round(100.0 * float(arrays["in_band"].mean()), 2),
             "episodes_reached": sum(1 for e in episodes if e["reached_target"]),
             "episodes_upright_arrival": sum(1 for e in episodes if e["reached_target_upright"]),
+            # Spread of the teacher's own opinion about its states. A constant would do if this were
+            # near zero, and the predictability probe in bench_bc_teacher.py would be moot.
+            "plan_value_std": round(float(arrays["plan_value"].std()), 3),
+            "plan_value_min": round(float(arrays["plan_value"].min()), 3),
+            "plan_value_max": round(float(arrays["plan_value"].max()), 3),
+            "reward_mean": round(float(arrays["reward"].mean()), 4),
         },
     }
     with open(out + ".json", "w", encoding="utf-8") as handle:

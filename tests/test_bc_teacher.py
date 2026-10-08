@@ -174,8 +174,13 @@ class TestCollectorTrainerSchemaAgree(unittest.TestCase):
             self.assertEqual([e["seed"] for e in episodes], [401, 402])
             self.assertEqual(arrays["obs"].shape[1], 49, "target-phase observations are 49 wide")
             self.assertEqual(arrays["action"].shape[1], 17)
-            self.assertTrue(set(arrays["in_band"].tolist()) <= {0.0, 1.0},
-                            "the band flag must stay binary for the filter to mean anything")
+            self.assertEqual(sorted(arrays), ["action", "distance", "in_band", "obs",
+                                              "plan_value", "reward"],
+                             "the collector's schema changed; bench_bc_teacher's value probe reads "
+                             "plan_value and the preference dataset depends on it")
+            self.assertEqual(arrays["plan_value"].shape, arrays["obs"].shape[:1])
+            self.assertEqual(arrays["reward"].shape, arrays["obs"].shape[:1])
+            self.assertEqual(set(arrays["in_band"].tolist()) <= {0.0, 1.0}, True)
             self.assertEqual(rms["mean"].shape, (49,))
             # The band flag must be the scorer's band, not a second definition of standing.
             import bench_approach_mechanism as bam

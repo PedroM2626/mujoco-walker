@@ -4158,6 +4158,7 @@ class TestReadmeBcTeacherCells(ReadmeGate, unittest.TestCase):
     """
 
     BENCH = os.path.join(ROOT, "benchmarks", "bc_teacher_benchmark.json")
+    VALUE = os.path.join(ROOT, "benchmarks", "planner_value_predictability.json")
     STUDENTS = os.path.join(ROOT, "benchmarks", "bc_mpc_students.json")
     START = "**Cloning the planner fails"
     END = 'So the honest answer to "does an agent walk'
@@ -4167,7 +4168,7 @@ class TestReadmeBcTeacherCells(ReadmeGate, unittest.TestCase):
             readme = handle.read()
         start = readme.index(self.START)
         self.block = readme[start:readme.index(self.END, start)]
-        self.art, self.stu = self.read_artifacts(self.BENCH, self.STUDENTS)
+        self.art, self.stu, self.val = self.read_artifacts(self.BENCH, self.STUDENTS, self.VALUE)
         self.mse = self.art["predictability_val_mse"]
         self.bad = []
         self.what = "planner-as-teacher benchmark"
@@ -4228,6 +4229,28 @@ class TestReadmeBcTeacherCells(ReadmeGate, unittest.TestCase):
         self.assertGreater(j["consecutive_action_mse"], j["action_energy"],
                            "the recorded action is no longer more variable step to step than its own "
                            "magnitude, so the mechanism the paragraph names is gone")
+
+    def test_the_value_is_predictable_where_the_action_is_not(self):
+        m = self.sentence(r"the same episode-level probe against that scalar gives ridge R² \*\*([\d.]+)\*\*"
+                          r" on held-out\s*episodes, where restricting the regression to the three target"
+                          r" components of the observation gives\s*\*\*([−-][\d.]+)\*\*",
+                          "the value-predictability claim")
+        v = self.val.get("teacher_value_predictability")
+        self.assertIsNotNone(v, "the planner's lookahead value was never recorded, so the R² in that "
+                                "sentence has no artifact behind it")
+        self.assertEqual(self.val["teacher"]["transitions"], 8000,
+                         "the value probe is no longer reading the 8-episode preference file")
+        self.check("ridge R2 on the value", m.group(1), v["r2_ridge"], places=3)
+        self.check("ridge R2 from target dims only", m.group(2).replace("−", "-"),
+                   v["r2_ridge_target_dims_only"], places=3)
+        self.assertGreater(v["r2_ridge"], 0.2,
+                           "the value is no longer predictable from the observation, which closes the "
+                           "route the paragraph says is still open")
+        self.assertLess(v["r2_ridge_target_dims_only"], 0.0,
+                         "the three target components alone now explain the value, so the critic would "
+                         "be re-deriving a feature the observation already carries")
+        self.assertGreater(v["r2_ridge"] - v["r2_ridge_target_dims_only"], 0.3,
+                           "the gap the sentence rests on has narrowed below what it claims")
 
     def test_the_elite_mean_comparison_comes_from_a_committed_trajectory(self):
         m = self.sentence(r"on a 4-episode probe the jitter moves from ([\d.]+) to\s*"

@@ -1,0 +1,89 @@
+{
+  "protocol": "episode-level split of benchmarks/demos/mpc_value_demos.npz: 5000 train rows, 3000 validation rows from the last 3 demonstration episodes; every predictor - trivial, ridge, k-NN and each trained student - is scored on the same validation rows with the same squared-error metric",
+  "split": {
+    "holdout_seeds": [
+      5
+    ],
+    "val_rows": 3000,
+    "train_rows": 5000
+  },
+  "predictability_val_mse": {
+    "zero": 0.3906,
+    "per_dim_mean_of_train": 0.3908,
+    "ridge_alpha100": 0.3949,
+    "knn_k1": 0.7713,
+    "knn_k8": 0.4358,
+    "knn_k32": 0.4021,
+    "student_bc_raw": 0.3926,
+    "student_bc_band": 0.4136
+  },
+  "beats_the_trivial_baseline": {
+    "ridge_alpha100": false,
+    "knn_k1": false,
+    "knn_k8": false,
+    "knn_k32": false,
+    "student_bc_raw": false,
+    "student_bc_band": false
+  },
+  "teacher_jitter": {
+    "consecutive_action_mse": 0.7745,
+    "action_energy": 0.389,
+    "mean_abs_change_per_actuator": 0.7156
+  },
+  "teacher_value_predictability": {
+    "constant_mse": 9462090.68,
+    "ridge_mse": 4979127.756,
+    "knn32_mse": 9331788.258,
+    "r2_ridge": 0.4738,
+    "r2_knn32": 0.0138,
+    "r2_ridge_target_dims_only": -0.0677,
+    "target_dims": [
+      46,
+      47,
+      48
+    ],
+    "value_std": 3579.734,
+    "val_rows": 3000
+  },
+  "action_extraction_compare": null,
+  "teacher": {
+    "artifact": "benchmarks/demos/mpc_value_demos.npz",
+    "episodes": 8,
+    "demo_seeds": [
+      301,
+      302,
+      303,
+      304,
+      305,
+      306,
+      307,
+      308
+    ],
+    "reached": 2,
+    "upright_arrivals": 1,
+    "pct_steps_in_band": 9.69,
+    "transitions": 8000,
+    "transitions_in_band": 775
+  },
+  "students": {
+    "bc_raw": {
+      "checkpoint": "checkpoints/bc_mpc_raw/bc_student_best2.pt",
+      "mean_return": 2941.05,
+      "reached_pct": 0.0,
+      "upright_arrival_pct": 0.0,
+      "falls_per_episode": 0.1,
+      "standing_at_end_pct": 0.0,
+      "selected_epoch": 2
+    },
+    "bc_band": {
+      "checkpoint": "checkpoints/bc_mpc_band/bc_student_best3.pt",
+      "mean_return": 841.61,
+      "reached_pct": 0.0,
+      "upright_arrival_pct": 0.0,
+      "falls_per_episode": 0.1,
+      "standing_at_end_pct": 0.0,
+      "selected_epoch": 3
+    }
+  },
+  "reading": "no predictor of the teacher's action from the 49-wide observation beats the constant baseline, including the trained students, so the BC failure is a property of the recorded target - the argmin of a stochastic search - and not of the student capacity or the training schedule"
+}

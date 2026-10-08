@@ -464,6 +464,15 @@ the teacher drops to 1 of 4 reaching with no upright arrival. So what the planne
 as a policy over this observation - which is the honest obstacle in front of the residual idea, not the
 search.
 
+**What the planner knows is predictable, even though what it does is not.** The upgraded collector also
+records the teacher's own lookahead value per step - the return of the best sequence it found from that
+state - and the same episode-level probe against that scalar gives ridge R² **0.4738** on held-out
+episodes, where restricting the regression to the three target components of the observation gives
+**−0.0677**, no better than the mean. So the value is not the distance-to-target feature re-derived; it
+carries posture, contact and velocity. Whether a policy trained by ascending such a critic beats one
+trained by experience is not yet measured - this is the claim that would have to be tested before the
+planner is useful for anything beyond its own episodes.
+
 So the honest answer to "does an agent walk to the target?" is: **the target is in the behaviour and the
 gait is not.** These policies head for the marker whenever they are up, arrive standing in about one
 episode in five at best, and get there by rising, advancing for under a second and falling again - not by
@@ -2094,12 +2103,12 @@ Three facts to keep in mind:
 
 The suite is plain `unittest` (no pytest required) and covers the environment contract, the
 golden reward rollouts, the parallel/serial vector-env parity, checkpointing and the race
-harness — **339 tests, 266 s in this window** (`Ran 339 tests in 266.112s ... OK
+harness — **340 tests, 186 s in this window** (`Ran 340 tests in 185.556s ... OK
 (skipped=7)` under `.venv`). Windows of this suite have measured 176.3 s at 102 tests, 269.995 s
 at 121, 261.1 s at 127, 329.964 s at 128, 319.168 s at 130, 184.716 s, 203.108 s and 306.976 s at
 140, 144.678 s at 147, 230.268 s at 157, 171.016 s and 170.304 s at 194, and 174.008 s,
 170.391 s, 175.036 s, 168.775 s, 168.986 s and 166.606 s at 201/205/210, 169.919 s at 214,
-and 163.920 s and 161.829 s at 237, 165.360 s and 164.902 s at 243, 161.647 s and 162.674 s at 250, 162.726 s and 162.167 s at 251, 171.616 s and 163.434 s at 252, 163.769 s and 163.748 s at 255, 226.912 s and 217.651 s at 260, 193.167 s and 191.909 s at 273, 206.150 s at 279, 193.904 s at 284, 201.464 s at 289, 189.864 s and 187.485 s at 294, 190.012 s at 297, 230.180 s at 301, 190.655 s at 311, 211.202 s at 317, 195.419 s at 322, 184.182 s at 326, 180.964 s at 326 -
+and 163.920 s and 161.829 s at 237, 165.360 s and 164.902 s at 243, 161.647 s and 162.674 s at 250, 162.726 s and 162.167 s at 251, 171.616 s and 163.434 s at 252, 163.769 s and 163.748 s at 255, 226.912 s and 217.651 s at 260, 193.167 s and 191.909 s at 273, 206.150 s at 279, 193.904 s at 284, 201.464 s at 289, 189.864 s and 187.485 s at 294, 190.012 s at 297, 230.180 s at 301, 190.655 s at 311, 211.202 s at 317, 195.419 s at 322, 184.182 s at 326, 180.964 s at 326, 266.112 s and 191.187 s at 339 -
 those last windows carry a dose test that runs three short CPU trainings, which are about 27 s of
 them, so that entry is not slower hardware; consecutive runs of one commit agree to 4%, where the
 147 and 157 windows an afternoon earlier were 1.6x apart for ten more tests. The
@@ -2157,7 +2166,7 @@ that they ran - see Phase 4, item 6. How each of those states was found, with th
 ## 🔬 Reproducing and measuring
 
 ```bash
-python -m unittest discover -s tests -t .   # 339 tests in .venv, 266 s; see "Running the tests"
+python -m unittest discover -s tests -t .   # 340 tests in .venv, 186 s; see "Running the tests"
 python bench_env.py --seconds 4             # env throughput, physics vs Python split
 python bench_mjx.py --sizes 32,128          # MJX/JAX batched stepping
 python verify.py                            # Phase-2 artifact check (exits 2 when missing)

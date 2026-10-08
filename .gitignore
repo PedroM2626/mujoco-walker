@@ -63,6 +63,7 @@ htmlcov/
 !chain28_evidence.log
 !chain29_evidence.log
 !chain30_evidence.log
+!chain31_evidence.log
 runs/
 checkpoints/
 # MPC demonstrations are ~7 MB of trajectory arrays per collection, and the planner is not

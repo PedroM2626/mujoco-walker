@@ -77,10 +77,18 @@ RENDERED_CLIPS = [
 ]
 
 
-def trace_episode(env, policy, on_start, seed, ep, steps, radius):
-    """Replay one scored episode and split its progress between the standing band and outside it."""
+def trace_episode(env, policy, on_start, seed, ep, steps, radius, on_env=None):
+    """Replay one scored episode and split its progress between the standing band and outside it.
+
+    `on_env` is called with the environment right after the reset, before any step: a controller that
+    plans against the simulator's state rather than the observation (the sampling MPC in
+    `bench_mpc.py`) needs to bind to the episode's own env, and the alternative - a second env - would
+    measure a different trajectory than the one being scored.
+    """
     obs, info = env.reset(seed=seed + ep)
     on_start()
+    if on_env is not None:
+        on_env(env)
     unw = env.unwrapped
     target = np.asarray(unw._target_xy, dtype=np.float64)
     d0 = float(info["target_distance"])
@@ -200,6 +208,26 @@ def trace_episode(env, policy, on_start, seed, ep, steps, radius):
         "heading_velocity_down_mps": (round(float(np.mean(head_down)), 4) if head_down else None),
         "x_velocity_in_band_mps": (round(float(np.mean(v_x_band)), 4) if v_x_band else None),
         "mean_x_velocity": round(vel_sum / max(n_steps, 1), 4),
+    }
+
+
+def pooled(traces):
+    runs = [t["longest_band_run_s"] for t in traces]
+    closing_s = sum(t["closing_while_standing_m"] for t in traces)
+    closing_d = sum(t["closing_while_down_m"] for t in traces)
+    return {
+        "episodes": len(traces),
+        "max_longest_band_run_s": round(max(runs), 2) if runs else None,
+        "episodes_with_band_run_ge_2s": sum(1 for x in runs if x >= 2.0),
+        "episodes_never_in_band": sum(1 for t in traces if t["pct_steps_in_band"] == 0.0),
+        "mean_pct_steps_in_band": _mean([t["pct_steps_in_band"] for t in traces]),
+        "closing_while_standing_m": round(closing_s, 2),
+        "closing_while_down_m": round(closing_d, 2),
+        "share_while_standing": (round(closing_s / (closing_s + closing_d), 3)
+                                 if closing_s + closing_d > 0.05 else None),
+        "closest_approach_after_first_fall": sum(
+            1 for t in traces if t["first_fall_step"] is not None
+            and t["min_dist_step"] > t["first_fall_step"]),
     }
 
 
@@ -348,25 +376,6 @@ def main():
     gait_traces = [t for r in v9_gait for t in all_traces[f"{r['artifact']}:{r['model']}"]]
     gait_reach = [t for t in gait_traces if t["reached_target"]]
 
-    def _pooled(traces):
-        runs = [t["longest_band_run_s"] for t in traces]
-        closing_s = sum(t["closing_while_standing_m"] for t in traces)
-        closing_d = sum(t["closing_while_down_m"] for t in traces)
-        return {
-            "episodes": len(traces),
-            "max_longest_band_run_s": round(max(runs), 2) if runs else None,
-            "episodes_with_band_run_ge_2s": sum(1 for x in runs if x >= 2.0),
-            "episodes_never_in_band": sum(1 for t in traces if t["pct_steps_in_band"] == 0.0),
-            "mean_pct_steps_in_band": _mean([t["pct_steps_in_band"] for t in traces]),
-            "closing_while_standing_m": round(closing_s, 2),
-            "closing_while_down_m": round(closing_d, 2),
-            "share_while_standing": (round(closing_s / (closing_s + closing_d), 3)
-                                     if closing_s + closing_d > 0.05 else None),
-            "closest_approach_after_first_fall": sum(
-                1 for t in traces if t["first_fall_step"] is not None
-                and t["min_dist_step"] > t["first_fall_step"]),
-        }
-
     clips = []
     for artifact, key, ep, tag in RENDERED_CLIPS:
         traces = all_traces.get(f"{artifact}:{key}")
@@ -398,12 +407,12 @@ def main():
         },
         "rendered_clips": clips,
         "rows": rows,
-        "pooled_v9_all_episodes": _pooled(v9_traces),
-        "pooled_v9_reach_episodes": _pooled(v9_reach),
+        "pooled_v9_all_episodes": pooled(v9_traces),
+        "pooled_v9_reach_episodes": pooled(v9_reach),
         "pooled_v9_gait_rows": [r["label"] for r in v9_gait],
-        "pooled_v9_gait_all_episodes": _pooled(gait_traces),
-        "pooled_v9_gait_reach_episodes": _pooled(gait_reach) if gait_reach else None,
-        "pooled_all_rows_reach_episodes": _pooled(
+        "pooled_v9_gait_all_episodes": pooled(gait_traces),
+        "pooled_v9_gait_reach_episodes": pooled(gait_reach) if gait_reach else None,
+        "pooled_all_rows_reach_episodes": pooled(
             [t for r in rows for t in all_traces[f"{r['artifact']}:{r['model']}"]
              if t["reached_target"]]),
         "summary_v9": {

@@ -1,0 +1,118 @@
+{
+  "protocol": "every row is the same 20 seeded episodes (seed 11..30, reset_mode=mixed, task_phase=target) measured by bench_approach_mechanism.trace_episode; the MPC cells come from bench_mpc.py and the learned comparators from the committed curves, so arrival and gait are read off one instrument on both sides",
+  "mpc_rows": [
+    {
+      "artifact": "benchmarks/mpc_target_baseline.json",
+      "config": {
+        "horizon": 60,
+        "samples": 24,
+        "iterations": 2,
+        "elite": 6,
+        "replan": 10,
+        "episodes": 20,
+        "seed": 11,
+        "device": "cpu"
+      },
+      "search": "24x2 h60 replan10",
+      "episodes": 20,
+      "reach": 3,
+      "upright_arrivals": 3,
+      "reach_pct": 15.0,
+      "upright_pct": 15.0,
+      "share_closed_standing_all": 0.216,
+      "share_closed_standing_upright": 0.331,
+      "pct_steps_in_band": 6.305,
+      "episodes_never_in_band": 8,
+      "max_longest_band_run_s": 1.7,
+      "approach_after_first_fall": 7,
+      "planning_s_per_episode": 66.6,
+      "sim_steps_per_episode": 288000.0,
+      "wall_clock_s": 1337.2
+    },
+    {
+      "artifact": "benchmarks/mpc_target_baseline_draw2.json",
+      "config": {
+        "horizon": 60,
+        "samples": 24,
+        "iterations": 2,
+        "elite": 6,
+        "replan": 10,
+        "episodes": 20,
+        "seed": 11,
+        "device": "cpu"
+      },
+      "search": "24x2 h60 replan10",
+      "episodes": 20,
+      "reach": 3,
+      "upright_arrivals": 3,
+      "reach_pct": 15.0,
+      "upright_pct": 15.0,
+      "share_closed_standing_all": 0.216,
+      "share_closed_standing_upright": 0.331,
+      "pct_steps_in_band": 6.305,
+      "episodes_never_in_band": 8,
+      "max_longest_band_run_s": 1.7,
+      "approach_after_first_fall": 7,
+      "planning_s_per_episode": 62.8,
+      "sim_steps_per_episode": 288000.0,
+      "wall_clock_s": 1260.1
+    },
+    {
+      "artifact": "benchmarks/mpc_target_budget.json",
+      "config": {
+        "horizon": 100,
+        "samples": 48,
+        "iterations": 3,
+        "elite": 12,
+        "replan": 20,
+        "episodes": 20,
+        "seed": 11,
+        "device": "cpu"
+      },
+      "search": "48x3 h100 replan20",
+      "episodes": 20,
+      "reach": 9,
+      "upright_arrivals": 6,
+      "reach_pct": 45.0,
+      "upright_pct": 30.0,
+      "share_closed_standing_all": 0.279,
+      "share_closed_standing_upright": 0.207,
+      "pct_steps_in_band": 12.12,
+      "episodes_never_in_band": 3,
+      "max_longest_band_run_s": 1.4,
+      "approach_after_first_fall": 14,
+      "planning_s_per_episode": 156.7,
+      "sim_steps_per_episode": 720000.0,
+      "wall_clock_s": 3138.7
+    }
+  ],
+  "learned": {
+    "artifact": "benchmarks/approach_mechanism.json, benchmarks/reach_upright_arrival.json",
+    "best_learned_arm": {
+      "label": "stability 60, seed 7, best cell",
+      "upright_arrivals": 4,
+      "upright_pct": 20.0,
+      "reach_pct": 25.0
+    },
+    "published_pool_reach_episodes": {
+      "episodes": 35,
+      "share_closed_standing": 0.518,
+      "pct_steps_in_band": 12.6743,
+      "max_longest_band_run_s": 1.47
+    },
+    "gait_pool_reach_episodes": {
+      "episodes": 25,
+      "share_closed_standing": 0.611,
+      "pct_steps_in_band": 18.452,
+      "max_longest_band_run_s": 1.46
+    },
+    "stability60_seed7_4m_share_closed_standing": 0.7134
+  },
+  "baseline_two_draws_agree": {
+    "reach_equal": true,
+    "upright_equal": true,
+    "band_time_equal": true,
+    "share_standing_equal": true
+  },
+  "reading": "the planner with more search beats every learned arm on arrival and still loses on the gait measure: it closes a fifth to a third of its ground inside the standing band where the learned arms close half to three quarters, and no cell of any kind holds the band for two continuous seconds"
+}

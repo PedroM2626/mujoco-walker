@@ -4044,6 +4044,108 @@ class TestReadmeGaitArmCells(ReadmeGate, unittest.TestCase):
                          "is solved and has to be rewritten")
 
 
+class TestReadmeMpcBaselineCells(ReadmeGate, unittest.TestCase):
+    """The sampling-MPC baseline against the learned arms, from benchmarks/mpc_target_rows.json.
+
+    Two things are gated here that are easy to get wrong in prose. The first is the arrival/gait split:
+    the planner wins the arrival column and loses the gait column, so quoting either one alone turns a
+    measurement into a verdict. The second is the reproducibility claim, which is not inherited from the
+    learned arms - the constraint solver is not bit-deterministic, so the sentence "drawn a second time
+    it is identical" is only true if the two committed cells actually agree, column by column.
+    """
+
+    ROWS = os.path.join(ROOT, "benchmarks", "mpc_target_rows.json")
+    START = "**A planner with simulator access reaches the marker"
+    END = "So the residual-learning question now has a measured target"
+
+    def setUp(self):
+        with open(README, encoding="utf-8") as handle:
+            readme = handle.read()
+        start = readme.index(self.START)
+        self.block = readme[start:readme.index(self.END, start)]
+        self.art, = self.read_artifacts(self.ROWS)
+        self.small, self.draw2, self.big = self.art["mpc_rows"]
+        self.learned = self.art["learned"]
+        self.bad = []
+        self.what = "MPC baseline"
+
+    def test_the_two_arrival_counts_of_the_small_cell_are_the_measured_ones(self):
+        m = self.sentence(r"reaches in \*\*(\d+) of (\d+)\*\* and arrives standing in \*\*(\d+) of "
+                          r"(\d+)\*\* - the published ceiling", "the small-search cell")
+        self.check("reach", [m.group(1), m.group(2)],
+                   [self.small["reach"], self.small["episodes"]], places=0)
+        self.check("upright", [m.group(3), m.group(4)],
+                   [self.small["upright_arrivals"], self.small["episodes"]], places=0)
+        best_before = max(r["reached_upright_count"] for r in
+                          json.load(open(os.path.join(ROOT, "benchmarks",
+                                                       "reach_upright_arrival.json"),
+                                          encoding="utf-8"))["rows"]
+                          if r["physics_preset"] == "v9"
+                          and not r["label"].startswith(("stability 60", "curriculum")))
+        self.assertEqual(self.small["upright_arrivals"], best_before,
+                         "the small cell is no longer at the pre-override ceiling")
+
+    def test_the_replication_claim_is_the_two_committed_cells(self):
+        m = self.sentence(r"Drawn a second time it\s*is identical on every column",
+                          "the replication claim")
+        agree = self.art["baseline_two_draws_agree"]
+        for column, equal in agree.items():
+            self.assertTrue(equal, f"the two baseline draws disagree on {column}, so 'identical on "
+                                   "every column' is false")
+        for key in ("reach", "upright_arrivals", "pct_steps_in_band",
+                    "share_closed_standing_all", "max_longest_band_run_s"):
+            self.assertEqual(self.small[key], self.draw2[key], f"the {key} column moved between draws")
+
+    def test_more_search_buys_arrival_and_not_gait(self):
+        m = self.sentence(r"puts it at \*\*(\d+) of (\d+) by\s*distance and (\d+) of (\d+) standing "
+                          r"\(([\d.]+)%\)\*\*, above the stability arm's (\d+) of (\d+)",
+                          "the bigger-search cell")
+        self.check("reach", [m.group(1), m.group(2)], [self.big["reach"], self.big["episodes"]],
+                   places=0)
+        self.check("upright", [m.group(3), m.group(4), m.group(5)],
+                   [self.big["upright_arrivals"], self.big["episodes"], self.big["upright_pct"]],
+                   places=1)
+        self.check("stability arm", [m.group(6), m.group(7)],
+                   [self.learned["best_learned_arm"]["upright_arrivals"], self.big["episodes"]],
+                   places=0)
+        self.assertGreater(self.big["upright_arrivals"],
+                           self.learned["best_learned_arm"]["upright_arrivals"],
+                           "the planner no longer beats the best learned arm on arrival, so the "
+                           "paragraph's asymmetry has to be rewritten")
+        m = self.sentence(r"it closes \*\*([\d.]+)%\*\* of its ground inside the band where the "
+                          r"published pool closes ([\d.]+)% and the stability\s*arm ([\d.]+)%",
+                          "the gait split")
+        self.check("planner share standing", m.group(1),
+                   100.0 * self.big["share_closed_standing_all"], places=1)
+        self.check("published pool share", m.group(2),
+                   100.0 * self.learned["published_pool_reach_episodes"]["share_closed_standing"],
+                   places=1)
+        self.check("stability arm share", m.group(3),
+                   100.0 * self.learned["stability60_seed7_4m_share_closed_standing"], places=1)
+        self.assertLess(self.big["share_closed_standing_all"],
+                        self.learned["published_pool_reach_episodes"]["share_closed_standing"],
+                        "the planner now closes more ground standing than the learned pool, which "
+                        "reverses the sentence")
+        m = self.sentence(r"its longest continuous stand is ([\d.]+) s against the learned arms' "
+                          r"([\d.]+) s", "the continuity comparison")
+        self.check("planner longest stand", m.group(1), self.big["max_longest_band_run_s"], places=2)
+        self.check("learned longest stand", m.group(2),
+                   self.learned["published_pool_reach_episodes"]["max_longest_band_run_s"], places=2)
+
+    def test_the_cost_is_stated_in_the_unit_that_reproduces(self):
+        m = self.sentence(r"It also costs\s*([\d.]+) s and ([\d.]+) s of one CPU core per 10 s episode "
+                          r"\((\d+)k and (\d+)k simulated steps\)", "the planning cost")
+        # Simulated steps per episode are fixed by the config; wall clock is not, so the seconds are
+        # allowed to move with the window and the k-steps are not.
+        self.check("steps per episode", [m.group(3), m.group(4)],
+                   [self.small["sim_steps_per_episode"] / 1e3, self.big["sim_steps_per_episode"] / 1e3],
+                   places=0)
+        self.check("planning seconds, small cell", m.group(1), self.small["planning_s_per_episode"],
+                   slack=0.25 * self.small["planning_s_per_episode"])
+        self.check("planning seconds, big cell", m.group(2), self.big["planning_s_per_episode"],
+                   slack=0.25 * self.big["planning_s_per_episode"])
+
+
 class TestReadmeTrainerPairCells(ReadmeGate, unittest.TestCase):
     """PPO against SAC: the rate claim and the behaviour claim are gated together or not at all.
 

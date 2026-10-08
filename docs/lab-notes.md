@@ -433,3 +433,33 @@ assignment *and* the `balance` guard, and no second non-zero assignment may exis
 the term goes live in target, the claim fails loudly instead of rotting quietly. Related:
 [[judge-a-result-against-the-task-s-own-success-criterion]],
 [[an-episode-mean-cannot-carry-a-verb]].
+
+## The planner arrives and does not walk: what a simulator in the loop is actually worth
+
+The residual-learning proposal assumed the missing piece was a controller good enough to correct. Measured
+against one, that assumption splits. `bench_mpc.py` runs a receding-horizon cross-entropy planner on the
+same 20 seeded target episodes, given the true dynamics and the same shaped reward the learned policies
+optimise, and scores it with the same per-step trace. At a small search budget it reaches 3 of 20 and
+arrives standing in 3 of 20 - the published ceiling. With more search (48 samples × 3 iterations, 1.0 s
+horizon) it reaches **9 of 20 and arrives standing in 6 of 20**, above the best learned arm's 4 of 20. On
+the gait measure it is the worst thing in the comparison: it closes **27.9%** of its ground inside the
+standing band, where the published learned pool closes 51.8% and the stability arm 71.3%, and its longest
+continuous stand is 1.40 s against their 1.47 s.
+
+**Why this is a split and not a ranking:** arrival is a property of the endpoint, and search is very good
+at endpoints - it can spend its whole budget finding the one state inside the radius with the torso up.
+Walking is a property of the path, and the planner's path is a series of recoveries, because the reward it
+is given zeroes every locomotion term below the standing band and pays posture the moment the torso is up.
+The same objective that makes the learned policies fall forward makes the search prefer falling forward.
+
+**The reproducibility surprise, which is the part worth keeping.** Two independent draws of the small cell
+agree exactly on reach, upright arrivals, band time and share closed standing - even though the open loop
+is not deterministic: two rollouts from a byte-identical restored state diverge within a few steps, because
+the constraint solver is not bit-reproducible. Closed-loop behaviour reproduced while open-loop trajectories
+did not, so "the solver is non-deterministic" is not by itself a reason to distrust a planner row - the
+draw is what settles it, and here it settled.
+
+**How to apply:** before treating a planner as the base a learned residual will fix, measure the planner on
+the same instrument as the learner and look at the path column, not the arrival column. If the planner wins
+arrival and loses gait, a residual on top of it inherits the gait problem, and the cheaper question is why
+the reward makes falling the cheapest way to move.

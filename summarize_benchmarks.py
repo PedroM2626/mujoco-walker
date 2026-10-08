@@ -1357,6 +1357,92 @@ def teacher_eval_curve(out="benchmarks/teacher_eval_curve.json"):
     }, out
 
 
+def mpc_target_rows(out="benchmarks/mpc_target_rows.json"):
+    """A sampling MPC against the learned arms, on the same 20 episodes and the same step trace.
+
+    The question this answers is the one the residual-learning idea rests on: does a controller with
+    simulator access reach the marker on this ragdoll better than a policy that had to learn the
+    dynamics? It does - but the same trace says it does it by falling toward the target, so the
+    comparison splits rather than ranks, which is why both columns are in one artifact.
+
+    Three cells: the small-search baseline, that baseline drawn a second time (the constraint solver is
+    not bit-deterministic, so a single MPC run would be a claim waiting to be refuted the same way the
+    PPO clock was), and a bigger-search cell that answers "the first budget was too small".
+    """
+    def cell(path):
+        art = json.load(open(os.path.join(ROOT, "benchmarks", path), encoding="utf-8"))
+        cfg, cost = art["config"], art["cost"]
+        all_ep, reach, upright = (art["all_episodes"], art["reach_episodes"],
+                                  art["upright_arrival_episodes"])
+        return {
+            "artifact": f"benchmarks/{path}", "config": cfg,
+            "search": f"{cfg['samples']}x{cfg['iterations']} h{cfg['horizon']} replan{cfg['replan']}",
+            "episodes": cfg["episodes"],
+            "reach": reach["episodes"], "upright_arrivals": upright["episodes"],
+            "reach_pct": round(100.0 * reach["episodes"] / cfg["episodes"], 1),
+            "upright_pct": round(100.0 * upright["episodes"] / cfg["episodes"], 1),
+            "share_closed_standing_all": all_ep["share_while_standing"],
+            "share_closed_standing_upright": upright["share_while_standing"],
+            "pct_steps_in_band": all_ep["mean_pct_steps_in_band"],
+            "episodes_never_in_band": all_ep["episodes_never_in_band"],
+            "max_longest_band_run_s": all_ep["max_longest_band_run_s"],
+            "approach_after_first_fall": all_ep["closest_approach_after_first_fall"],
+            "planning_s_per_episode": round(cost["plan_ms_mean"] * cost["plans_per_episode"] / 1e3, 1),
+            "sim_steps_per_episode": cost["rollout_steps_per_episode"],
+            "wall_clock_s": cost["wall_clock_s"],
+        }
+
+    rows = [cell("mpc_target_baseline.json"), cell("mpc_target_baseline_draw2.json"),
+            cell("mpc_target_budget.json")]
+    mech = json.load(open(os.path.join(ROOT, "benchmarks", "approach_mechanism.json"),
+                          encoding="utf-8"))
+    arr = json.load(open(os.path.join(ROOT, "benchmarks", "reach_upright_arrival.json"),
+                         encoding="utf-8"))
+    pool, gait = mech["pooled_v9_reach_episodes"], mech["pooled_v9_gait_reach_episodes"]
+    best_learned = max((r for r in arr["rows"] if r["physics_preset"] == "v9"),
+                       key=lambda r: r["reached_upright_count"])
+    arm_a = [r for r in mech["rows"] if r["label"].startswith("stability 60, seed 7, best")]
+    learned = {
+        "artifact": "benchmarks/approach_mechanism.json, benchmarks/reach_upright_arrival.json",
+        "best_learned_arm": {"label": best_learned["label"],
+                             "upright_arrivals": best_learned["reached_upright_count"],
+                             "upright_pct": best_learned["reached_upright_pct"],
+                             "reach_pct": best_learned["reached_distance_only_pct"]},
+        "published_pool_reach_episodes": {
+            "episodes": pool["episodes"], "share_closed_standing": pool["share_while_standing"],
+            "pct_steps_in_band": pool["mean_pct_steps_in_band"],
+            "max_longest_band_run_s": pool["max_longest_band_run_s"]},
+        "gait_pool_reach_episodes": {
+            "episodes": gait["episodes"], "share_closed_standing": gait["share_while_standing"],
+            "pct_steps_in_band": gait["mean_pct_steps_in_band"],
+            "max_longest_band_run_s": gait["max_longest_band_run_s"]},
+        "stability60_seed7_4m_share_closed_standing":
+            arm_a[0]["reach_episodes"]["mean_share_while_standing"] if arm_a else None,
+    }
+    draws = [r for r in rows if r["artifact"].endswith(("mpc_target_baseline.json",
+                                                        "mpc_target_baseline_draw2.json"))]
+    agreement = {
+        "reach_equal": draws[0]["reach"] == draws[1]["reach"],
+        "upright_equal": draws[0]["upright_arrivals"] == draws[1]["upright_arrivals"],
+        "band_time_equal": draws[0]["pct_steps_in_band"] == draws[1]["pct_steps_in_band"],
+        "share_standing_equal": draws[0]["share_closed_standing_all"]
+        == draws[1]["share_closed_standing_all"],
+    }
+    data = {
+        "protocol": ("every row is the same 20 seeded episodes (seed 11..30, reset_mode=mixed, "
+                     "task_phase=target) measured by bench_approach_mechanism.trace_episode; the MPC "
+                     "cells come from bench_mpc.py and the learned comparators from the committed "
+                     "curves, so arrival and gait are read off one instrument on both sides"),
+        "mpc_rows": rows, "learned": learned, "baseline_two_draws_agree": agreement,
+        "reading": ("the planner with more search beats every learned arm on arrival and still loses on "
+                    "the gait measure: it closes a fifth to a third of its ground inside the standing "
+                    "band where the learned arms close half to three quarters, and no cell of any kind "
+                    "holds the band for two continuous seconds"),
+    }
+    return data, out
+
+
+
 BENCHMARKS = [
     phase3,
     lambda: phase3("eval_phase3_100ep.log", seed=11,
@@ -1396,6 +1482,9 @@ BENCHMARKS = [
     # The same two worlds drawn a second time at a second seed, which is what separates the ordering
     # of the worlds from the luck of one run.
     physics_preset_second_draw,
+    # A sampling MPC on the same episodes as the learned arms: what simulator access buys on this
+    # task, measured twice because the constraint solver is not bit-deterministic.
+    mpc_target_rows,
     # PPO against SAC at the same config: what each costs per environment step, and what that buys
     # in behaviour. The two answers point in opposite directions, so they live in one artifact.
     trainer_pair_ppo_sac,

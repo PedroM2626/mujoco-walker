@@ -425,12 +425,33 @@ band for 1.17 s at a stretch. What it did not buy is the thing the paragraph abo
 **60** reaching episodes now traced in the published world, the longest continuous stand is still **1.47 s**
 and none of them reaches two seconds.
 
+**A planner with simulator access reaches the marker more often than any learned arm, and still does not
+walk.** `bench_mpc.py` scores a receding-horizon cross-entropy planner on the same 20 seeded episodes,
+against the same environment and the same shaped reward the learned policies optimise, and measures it
+with the same per-step trace. At a small search budget (24 samples × 2 CEM iterations, 0.6 s horizon) it
+reaches in **3 of 20** and arrives standing in **3 of 20** - the published ceiling. Drawn a second time it
+is identical on every column (reach, upright arrivals, band time, share closed standing), which matters
+because the constraint solver is not bit-deterministic: two rollouts from a restored state diverge within
+a few steps, so the planner searches an approximate model, and the closed loop is nevertheless
+reproducible. Raising the search (48 × 3, 1.0 s horizon, replanning every 0.2 s) puts it at **9 of 20 by
+distance and 6 of 20 standing (30%)**, above the stability arm's 4 of 20 - and its gait gets no better:
+it closes **27.9%** of its ground inside the band where the published pool closes 51.8% and the stability
+arm 71.3%, and its longest continuous stand is 1.40 s against the learned arms' 1.47 s. It also costs
+67 s and 157 s of one CPU core per 10 s episode (288k and 720k simulated steps), against a 5M-step SAC
+run that costs ~2,000 s of GPU once and then acts for free.
+
+So the residual-learning question now has a measured target rather than a hypothesis. Search already buys
+arrival; what neither a planner with the true dynamics nor a policy with 5M steps of experience buys is
+closing ground *on its feet* - and across every cell measured here, learned or planned, nothing holds the
+standing band for two continuous seconds.
+
 So the honest answer to "does an agent walk to the target?" is: **the target is in the behaviour and the
 gait is not.** These policies head for the marker whenever they are up, arrive standing in about one
 episode in five at best, and get there by rising, advancing for under a second and falling again - not by
 walking the 2-5 m that separates them from it. Paying three times as much to hold a stable standing pose
 is the one lever measured so far that moves both the arrival column and the share of ground closed on
-feet; making the stand last longer than 1.5 s is still open.
+feet; giving the controller a simulator to search in moves arrival further still (6 of 20) and the gait
+not at all. Making the stand last longer than 1.5 s is the open problem.
 
 The standing rung splits the other way, and only the instrument that measures the torso can say so.
 On `bench_posture.py` at the settings the published posture table uses (50 seeded episodes, seed 11,
@@ -2054,12 +2075,12 @@ Three facts to keep in mind:
 
 The suite is plain `unittest` (no pytest required) and covers the environment contract, the
 golden reward rollouts, the parallel/serial vector-env parity, checkpointing and the race
-harness — **322 tests, 195 s in this window** (`Ran 322 tests in 195.419s ... OK
+harness — **326 tests, 181 s in this window** (`Ran 326 tests in 180.964s ... OK
 (skipped=7)` under `.venv`). Windows of this suite have measured 176.3 s at 102 tests, 269.995 s
 at 121, 261.1 s at 127, 329.964 s at 128, 319.168 s at 130, 184.716 s, 203.108 s and 306.976 s at
 140, 144.678 s at 147, 230.268 s at 157, 171.016 s and 170.304 s at 194, and 174.008 s,
 170.391 s, 175.036 s, 168.775 s, 168.986 s and 166.606 s at 201/205/210, 169.919 s at 214,
-and 163.920 s and 161.829 s at 237, 165.360 s and 164.902 s at 243, 161.647 s and 162.674 s at 250, 162.726 s and 162.167 s at 251, 171.616 s and 163.434 s at 252, 163.769 s and 163.748 s at 255, 226.912 s and 217.651 s at 260, 193.167 s and 191.909 s at 273, 206.150 s at 279, 193.904 s at 284, 201.464 s at 289, 189.864 s and 187.485 s at 294, 190.012 s at 297, 230.180 s at 301, 190.655 s at 311, 211.202 s at 317 -
+and 163.920 s and 161.829 s at 237, 165.360 s and 164.902 s at 243, 161.647 s and 162.674 s at 250, 162.726 s and 162.167 s at 251, 171.616 s and 163.434 s at 252, 163.769 s and 163.748 s at 255, 226.912 s and 217.651 s at 260, 193.167 s and 191.909 s at 273, 206.150 s at 279, 193.904 s at 284, 201.464 s at 289, 189.864 s and 187.485 s at 294, 190.012 s at 297, 230.180 s at 301, 190.655 s at 311, 211.202 s at 317, 195.419 s at 322, 184.182 s at 326 -
 those last windows carry a dose test that runs three short CPU trainings, which are about 27 s of
 them, so that entry is not slower hardware; consecutive runs of one commit agree to 4%, where the
 147 and 157 windows an afternoon earlier were 1.6x apart for ten more tests. The
@@ -2117,7 +2138,7 @@ that they ran - see Phase 4, item 6. How each of those states was found, with th
 ## 🔬 Reproducing and measuring
 
 ```bash
-python -m unittest discover -s tests -t .   # 322 tests in .venv, 195 s; see "Running the tests"
+python -m unittest discover -s tests -t .   # 326 tests in .venv, 181 s; see "Running the tests"
 python bench_env.py --seconds 4             # env throughput, physics vs Python split
 python bench_mjx.py --sizes 32,128          # MJX/JAX batched stepping
 python verify.py                            # Phase-2 artifact check (exits 2 when missing)
@@ -2136,6 +2157,11 @@ python bench_reach_definitions.py             # arrival by distance vs arrival s
                                               # reproduces each committed artifact episode for episodepython bench_approach_mechanism.py            # the same episodes step by step: metres of approach
                                               # closed inside the standing band vs below it, longest
                                               # continuous stand, velocity toward the target while up
+python bench_mpc.py --episodes 20 --samples 24 --iterations 2 --elite 6 --horizon 60 --replan 10 \
+  --out benchmarks/mpc_target_baseline.json   # the sampling-MPC baseline, same episodes and same
+                                              # per-step instrument; --samples 48 --iterations 3
+                                              # --elite 12 --horizon 100 --replan 20 is the
+                                              # bigger-search cell
 python train_walker.py --algo sac --run-id preset_sac_euler_1m --seed 7 --total-timesteps 1000000 \
   --num-envs 8 --task-phase target --reset-mode mixed --target-forward-velocity 1.2 \
   --checkpoint-interval 500000 --device cuda --physics-preset euler

@@ -1,0 +1,302 @@
+{
+  "protocol": "three SAC runs at 5M, num_envs 32, utd-ratio 4, task_phase target, reset_mode mixed, target_forward_velocity 1.2, world v9, trained back to back in one window (chain31); scored by eval_phase1.py --num-episodes 20 --seed 11 on the published reward - the shaping never enters the environment an arm is graded in - and traced step by step by bench_approach_mechanism.py",
+  "training": {
+    "control_s7": {
+      "finished": "2026-10-08 21:30:34",
+      "exit_code": 0,
+      "seconds": 5773,
+      "label": "SAC 5M control seed 7 (unshaped)"
+    },
+    "shaped_s7": {
+      "finished": "2026-10-08 23:41:47",
+      "exit_code": 0,
+      "seconds": 7873,
+      "label": "SAC 5M shaped alpha 0.19 seed 7"
+    },
+    "shaped_s8": {
+      "finished": "2026-10-09 01:40:57",
+      "exit_code": 0,
+      "seconds": 7150,
+      "label": "SAC 5M shaped alpha 0.19 seed 8"
+    }
+  },
+  "potential": {
+    "artifact": "benchmarks/planner_potential.json",
+    "r2_holdout": 0.7991,
+    "r2_ridge_same_split": 0.7729,
+    "r2_ridge_raw_inputs": 0.7722,
+    "selected_epoch": 8,
+    "holdout_seeds": [
+      426,
+      427,
+      428
+    ]
+  },
+  "weight_rule": {
+    "artifact": "benchmarks/planner_potential_coverage.json",
+    "reward_fraction": 0.5,
+    "mean_abs_task_reward_per_step": 30.2923,
+    "mean_abs_shaping_at_weight_1": 79.6693,
+    "shaping_to_reward_ratio_at_weight_1": 2.63,
+    "pct_states_clamped": 37.31,
+    "weight_by_rule": 0.1901,
+    "weight_used": 0.19
+  },
+  "cells": {
+    "control_s7_5m": {
+      "arm": "control",
+      "budget": 5000000,
+      "seed": 7,
+      "artifact": "benchmarks/vshape_control_sac_n32_r4_5m.json",
+      "checkpoint": "checkpoints/vshape_control_sac_n32_r4_5m/sac_actor_5000000.pt",
+      "mean_return": 40154.47,
+      "reached_distance_only_pct": 20.0,
+      "reached_upright_pct": 10.0,
+      "reached_upright_count": 2,
+      "falls_per_episode": 1.8,
+      "value_shaping": null,
+      "wall_clock_seconds": 5773,
+      "pct_steps_in_band": 13.165,
+      "mean_longest_band_run_s": 0.794,
+      "reach_episodes": 4,
+      "share_closed_standing_in_reach": 0.8057,
+      "heading_velocity_in_band_reach": 1.0512
+    },
+    "control_s7_3m": {
+      "arm": "control",
+      "budget": 3000000,
+      "seed": 7,
+      "artifact": "benchmarks/vshape_control_sac_n32_r4_5m.json",
+      "checkpoint": "checkpoints/vshape_control_sac_n32_r4_5m/sac_actor_3000000.pt",
+      "mean_return": 31346.92,
+      "reached_distance_only_pct": 10.0,
+      "reached_upright_pct": 0.0,
+      "reached_upright_count": 0,
+      "falls_per_episode": 1.8,
+      "value_shaping": null,
+      "wall_clock_seconds": null,
+      "pct_steps_in_band": 11.185,
+      "mean_longest_band_run_s": 0.6865,
+      "reach_episodes": 2,
+      "share_closed_standing_in_reach": 0.5285,
+      "heading_velocity_in_band_reach": 1.0931
+    },
+    "vshape_s7_5m": {
+      "arm": "shaped",
+      "budget": 5000000,
+      "seed": 7,
+      "artifact": "benchmarks/vshape_sac_n32_r4_5m.json",
+      "checkpoint": "checkpoints/vshape_sac_n32_r4_5m/sac_actor_5000000.pt",
+      "mean_return": 37458.1,
+      "reached_distance_only_pct": 5.0,
+      "reached_upright_pct": 5.0,
+      "reached_upright_count": 1,
+      "falls_per_episode": 2.4,
+      "value_shaping": {
+        "checkpoint": "D:\\mujoco-walker\\checkpoints\\planner_potential\\potential_best8.npz",
+        "weight": 0.19,
+        "gamma": 0.99,
+        "demos": "benchmarks/demos/mpc_preference_demos.npz",
+        "arch": [
+          49,
+          128,
+          128,
+          1
+        ],
+        "obs_dim": 49,
+        "selected_epoch": 8,
+        "r2_holdout": 0.7991,
+        "clamp_value": [
+          217.624,
+          21593.135
+        ],
+        "holdout_seeds": [
+          426,
+          427,
+          428
+        ]
+      },
+      "wall_clock_seconds": 7873,
+      "pct_steps_in_band": 14.945,
+      "mean_longest_band_run_s": 0.6975,
+      "reach_episodes": 1,
+      "share_closed_standing_in_reach": 0.518,
+      "heading_velocity_in_band_reach": 0.472
+    },
+    "vshape_s7_3m": {
+      "arm": "shaped",
+      "budget": 3000000,
+      "seed": 7,
+      "artifact": "benchmarks/vshape_sac_n32_r4_5m.json",
+      "checkpoint": "checkpoints/vshape_sac_n32_r4_5m/sac_actor_3000000.pt",
+      "mean_return": 34392.81,
+      "reached_distance_only_pct": 5.0,
+      "reached_upright_pct": 5.0,
+      "reached_upright_count": 1,
+      "falls_per_episode": 2.25,
+      "value_shaping": {
+        "checkpoint": "D:\\mujoco-walker\\checkpoints\\planner_potential\\potential_best8.npz",
+        "weight": 0.19,
+        "gamma": 0.99,
+        "demos": "benchmarks/demos/mpc_preference_demos.npz",
+        "arch": [
+          49,
+          128,
+          128,
+          1
+        ],
+        "obs_dim": 49,
+        "selected_epoch": 8,
+        "r2_holdout": 0.7991,
+        "clamp_value": [
+          217.624,
+          21593.135
+        ],
+        "holdout_seeds": [
+          426,
+          427,
+          428
+        ]
+      },
+      "wall_clock_seconds": null,
+      "pct_steps_in_band": 12.775,
+      "mean_longest_band_run_s": 0.6045,
+      "reach_episodes": 1,
+      "share_closed_standing_in_reach": 0.595,
+      "heading_velocity_in_band_reach": 0.0109
+    },
+    "vshape_s8_5m": {
+      "arm": "shaped",
+      "budget": 5000000,
+      "seed": 8,
+      "artifact": "benchmarks/vshape_sac_n32_r4_5m_seed8.json",
+      "checkpoint": "checkpoints/vshape_sac_n32_r4_5m_seed8/sac_actor_5000000.pt",
+      "mean_return": 20643.16,
+      "reached_distance_only_pct": 0.0,
+      "reached_upright_pct": 0.0,
+      "reached_upright_count": 0,
+      "falls_per_episode": 1.15,
+      "value_shaping": {
+        "checkpoint": "D:\\mujoco-walker\\checkpoints\\planner_potential\\potential_best8.npz",
+        "weight": 0.19,
+        "gamma": 0.99,
+        "demos": "benchmarks/demos/mpc_preference_demos.npz",
+        "arch": [
+          49,
+          128,
+          128,
+          1
+        ],
+        "obs_dim": 49,
+        "selected_epoch": 8,
+        "r2_holdout": 0.7991,
+        "clamp_value": [
+          217.624,
+          21593.135
+        ],
+        "holdout_seeds": [
+          426,
+          427,
+          428
+        ]
+      },
+      "wall_clock_seconds": 7150,
+      "pct_steps_in_band": 7.835,
+      "mean_longest_band_run_s": 0.564,
+      "reach_episodes": 0,
+      "share_closed_standing_in_reach": null,
+      "heading_velocity_in_band_reach": null
+    }
+  },
+  "paired": {
+    "seed7_3m": {
+      "control": "control_s7_3m",
+      "shaped": "vshape_s7_3m",
+      "upright_arrivals": [
+        0,
+        1
+      ],
+      "reached_distance_only_pct": [
+        10.0,
+        5.0
+      ],
+      "pct_steps_in_band": [
+        11.185,
+        12.775
+      ],
+      "share_closed_standing": [
+        0.5285,
+        0.595
+      ],
+      "heading_velocity_in_band": [
+        1.0931,
+        0.0109
+      ],
+      "mean_return": [
+        31346.92,
+        34392.81
+      ]
+    },
+    "seed7_5m": {
+      "control": "control_s7_5m",
+      "shaped": "vshape_s7_5m",
+      "upright_arrivals": [
+        2,
+        1
+      ],
+      "reached_distance_only_pct": [
+        20.0,
+        5.0
+      ],
+      "pct_steps_in_band": [
+        13.165,
+        14.945
+      ],
+      "share_closed_standing": [
+        0.8057,
+        0.518
+      ],
+      "heading_velocity_in_band": [
+        1.0512,
+        0.472
+      ],
+      "mean_return": [
+        40154.47,
+        37458.1
+      ]
+    }
+  },
+  "parity_control_vs_published": {
+    "question": "does the trainer with the shaping flag available still produce the run the published table records, with the flag off?",
+    "published": {
+      "artifact": "benchmarks/utd_sac_n32_r4_5m.json",
+      "model": "s5000000",
+      "mean_return": 24137.34,
+      "reached_distance_only_pct": 20.0,
+      "device": "cuda",
+      "physics_preset": "v9"
+    },
+    "rerun_this_revision": {
+      "artifact": "benchmarks/vshape_control_sac_n32_r4_5m.json",
+      "model": "control_s7_5m",
+      "mean_return": 40154.47,
+      "reached_distance_only_pct": 20.0,
+      "reached_upright_count": 2,
+      "wall_clock_seconds": 5773
+    },
+    "loose_arrival_column_equal": true,
+    "mean_return_ratio": 1.664,
+    "reading": "the arrival column reproduced; the return level did not. So the shaped arm is compared against this revision's own control, and the published mean is context rather than the second half of a ratio"
+  },
+  "shaping_pool": {
+    "episodes": 100,
+    "max_longest_band_run_s": 1.62,
+    "episodes_with_band_run_ge_2s": 0,
+    "episodes_never_in_band": 17,
+    "mean_pct_steps_in_band": 11.981,
+    "closing_while_standing_m": 71.12,
+    "closing_while_down_m": 64.12,
+    "share_while_standing": 0.526,
+    "closest_approach_after_first_fall": 66
+  }
+}

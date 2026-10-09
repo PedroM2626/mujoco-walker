@@ -525,3 +525,25 @@ policy trained on planner transitions alone. And when a critic trains without er
 the TD target: a (batch,) reward broadcast against a (batch,1) Q produces a (batch,batch) target, which
 will minimize perfectly happily and print a plausible loss while meaning nothing. Related:
 [[probe-teacher-predictability-before-training-a-student]].
+
+## A SAC return level does not survive a window; its arrival column does
+
+The shaping arm needed a control trained by the same code, so the published dose-4 run was re-run: same
+seed 7, same 5M budget, same `num_envs` 32, same UTD ratio 4, same world v9, same device, same reset mode,
+with the new flag left off. The distance-only arrival column reproduced exactly - **20.0% in both, 4 of 20
+episodes**. The mean return did not: **40,154.47** against the published **24,137.34**, a factor of
+**1.664**, on a machine that was otherwise idle in both windows and at a wall clock of 5,773 s against the
+1,798.4 s-per-1M rate the same configuration quoted before.
+
+**Why it matters:** most of the comparisons in this repository are phrased as moves in a return - "from
+-813.28 to 43,439.25", "3.85x", "a fifth to a third of its ground". A ratio whose denominator was trained
+on another day is therefore a ratio of two windows, not of two configurations. The count columns (reach,
+upright arrival, band time) are the stable half, because they are bounded, coarse and decided by whether
+the behaviour exists at all rather than by how many high-return episodes the RNG happened to hand out.
+
+**How to apply:** when an arm is added, re-run its control in the same window and the same revision, and
+say which of the two quantities the claim rests on. If only the published numbers exist, the sentence has
+to be about arrivals, falls or metres closed - not about a return level. A return comparison across days
+is allowed only as context, never as the second half of a ratio. Related:
+[[two-armed-comparisons-need-their-instrument-settings-recorded]],
+[[a-timing-measured-once-is-a-claim-waiting-to-be-refuted]].

@@ -66,6 +66,14 @@ CHECKPOINTS = [
     # The offline-critic students: trained on the planner's transitions, scored like everything else.
     ("benchmarks/critic_mpc_students.json", "critic_q", "offline critic, Q-ascent actor"),
     ("benchmarks/critic_mpc_students.json", "critic_q_bc", "offline critic, TD3+BC actor"),
+    # The potential-shaping pair, trained by the revision that carries --value-potential: the control is
+    # the same configuration with the flag off, so the parity of the unshaped path is measured here and
+    # not assumed.
+    ("benchmarks/vshape_control_sac_n32_r4_5m.json", "control_s7_5m", "control 5M, seed 7, this revision"),
+    ("benchmarks/vshape_control_sac_n32_r4_5m.json", "control_s7_3m", "control 3M, seed 7, this revision"),
+    ("benchmarks/vshape_sac_n32_r4_5m.json", "vshape_s7_5m", "shaping 0.19, seed 7, 5M"),
+    ("benchmarks/vshape_sac_n32_r4_5m.json", "vshape_s7_3m", "shaping 0.19, seed 7, 3M"),
+    ("benchmarks/vshape_sac_n32_r4_5m_seed8.json", "vshape_s8_5m", "shaping 0.19, seed 8, 5M"),
 ]
 
 BAND_Z, BAND_UPRIGHT = 1.0, 0.7
@@ -296,9 +304,12 @@ def main():
             "label": label, "artifact": artifact, "model": key,
             "checkpoint": model["checkpoint"], "physics_preset": preset, "algo": algo,
             # The gait arms are a separate comparison: pooling them with the previously published rows
-            # would silently move every figure the existing paragraph quotes.
+            # would silently move every figure the existing paragraph quotes. The shaping pair is a
+            # third group, for the same reason - and its control belongs with it, not with the published
+            # pool, because it is the run that says the unshaped path still does what it did.
             "arm_class": ("gait" if os.path.basename(artifact).startswith(
-                ("stab60_", "tcur_", "critic_", "vshape_")) else ""),
+                ("stab60_", "tcur_", "critic_")) else
+                "shaping" if os.path.basename(artifact).startswith("vshape_") else ""),
             "target_curriculum": curriculum,
             # Carried so a shaped arm is recognisable in the trace itself. None also means "saved before
             # the shaping existed", which can only mean unshaped.
@@ -375,12 +386,15 @@ def main():
         raise SystemExit(1)
 
     v9 = [r for r in rows if r["physics_preset"] == "v9" and not r["arm_class"]]
-    v9_gait = [r for r in rows if r["physics_preset"] == "v9" and r["arm_class"]]
+    v9_gait = [r for r in rows if r["physics_preset"] == "v9" and r["arm_class"] == "gait"]
+    v9_shaping = [r for r in rows if r["physics_preset"] == "v9" and r["arm_class"] == "shaping"]
     v9_traces = [t for r in rows if r["physics_preset"] == "v9" and not r["arm_class"]
                  for t in all_traces[f"{r['artifact']}:{r['model']}"]]
     v9_reach = [t for t in v9_traces if t["reached_target"]]
     gait_traces = [t for r in v9_gait for t in all_traces[f"{r['artifact']}:{r['model']}"]]
     gait_reach = [t for t in gait_traces if t["reached_target"]]
+    shaping_traces = [t for r in v9_shaping for t in all_traces[f"{r['artifact']}:{r['model']}"]]
+    shaping_reach = [t for t in shaping_traces if t["reached_target"]]
 
     clips = []
     for artifact, key, ep, tag in RENDERED_CLIPS:
@@ -418,6 +432,9 @@ def main():
         "pooled_v9_gait_rows": [r["label"] for r in v9_gait],
         "pooled_v9_gait_all_episodes": pooled(gait_traces),
         "pooled_v9_gait_reach_episodes": pooled(gait_reach) if gait_reach else None,
+        "pooled_v9_shaping_rows": [r["label"] for r in v9_shaping],
+        "pooled_v9_shaping_all_episodes": pooled(shaping_traces),
+        "pooled_v9_shaping_reach_episodes": pooled(shaping_reach) if shaping_reach else None,
         "pooled_all_rows_reach_episodes": pooled(
             [t for r in rows for t in all_traces[f"{r['artifact']}:{r['model']}"]
              if t["reached_target"]]),

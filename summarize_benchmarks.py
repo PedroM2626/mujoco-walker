@@ -1443,6 +1443,160 @@ def mpc_target_rows(out="benchmarks/mpc_target_rows.json"):
 
 
 
+SHAPING_TRAINING_LOG = "chain31_evidence.log"
+DONE_RE = re.compile(r"^(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d) DONE (.+?) exit=(\d+) seconds=(\d+)$")
+
+
+def value_shaping_pair(out="benchmarks/value_shaping_pair.json"):
+    """The planner's value as a shaping term inside SAC, against the same code with the flag off.
+
+    Every number here is read from a committed file: the wall clocks come from the launcher log, which
+    for a SAC run is the only place they exist; the scores come from the eval artifacts; the gait
+    measures come from the per-step trace rows the arms were added to. Nothing is typed.
+
+    The block exists to answer two questions at once. One is the experiment - does the shaping help?
+    The other is whether the comparison is allowed: the control was re-run by the revision that carries
+    `--value-potential`, and its own published twin (same seed, same budget, same world, older code) is
+    quoted next to it so the reader can see which halves of a SAC run survive a window.
+    """
+    clocks = {}
+    with open(os.path.join(ROOT, SHAPING_TRAINING_LOG), encoding="utf-8", errors="replace") as handle:
+        for line in handle:
+            m = DONE_RE.match(line.strip())
+            if m:
+                clocks[m.group(2).strip()] = {"finished": m.group(1), "exit_code": int(m.group(3)),
+                                              "seconds": int(m.group(4))}
+    labels = {
+        "control_s7": "SAC 5M control seed 7 (unshaped)",
+        "shaped_s7": "SAC 5M shaped alpha 0.19 seed 7",
+        "shaped_s8": "SAC 5M shaped alpha 0.19 seed 8",
+    }
+    missing = [label for label in labels.values() if label not in clocks]
+    if missing:
+        raise FileNotFoundError(f"{SHAPING_TRAINING_LOG} has no completed span for {missing}")
+
+    mech = json.load(open(os.path.join(ROOT, "benchmarks", "approach_mechanism.json"),
+                           encoding="utf-8"))
+    traces = {(r["artifact"], r["model"]): r for r in mech["rows"]}
+    reach = json.load(open(os.path.join(ROOT, "benchmarks", "reach_upright_arrival.json"),
+                            encoding="utf-8"))
+    upright = {(r["artifact"], r["model"]): r for r in reach["rows"]}
+    coverage = json.load(open(os.path.join(ROOT, "benchmarks", "planner_potential_coverage.json"),
+                              encoding="utf-8"))
+    potential = json.load(open(os.path.join(ROOT, "benchmarks", "planner_potential.json"),
+                               encoding="utf-8"))
+
+    cells = {}
+    for artifact, model, budget, seed, arm in (
+            ("benchmarks/vshape_control_sac_n32_r4_5m.json", "control_s7_5m", 5000000, 7, "control"),
+            ("benchmarks/vshape_control_sac_n32_r4_5m.json", "control_s7_3m", 3000000, 7, "control"),
+            ("benchmarks/vshape_sac_n32_r4_5m.json", "vshape_s7_5m", 5000000, 7, "shaped"),
+            ("benchmarks/vshape_sac_n32_r4_5m.json", "vshape_s7_3m", 3000000, 7, "shaped"),
+            ("benchmarks/vshape_sac_n32_r4_5m_seed8.json", "vshape_s8_5m", 5000000, 8, "shaped")):
+        ev = json.load(open(os.path.join(ROOT, artifact), encoding="utf-8"))["models"][model]
+        trace, arr = traces[(artifact, model)], upright[(artifact, model)]
+        cells[model] = {
+            "arm": arm, "budget": budget, "seed": seed, "artifact": artifact,
+            "checkpoint": ev["checkpoint"], "mean_return": ev["mean"],
+            "reached_distance_only_pct": ev["reached_target_pct"],
+            "reached_upright_pct": ev["reached_target_upright_pct"],
+            "reached_upright_count": arr["reached_upright_count"],
+            "falls_per_episode": ev["falls_per_episode"],
+            "value_shaping": ev["value_shaping"],
+            "wall_clock_seconds": clocks[labels[arm + "_s%d" % seed]]["seconds"] if budget == 5000000
+            else None,
+            "pct_steps_in_band": trace["mean_pct_steps_in_band"],
+            "mean_longest_band_run_s": trace["mean_longest_band_run_s"],
+            "reach_episodes": trace["reach_episodes"]["n"],
+            "share_closed_standing_in_reach": trace["reach_episodes"]["mean_share_while_standing"],
+            "heading_velocity_in_band_reach": trace["reach_episodes"]["mean_heading_velocity_in_band_mps"],
+        }
+
+    paired = {}
+    for seed in (7, 8):
+        for budget in (3000000, 5000000):
+            c = [k for k, v in cells.items() if v["arm"] == "control" and v["seed"] == seed
+                 and v["budget"] == budget]
+            s = [k for k, v in cells.items() if v["arm"] == "shaped" and v["seed"] == seed
+                 and v["budget"] == budget]
+            if not c or not s:
+                continue
+            ctrl, shp = cells[c[0]], cells[s[0]]
+            paired[f"seed{seed}_{budget // 1000000}m"] = {
+                "control": c[0], "shaped": s[0],
+                "upright_arrivals": [ctrl["reached_upright_count"], shp["reached_upright_count"]],
+                "reached_distance_only_pct": [ctrl["reached_distance_only_pct"],
+                                              shp["reached_distance_only_pct"]],
+                "pct_steps_in_band": [ctrl["pct_steps_in_band"], shp["pct_steps_in_band"]],
+                "share_closed_standing": [ctrl["share_closed_standing_in_reach"],
+                                          shp["share_closed_standing_in_reach"]],
+                "heading_velocity_in_band": [ctrl["heading_velocity_in_band_reach"],
+                                             shp["heading_velocity_in_band_reach"]],
+                "mean_return": [ctrl["mean_return"], shp["mean_return"]],
+            }
+
+    published = json.load(open(os.path.join(ROOT, "benchmarks", "utd_sac_n32_r4_5m.json"),
+                               encoding="utf-8"))["models"]["s5000000"]
+    fresh = cells["control_s7_5m"]
+    parity = {
+        "question": ("does the trainer with the shaping flag available still produce the run the "
+                     "published table records, with the flag off?"),
+        "published": {"artifact": "benchmarks/utd_sac_n32_r4_5m.json", "model": "s5000000",
+                      "mean_return": published["mean"],
+                      "reached_distance_only_pct": published["reached_target_pct"],
+                      "device": "cuda", "physics_preset": "v9"},
+        "rerun_this_revision": {"artifact": fresh["artifact"], "model": "control_s7_5m",
+                                "mean_return": fresh["mean_return"],
+                                "reached_distance_only_pct": fresh["reached_distance_only_pct"],
+                                "reached_upright_count": fresh["reached_upright_count"],
+                                "wall_clock_seconds": fresh["wall_clock_seconds"]},
+        "loose_arrival_column_equal": published["reached_target_pct"] == fresh["reached_distance_only_pct"],
+        "mean_return_ratio": round(fresh["mean_return"] / published["mean"], 3),
+        "reading": ("the arrival column reproduced; the return level did not. So the shaped arm is "
+                    "compared against this revision's own control, and the published mean is context "
+                    "rather than the second half of a ratio"),
+    }
+
+    rule = coverage["cells"]["control"]
+    return {
+        "protocol": ("three SAC runs at 5M, num_envs 32, utd-ratio 4, task_phase target, reset_mode "
+                     "mixed, target_forward_velocity 1.2, world v9, trained back to back in one window "
+                     "(chain31); scored by eval_phase1.py --num-episodes 20 --seed 11 on the published "
+                     "reward - the shaping never enters the environment an arm is graded in - and "
+                     "traced step by step by bench_approach_mechanism.py"),
+        "training": {key: clocks[value] | {"label": value}
+                     for key, value in labels.items()},
+        "potential": {"artifact": "benchmarks/planner_potential.json",
+                      "r2_holdout": potential["r2_holdout"],
+                      "r2_ridge_same_split": potential["r2_ridge_same_split"],
+                      "r2_ridge_raw_inputs": potential["r2_ridge_raw_inputs"],
+                      "selected_epoch": potential["selected_epoch"],
+                      "holdout_seeds": potential["holdout_seeds"]},
+        "weight_rule": {"artifact": "benchmarks/planner_potential_coverage.json",
+                        "reward_fraction": coverage["reward_fraction"],
+                        "mean_abs_task_reward_per_step": rule["mean_abs_task_reward_per_step"],
+                        "mean_abs_shaping_at_weight_1": rule["mean_abs_shaping_at_weight_1"],
+                        "shaping_to_reward_ratio_at_weight_1":
+                            rule["shaping_to_reward_ratio_at_weight_1"],
+                        "pct_states_clamped": rule["pct_states_clamped"],
+                        "weight_by_rule": rule["weight_by_rule"],
+                        "weight_used": fresh_shape_weight(cells)},
+        "cells": cells,
+        "paired": paired,
+        "parity_control_vs_published": parity,
+        "shaping_pool": mech["pooled_v9_shaping_all_episodes"],
+    }, out
+
+
+def fresh_shape_weight(cells):
+    """The alpha every shaped cell was trained with, read off the checkpoints' own record."""
+    weights = {c["value_shaping"]["weight"] for c in cells.values()
+               if c["arm"] == "shaped" and c["value_shaping"]}
+    if len(weights) != 1:
+        raise ValueError(f"the shaped cells were not trained with one weight: {sorted(weights)}")
+    return weights.pop()
+
+
 BENCHMARKS = [
     phase3,
     lambda: phase3("eval_phase3_100ep.log", seed=11,
@@ -1485,6 +1639,9 @@ BENCHMARKS = [
     # A sampling MPC on the same episodes as the learned arms: what simulator access buys on this
     # task, measured twice because the constraint solver is not bit-deterministic.
     mpc_target_rows,
+    # The planner's value as an in-loop shaping signal for SAC, against the same code with the flag off,
+    # with the parity of the unshaped path and the wall clocks read out of the launcher log.
+    value_shaping_pair,
     # PPO against SAC at the same config: what each costs per environment step, and what that buys
     # in behaviour. The two answers point in opposite directions, so they live in one artifact.
     trainer_pair_ppo_sac,

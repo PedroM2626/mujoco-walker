@@ -392,7 +392,7 @@ long it takes.
 
 **An upright arrival says the body was standing at that moment; the step trace says it still was not
 walking.** Splitting every step of the same published episodes at whether the torso was in the band then
-- `bench_approach_mechanism.py`, which replays all 460 scored episodes of the 23 quoted checkpoints and
+- `bench_approach_mechanism.py`, which replays all 560 scored episodes of the 28 quoted checkpoints and
 refuses to write unless each one reproduces its committed telemetry - the 35 episodes the distance rule
 counts as reaches in the published world close **46.61 m at in-band steps against 43.43 m with the torso
 below the band** (51.8% of the ground), and **30 of those 35 closest approaches come after the episode's
@@ -488,13 +488,40 @@ offline against that critic, not usable as a gait. The route this leaves unteste
 value inside the online loop as an auxiliary signal, rather than training a policy on planner transitions
 alone.
 
+**The planner's value, put inside SAC as a shaping term, buys posture and costs arrival.** That is the
+route, taken: `fit_planner_potential.py` freezes a state function Phi(s) on the recorded lookahead value
+(held-out R² **0.7991**, against 0.7729 for the probe's ridge re-fitted on the same split and the 0.7722
+it published on raw inputs), and `train_walker.py --value-potential` adds `alpha * (gamma * Phi(s') -
+Phi(s))` to the reward the replay buffer sees - a state-only potential with Phi scored zero at a terminal
+state, which telescopes and leaves the optimal policy of the MDP alone. The environment a run is graded
+in never sees the term: `RecordEpisodeStatistics` sits outside the wrapper and `eval_phase1.py` builds
+its own env, so the column below is the published reward. The weight was fixed before the arm ran, on the
+control's own trajectory: at weight 1 the term averages **79.67** against that trajectory's mean task
+reward of **30.29** - a ratio of **2.63** - and **37.31%** of the states it visits lie outside the value
+range the fit ever saw, so the rule (half the task reward, 0.1901) gives alpha = 0.19. Against this
+revision's own control at the same seed and budget, arriving standing goes from **2 of 20 to 1 of 20** and
+arrival-by-distance from 4 of 20 to 1 of 20; the second seed reaches in **0 of 20**. What it did buy is
+posture: steps inside the band **13.16% to 14.95%**, while the share of ground closed inside the band
+during a reaching episode falls **0.8057 to 0.518** and the in-band velocity toward the target falls
+**1.0512 to 0.472 m/s**. At 3M the same pair is 2 to 1 by distance and 0 to 1 standing, with in-band
+heading velocity at 0.0109 m/s. The episode mean is the trap in these cells - it goes down at 5M
+(40,154.47 to 37,458.10) and up at 3M (31,346.92 to 34,392.81), which is why the verdict is read off the
+arrival columns. The unshaped path was re-measured to license that comparison at all: this revision's
+control reproduces the published arm's distance-only column (20.0% in both) but not its return - **1.664x**
+it, 40,154.47 against 24,137.34 - so a SAC return level is a property of the window and the arrival
+column is not. The two shaped draws cost 7,873 s and 7,150 s of wall clock against the control's 5,773 s
+for the same budget, which is the price of evaluating Phi once per step in each of 32 collection workers.
+The gait did not move: across the 100 traced episodes of this pair the longest continuous stand is
+**1.62 s** and none reaches two seconds.
+
 So the honest answer to "does an agent walk to the target?" is: **the target is in the behaviour and the
 gait is not.** These policies head for the marker whenever they are up, arrive standing in about one
 episode in five at best, and get there by rising, advancing for under a second and falling again - not by
 walking the 2-5 m that separates them from it. Paying three times as much to hold a stable standing pose
 is the one lever measured so far that moves both the arrival column and the share of ground closed on
 feet; giving the controller a simulator to search in moves arrival further still (6 of 20) and the gait
-not at all. Making the stand last longer than 1.5 s is the open problem.
+not at all; handing that simulator's judgement to the learner as a shaping term moves arrival down and
+posture up, and leaves the gait where it was. Making the stand last longer than 1.5 s is the open problem.
 
 The standing rung splits the other way, and only the instrument that measures the torso can say so.
 On `bench_posture.py` at the settings the published posture table uses (50 seeded episodes, seed 11,
@@ -2118,12 +2145,12 @@ Three facts to keep in mind:
 
 The suite is plain `unittest` (no pytest required) and covers the environment contract, the
 golden reward rollouts, the parallel/serial vector-env parity, checkpointing and the race
-harness — **369 tests, 219 s in this window** (`Ran 369 tests in 218.984s ... OK
+harness — **376 tests, 239 s in this window** (`Ran 376 tests in 238.576s ... OK
 (skipped=7)` under `.venv`). Windows of this suite have measured 176.3 s at 102 tests, 269.995 s
 at 121, 261.1 s at 127, 329.964 s at 128, 319.168 s at 130, 184.716 s, 203.108 s and 306.976 s at
 140, 144.678 s at 147, 230.268 s at 157, 171.016 s and 170.304 s at 194, and 174.008 s,
 170.391 s, 175.036 s, 168.775 s, 168.986 s and 166.606 s at 201/205/210, 169.919 s at 214,
-and 163.920 s and 161.829 s at 237, 165.360 s and 164.902 s at 243, 161.647 s and 162.674 s at 250, 162.726 s and 162.167 s at 251, 171.616 s and 163.434 s at 252, 163.769 s and 163.748 s at 255, 226.912 s and 217.651 s at 260, 193.167 s and 191.909 s at 273, 206.150 s at 279, 193.904 s at 284, 201.464 s at 289, 189.864 s and 187.485 s at 294, 190.012 s at 297, 230.180 s at 301, 190.655 s at 311, 211.202 s at 317, 195.419 s at 322, 184.182 s at 326, 180.964 s at 326, 266.112 s and 191.187 s at 339, 185.556 s at 340, 193.319 s at 351 -
+and 163.920 s and 161.829 s at 237, 165.360 s and 164.902 s at 243, 161.647 s and 162.674 s at 250, 162.726 s and 162.167 s at 251, 171.616 s and 163.434 s at 252, 163.769 s and 163.748 s at 255, 226.912 s and 217.651 s at 260, 193.167 s and 191.909 s at 273, 206.150 s at 279, 193.904 s at 284, 201.464 s at 289, 189.864 s and 187.485 s at 294, 190.012 s at 297, 230.180 s at 301, 190.655 s at 311, 211.202 s at 317, 195.419 s at 322, 184.182 s at 326, 180.964 s at 326, 266.112 s and 191.187 s at 339, 185.556 s at 340, 193.319 s at 351, 218.984 s at 369 -
 those last windows carry a dose test that runs three short CPU trainings, which are about 27 s of
 them, so that entry is not slower hardware; consecutive runs of one commit agree to 4%, where the
 147 and 157 windows an afternoon earlier were 1.6x apart for ten more tests. The
@@ -2181,7 +2208,7 @@ that they ran - see Phase 4, item 6. How each of those states was found, with th
 ## 🔬 Reproducing and measuring
 
 ```bash
-python -m unittest discover -s tests -t .   # 369 tests in .venv, 219 s; see "Running the tests"
+python -m unittest discover -s tests -t .   # 376 tests in .venv, 239 s; see "Running the tests"
 python bench_env.py --seconds 4             # env throughput, physics vs Python split
 python bench_mjx.py --sizes 32,128          # MJX/JAX batched stepping
 python verify.py                            # Phase-2 artifact check (exits 2 when missing)
@@ -2232,6 +2259,21 @@ python bench_bc_teacher.py --demos benchmarks/demos/mpc_preference_demos.npz \
   --out benchmarks/critic_teacher_benchmark.json
                                           # ridge R2 against the recorded value, and each student's
                                           # action distance against a constant zero
+python fit_planner_potential.py           # freeze the value as a state function Phi(s): episode-level
+                                          # hold-out, checkpoint at the best held-out error; the npz it
+                                          # writes is gitignored, its R2 and clamp range are not
+python bench_value_potential.py --episodes 20 \
+  --model control=checkpoints/utd_sac_n32_r4_5m/sac_actor_5000000.pt
+                                          # what the shaping term is worth on the control's own states:
+                                          # its mean size against the mean task reward, and the share of
+                                          # visited states whose value had to be clamped
+python train_walker.py --algo sac --run-id vshape_sac_n32_r4_5m --seed 7 --total-timesteps 5000000 \
+  --num-envs 32 --utd-ratio 4 --task-phase target --reset-mode mixed --target-forward-velocity 1.2 \
+  --checkpoint-interval 1000000 --device cuda \
+  --value-potential checkpoints/planner_potential/potential_best8.npz --shaping-weight 0.19
+                                          # the shaped arm; the same command without the last two
+                                          # flags is its parity control, and the weight comes from the
+                                          # rule the measurement above states
 python train_walker.py --algo sac --run-id preset_sac_euler_1m --seed 7 --total-timesteps 1000000 \
   --num-envs 8 --task-phase target --reset-mode mixed --target-forward-velocity 1.2 \
   --checkpoint-interval 500000 --device cuda --physics-preset euler

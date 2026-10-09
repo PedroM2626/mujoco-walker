@@ -54,6 +54,13 @@ CHECKPOINTS = [
     ("benchmarks/tcur_sac_n32_r4_5m_seed8_transfer.json", "x5000000", "curriculum, seed 8, on 2-5 m"),
     ("benchmarks/critic_mpc_students.json", "critic_q", "offline critic, Q-ascent actor"),
     ("benchmarks/critic_mpc_students.json", "critic_q_bc", "offline critic, TD3+BC actor"),
+    # The potential-shaping pair and its parity control, both trained by the revision that carries
+    # --value-potential, so the unshaped path is re-measured rather than inherited from an older window.
+    ("benchmarks/vshape_control_sac_n32_r4_5m.json", "control_s7_5m", "control 5M, seed 7, this revision"),
+    ("benchmarks/vshape_control_sac_n32_r4_5m.json", "control_s7_3m", "control 3M, seed 7, this revision"),
+    ("benchmarks/vshape_sac_n32_r4_5m.json", "vshape_s7_5m", "shaping 0.19, seed 7, 5M"),
+    ("benchmarks/vshape_sac_n32_r4_5m.json", "vshape_s7_3m", "shaping 0.19, seed 7, 3M"),
+    ("benchmarks/vshape_sac_n32_r4_5m_seed8.json", "vshape_s8_5m", "shaping 0.19, seed 8, 5M"),
 ]
 
 

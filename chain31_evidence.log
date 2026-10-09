@@ -1,0 +1,39 @@
+2026-10-08 19:54:21 chain31 launcher pid 79460
+2026-10-08 19:54:21 machine claimed by pid 79460
+2026-10-08 19:54:21 START SAC 5M control seed 7 (unshaped)
+2026-10-08 21:30:34 DONE SAC 5M control seed 7 (unshaped) exit=0 seconds=5773
+2026-10-08 21:30:34   [SHAPING] off - the learner sees the published reward
+2026-10-08 21:30:34   global_step=640, episodic_return=1816.91, episodic_length=20
+2026-10-08 21:30:34   tail: [CHECKPOINT] Saved lightweight actor -> checkpoints\vshape_control_sac_n32_r4_5m\sac_actor_5000000.pt
+2026-10-08 21:30:34   tail: Training completed. Total steps: 5000000
+2026-10-08 21:30:34 START SAC 5M shaped alpha 0.19 seed 7
+2026-10-08 23:41:47 DONE SAC 5M shaped alpha 0.19 seed 7 exit=0 seconds=7873
+2026-10-08 23:41:47   [SHAPING] D:\mujoco-walker\checkpoints\planner_potential\potential_best8.npz weight=0.19 gamma=0.99 (held-out R2 0.7991, value clamp [217.624, 21593.135]). Only the reward the learner reads is shaped; episode returns and scoring stay on the published reward.
+2026-10-08 23:41:47   global_step=544, episodic_return=1203.50, episodic_length=17
+2026-10-08 23:41:47   tail: [CHECKPOINT] Saved lightweight actor -> checkpoints\vshape_sac_n32_r4_5m\sac_actor_5000000.pt
+2026-10-08 23:41:47   tail: Training completed. Total steps: 5000000
+2026-10-08 23:41:47 START SAC 5M shaped alpha 0.19 seed 8
+2026-10-09 01:40:57 DONE SAC 5M shaped alpha 0.19 seed 8 exit=0 seconds=7150
+2026-10-09 01:40:57   [SHAPING] D:\mujoco-walker\checkpoints\planner_potential\potential_best8.npz weight=0.19 gamma=0.99 (held-out R2 0.7991, value clamp [217.624, 21593.135]). Only the reward the learner reads is shaped; episode returns and scoring stay on the published reward.
+2026-10-09 01:40:57   global_step=608, episodic_return=1532.61, episodic_length=19
+2026-10-09 01:40:57   tail: [CHECKPOINT] Saved lightweight actor -> checkpoints\vshape_sac_n32_r4_5m_seed8\sac_actor_5000000.pt
+2026-10-09 01:40:57   tail: Training completed. Total steps: 5000000
+2026-10-09 01:40:57 START eval shaped seed 7 (5M, 3M)
+2026-10-09 01:41:46 DONE eval shaped seed 7 (5M, 3M) exit=0 seconds=48
+2026-10-09 01:41:46   [NOTE] vshape_s7_5m: treinado com shaping de potencial (D:\mujoco-walker\checkpoints\planner_potential\potential_best8.npz, weight 0.19, R2 de validacao 0.7991). O que segue e a recompensa publicada, sem shaping: a diferenca para um braco igual esta no que o learner viu, - nao no que esta sendo medido.
+2026-10-09 01:41:46   vshape_s7_5m           mean=  37458.10 median=  33869.99 std=29509.23 min=    627.92 max= 102003.51 quedas/ep=2.40 de pe=5% alvo=5.0% passos=1000 pesos=checkpoint
+2026-10-09 01:41:46   tail: vshape_s7_3m           mean=  34392.81 median=  32301.71 std=23411.48 min= -14060.84 max=  76681.51 quedas/ep=2.25 de pe=0% alvo=5.0% passos=1000 pesos=checkpoint
+2026-10-09 01:41:46   tail: wrote benchmarks/vshape_sac_n32_r4_5m.json
+2026-10-09 01:41:46 START eval shaped seed 8 (5M)
+2026-10-09 01:42:05 DONE eval shaped seed 8 (5M) exit=0 seconds=19
+2026-10-09 01:42:05   [NOTE] vshape_s8_5m: treinado com shaping de potencial (D:\mujoco-walker\checkpoints\planner_potential\potential_best8.npz, weight 0.19, R2 de validacao 0.7991). O que segue e a recompensa publicada, sem shaping: a diferenca para um braco igual esta no que o learner viu, - nao no que esta sendo medido.
+2026-10-09 01:42:05   vshape_s8_5m           mean=  20643.16 median=  14530.56 std=20152.59 min=  -5432.90 max=  66321.40 quedas/ep=1.15 de pe=0% alvo=0.0% passos=1000 pesos=checkpoint
+2026-10-09 01:42:05   tail: vshape_s8_5m           mean=  20643.16 median=  14530.56 std=20152.59 min=  -5432.90 max=  66321.40 quedas/ep=1.15 de pe=0% alvo=0.0% passos=1000 pesos=checkpoint
+2026-10-09 01:42:05   tail: wrote benchmarks/vshape_sac_n32_r4_5m_seed8.json
+2026-10-09 01:42:05 START eval control seed 7 (5M, 3M)
+2026-10-09 01:42:39 DONE eval control seed 7 (5M, 3M) exit=0 seconds=34
+2026-10-09 01:42:39   control_s7_5m          mean=  40154.47 median=  31634.31 std=27252.73 min=    851.23 max= 101050.90 quedas/ep=1.80 de pe=10% alvo=20.0% passos=1000 pesos=checkpoint
+2026-10-09 01:42:39   control_s7_3m          mean=  31346.92 median=  27150.32 std=24498.63 min= -26083.10 max=  81703.43 quedas/ep=1.80 de pe=0% alvo=10.0% passos=1000 pesos=checkpoint
+2026-10-09 01:42:39   tail: control_s7_3m          mean=  31346.92 median=  27150.32 std=24498.63 min= -26083.10 max=  81703.43 quedas/ep=1.80 de pe=0% alvo=10.0% passos=1000 pesos=checkpoint
+2026-10-09 01:42:39   tail: wrote benchmarks/vshape_control_sac_n32_r4_5m.json
+2026-10-09 01:42:39 CHAIN31 COMPLETE

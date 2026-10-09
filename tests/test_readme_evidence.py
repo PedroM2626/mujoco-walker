@@ -4393,6 +4393,180 @@ class TestReadmeCriticStudentCells(ReadmeGate, unittest.TestCase):
         self.assertEqual(s["critic_q_bc"]["bc_lambda"], 1.0)
 
 
+class TestReadmeValueShapingCells(ReadmeGate, unittest.TestCase):
+    """The planner's value as an in-loop shaping term, against this revision's own control.
+
+    Four different kinds of claim share this paragraph, and each fails in its own way. The weight is a
+    rule applied to a measurement taken before the arm ran, so it is gated against the coverage artifact
+    and not retyped. The paired cells are gated against the same trace rows that produced them, and the
+    gate insists the shaped arm is not better on the arrival column - the sentence says it is worse. The
+    parity cell is the one that licenses the whole comparison, so it is gated as an equality, not a
+    ratio. And the wall clocks are read from the launcher log, because a SAC run leaves its duration
+    nowhere else.
+    """
+
+    PAIR = os.path.join(ROOT, "benchmarks", "value_shaping_pair.json")
+    FIT = os.path.join(ROOT, "benchmarks", "planner_potential.json")
+    PROBE = os.path.join(ROOT, "benchmarks", "critic_teacher_benchmark.json")
+    MECH = os.path.join(ROOT, "benchmarks", "approach_mechanism.json")
+    START = "**The planner's value, put inside SAC"
+    END = 'So the honest answer to "does an agent walk'
+
+    def setUp(self):
+        with open(README, encoding="utf-8") as handle:
+            readme = handle.read()
+        start = readme.index(self.START)
+        self.block = readme[start:readme.index(self.END, start)]
+        self.pair, self.fit, self.probe, self.mech = self.read_artifacts(
+            self.PAIR, self.FIT, self.PROBE, self.MECH)
+        self.cells = self.pair["cells"]
+        self.bad = []
+        self.what = "value-shaping pair"
+
+    def test_the_potential_and_the_rule_that_set_the_weight(self):
+        m = self.sentence(r"held-out R² \*\*([\d.]+)\*\*, against ([\d.]+) for the probe's ridge "
+                          r"re-fitted on the same split and the ([\d.]+) it published on raw inputs",
+                          "the potential's accuracy")
+        self.check("MLP R2 on the value", m.group(1), self.fit["r2_holdout"], places=3)
+        self.check("ridge on normalised inputs", m.group(2), self.fit["r2_ridge_same_split"], places=3)
+        self.check("ridge on raw inputs", m.group(3), self.fit["r2_ridge_raw_inputs"], places=3)
+        self.assertAlmostEqual(self.fit["r2_ridge_raw_inputs"],
+                               self.probe["teacher_value_predictability"]["r2_ridge"], places=4,
+                               msg="the ridge re-derived here no longer reproduces the published value "
+                                   "probe, so the split or the normalisation drifted")
+        r = self.sentence(r"the term averages \*\*([\d.]+)\*\* against that trajectory's mean task\s*"
+                          r"reward of \*\*([\d.]+)\*\* - a ratio of \*\*([\d.]+)\*\* - and "
+                          r"\*\*([\d.]+)%\*\* of the states it visits lie outside the value range .*, "
+                          r"so the rule \(half the task reward, ([\d.]+)\) gives alpha = ([\d]+(?:\.\d+)?)",
+                          "the weight rule")
+        rule = self.pair["weight_rule"]
+        self.check("mean |shaping| at weight 1", r.group(1), rule["mean_abs_shaping_at_weight_1"],
+                   places=2)
+        self.check("mean task reward per step", r.group(2), rule["mean_abs_task_reward_per_step"],
+                   places=2)
+        self.check("ratio", r.group(3), rule["shaping_to_reward_ratio_at_weight_1"], places=2)
+        self.check("clamped states", r.group(4), rule["pct_states_clamped"], places=2)
+        self.check("weight by rule", r.group(5), rule["weight_by_rule"], places=3)
+        self.check("weight used", r.group(6), rule["weight_used"], places=2)
+        self.assertAlmostEqual(rule["reward_fraction"], 0.5, places=9)
+        self.assertLessEqual(rule["weight_used"], rule["weight_by_rule"] + 1e-9,
+                             "the arm now uses more shaping than the rule allows, which is tuning")
+        self.assertGreater(rule["shaping_to_reward_ratio_at_weight_1"], 1.0,
+                           "at weight 1 the term no longer swamps the task reward, so the sentence "
+                           "explaining why the weight had to be derived has to be rewritten")
+
+    def test_the_paired_arrival_cells(self):
+        m = self.sentence(r"arriving standing goes from \*\*(\d+) of (\d+) to (\d+) of \d+\*\* and\s*"
+                          r"arrival-by-distance from (\d+) of \d+ to (\d+) of \d+; the second seed "
+                          r"reaches in\s*\*\*(\d+) of (\d+)\*\*", "the paired arrival cells")
+        ctrl, shp = self.cells["control_s7_5m"], self.cells["vshape_s7_5m"]
+        s8 = self.cells["vshape_s8_5m"]
+        self.check("control upright arrivals", [m.group(1), m.group(2)],
+                   [ctrl["reached_upright_count"], 20], places=0)
+        self.check("shaped upright arrivals", m.group(3), shp["reached_upright_count"], places=0)
+        self.check("loose arrivals", [m.group(4), m.group(5)],
+                   [ctrl["reached_distance_only_pct"] / 100 * 20,
+                    shp["reached_distance_only_pct"] / 100 * 20], places=0)
+        self.check("second seed", [m.group(6), m.group(7)],
+                   [s8["reached_distance_only_pct"] / 100 * 20, 20], places=0)
+        self.assertEqual(ctrl["value_shaping"], None,
+                         "the control is no longer unshaped, so nothing in this paragraph is paired")
+        self.assertTrue(shp["value_shaping"], "the shaped checkpoint no longer records its shaping")
+        self.assertLessEqual(shp["reached_upright_count"], ctrl["reached_upright_count"],
+                             "the shaped arm now arrives standing at least as often as its control, so "
+                             "'costs arrival' is no longer the measurement")
+        for key in ("control_s7_5m", "control_s7_3m", "vshape_s7_5m", "vshape_s7_3m"):
+            self.assertLessEqual(self.cells[key]["reached_distance_only_pct"], 20.0)
+
+    def test_posture_up_direction_down(self):
+        m = self.sentence(r"steps inside the band \*\*([\d.]+)% to ([\d.]+)%\*\*, while the share of "
+                          r"ground closed inside the band during a reaching episode falls "
+                          r"\*\*([\d.]+) to ([\d.]+)\*\* and the in-band velocity toward the target "
+                          r"falls\s*\*\*([\d.]+) to ([\d.]+) m/s", "the gait measures")
+        ctrl, shp = self.cells["control_s7_5m"], self.cells["vshape_s7_5m"]
+        self.check("band time", [m.group(1), m.group(2)],
+                   [ctrl["pct_steps_in_band"], shp["pct_steps_in_band"]], places=2)
+        self.check("share closed standing", [m.group(3), m.group(4)],
+                   [ctrl["share_closed_standing_in_reach"], shp["share_closed_standing_in_reach"]],
+                   places=3)
+        self.check("heading velocity in band", [m.group(5), m.group(6)],
+                   [ctrl["heading_velocity_in_band_reach"], shp["heading_velocity_in_band_reach"]],
+                   places=3)
+        self.assertGreater(shp["pct_steps_in_band"], ctrl["pct_steps_in_band"],
+                           "the shaped arm no longer spends more of its steps in the band, so 'buys "
+                           "posture' is wrong")
+        self.assertLess(shp["heading_velocity_in_band_reach"],
+                        ctrl["heading_velocity_in_band_reach"],
+                        "the shaped arm now closes ground toward the target as fast as the control, so "
+                        "'costs direction' is wrong")
+        m3 = self.sentence(r"At 3M the same pair is (\d+) to (\d+) by distance and (\d+) to (\d+) "
+                           r"standing, with in-band heading velocity at ([\d.]+) m/s", "the 3M cell")
+        c3, s3 = self.cells["control_s7_3m"], self.cells["vshape_s7_3m"]
+        self.check("3M loose arrivals", [m3.group(1), m3.group(2)],
+                   [c3["reached_distance_only_pct"] / 100 * 20,
+                    s3["reached_distance_only_pct"] / 100 * 20], places=0)
+        self.check("3M upright arrivals", [m3.group(3), m3.group(4)],
+                   [c3["reached_upright_count"], s3["reached_upright_count"]], places=0)
+        self.check("3M heading velocity", m3.group(5), s3["heading_velocity_in_band_reach"], places=3)
+
+    def test_the_episode_mean_points_both_ways(self):
+        m = self.sentence(r"it goes down at 5M\s*\(([\d,.]+) to ([\d,.]+)\) and up at 3M "
+                          r"\(([\d,.]+) to ([\d,.]+)\)", "the mean-return warning")
+        vals = [float(g.replace(",", "")) for g in m.groups()]
+        self.check("5M returns", vals[:2], [self.cells["control_s7_5m"]["mean_return"],
+                                            self.cells["vshape_s7_5m"]["mean_return"]], places=2)
+        self.check("3M returns", vals[2:], [self.cells["control_s7_3m"]["mean_return"],
+                                           self.cells["vshape_s7_3m"]["mean_return"]], places=2)
+        down_at_5m = vals[1] < vals[0]
+        up_at_3m = vals[3] > vals[2]
+        self.assertTrue(down_at_5m and up_at_3m,
+                        "the return now moves the same way in both paired cells, so the paragraph's "
+                        "warning that the mean is not the criterion has lost its evidence")
+
+    def test_the_parity_control_reproduces_the_column_and_not_the_return(self):
+        m = self.sentence(r"control reproduces the published arm's distance-only column \(([\d.]+)% in "
+                          r"both\) but not its return - \*\*([\d.]+)x\*\*\s*it, ([\d,.]+) against "
+                          r"([\d,.]+)", "the parity of the unshaped path")
+        p = self.pair["parity_control_vs_published"]
+        self.assertTrue(p["loose_arrival_column_equal"],
+                        "the unshaped path no longer reproduces the published arrival column, so the "
+                        "shaped arm cannot be compared against that table at all")
+        self.check("distance-only column", [m.group(1), m.group(1)],
+                   [p["published"]["reached_distance_only_pct"],
+                    p["rerun_this_revision"]["reached_distance_only_pct"]], places=1)
+        self.check("return ratio", m.group(2), p["mean_return_ratio"], places=3)
+        self.check("returns", [m.group(3), m.group(4)],
+                   [p["rerun_this_revision"]["mean_return"], p["published"]["mean_return"]], places=2)
+        self.assertEqual(p["published"]["physics_preset"], "v9")
+        self.assertNotEqual(p["published"]["artifact"], p["rerun_this_revision"]["artifact"],
+                            "the parity check is comparing a file with itself")
+
+    def test_the_wall_clocks_come_from_the_launcher_log(self):
+        m = self.sentence(r"The two shaped draws cost ([\d,]+) s and ([\d,]+) s of wall clock against "
+                          r"the control's ([\d,]+) s", "the cost of the shaping")
+        t = self.pair["training"]
+        self.check("shaped seed 7", m.group(1), t["shaped_s7"]["seconds"], places=0)
+        self.check("shaped seed 8", m.group(2), t["shaped_s8"]["seconds"], places=0)
+        self.check("control", m.group(3), t["control_s7"]["seconds"], places=0)
+        for key, cell in t.items():
+            self.assertEqual(cell["exit_code"], 0, f"{key} did not finish cleanly")
+        self.assertGreater(t["shaped_s7"]["seconds"], t["control_s7"]["seconds"])
+        self.assertGreater(t["shaped_s8"]["seconds"], t["control_s7"]["seconds"],
+                           "one shaped draw is now faster than the control, so the +24%/+36% cost "
+                           "sentence needs re-measuring rather than rephrasing")
+
+    def test_the_pair_still_does_not_hold_the_band(self):
+        m = self.sentence(r"across the (\d+) traced episodes of this pair the longest continuous stand "
+                          r"is\s*\*\*([\d.]+) s\*\* and none reaches two seconds", "the gait verdict")
+        pool = self.mech["pooled_v9_shaping_all_episodes"]
+        self.check("episodes", [m.group(1), m.group(2)],
+                   [pool["episodes"], pool["max_longest_band_run_s"]], places=1)
+        self.assertEqual(pool["episodes_with_band_run_ge_2s"], 0,
+                         "a shaped arm now stands for two continuous seconds, which is the result the "
+                         "whole section says nobody has")
+        self.assertEqual(len(self.mech["pooled_v9_shaping_rows"]), 5)
+
+
 class TestReadmeTrainerPairCells(ReadmeGate, unittest.TestCase):
     """PPO against SAC: the rate claim and the behaviour claim are gated together or not at all.
 

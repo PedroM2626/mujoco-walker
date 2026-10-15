@@ -1,0 +1,10 @@
+2026-10-15 09:00:44 chain32 launcher pid 39784
+2026-10-15 09:00:45 machine claimed by pid 39784
+2026-10-15 09:00:45 BASELINE sampling GPU state (three reads, 15 s apart)
+2026-10-15 09:00:45   09:00:45 baseline1 0 %, 269 MiB, 49, 210 MHz, 0x0000000000000001
+2026-10-15 09:01:00   09:01:00 baseline2 0 %, 269 MiB, 49, 210 MHz, 0x0000000000000001
+2026-10-15 09:01:15   09:01:15 baseline3 0 %, 269 MiB, 49, 210 MHz, 0x0000000000000001
+2026-10-15 09:01:15 START PPO 10M target n=32 v9 seed 8 (idle-gap replication)
+2026-10-15 09:43:53 DONE  PPO 10M target n=32 v9 seed 8 (idle-gap replication) (exit ) seconds=2558
+2026-10-15 09:43:53   GPU temperature during the run: max 83 C
+2026-10-15 09:43:53 CHAIN32 COMPLETE

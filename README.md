@@ -1508,10 +1508,17 @@ world: 3,636 s is *more* than SAC's ratio-1 arms (2,399 s and 2,529 s) and less 
 (6,494 s and 6,824 s). What survives is the weaker, honest version - PPO at 10M and SAC at 5M cost about
 the same, straddling SAC's own dose choice - and the rate ratios quoted from draw 1 (**3.0x** against SAC
 at ratio 1, **11.2x** against the 8-env screens) were cross-window numbers wearing a within-window look,
-because no SAC arm ran in either PPO window. Why the two windows differ is not measured here: chain28 ran
-two hours of GPU four minutes before chain29 started, so sustained throttling is the candidate and an
-idle-gap replication is the test; both are recorded as open, and the rates are labelled per window so
-neither can be quietly reused as a constant.
+because no SAC arm ran in either PPO window. Why the two windows differ is now measured, and the candidate
+named here was wrong: both seeds were re-run on a device sampled at rest before the first step (0 % used,
+idle clocks, 49 °C before the seed-8 run and 55 °C before the seed-7 one) and every 30 s through the run.
+Seed 7 took **1,805 s** cold against its **1,594 s** warm,
+seed 8 **2,558 s** against **3,636 s** (`benchmarks/ppo_cold_window_pair.json`). The fast/slow ordering
+follows the seed in both window kinds, the spread between seeds falls from **2.28x** to **1.42x** when
+neither run has a hot predecessor, and no throttle reason beyond "not throttled" or "GPU idle" was ever
+recorded - even as seed 8's device climbed from 49 °C to **83 °C**. So a thermal history moves this clock
+by tens of percent in either direction and explains none of the ordering. What the cold runs score is
+identical to their published final checkpoints (34,707.81 at seed 8, 39,232.09 at seed 7), so this is one
+comparison of speed and not of behaviour, and the rates stay labelled per window.
 
 The behavioural limits are the familiar ones. Each draw is one run, and inside draw 1 the reach column
 swings **0 to 15%** across ten checkpoints, draw 2's **0 to 25%** - the same band this section measured
@@ -2145,12 +2152,12 @@ Three facts to keep in mind:
 
 The suite is plain `unittest` (no pytest required) and covers the environment contract, the
 golden reward rollouts, the parallel/serial vector-env parity, checkpointing and the race
-harness — **376 tests, 239 s in this window** (`Ran 376 tests in 238.576s ... OK
+harness — **381 tests, 230 s in this window** (`Ran 381 tests in 230.118s ... OK
 (skipped=7)` under `.venv`). Windows of this suite have measured 176.3 s at 102 tests, 269.995 s
 at 121, 261.1 s at 127, 329.964 s at 128, 319.168 s at 130, 184.716 s, 203.108 s and 306.976 s at
 140, 144.678 s at 147, 230.268 s at 157, 171.016 s and 170.304 s at 194, and 174.008 s,
 170.391 s, 175.036 s, 168.775 s, 168.986 s and 166.606 s at 201/205/210, 169.919 s at 214,
-and 163.920 s and 161.829 s at 237, 165.360 s and 164.902 s at 243, 161.647 s and 162.674 s at 250, 162.726 s and 162.167 s at 251, 171.616 s and 163.434 s at 252, 163.769 s and 163.748 s at 255, 226.912 s and 217.651 s at 260, 193.167 s and 191.909 s at 273, 206.150 s at 279, 193.904 s at 284, 201.464 s at 289, 189.864 s and 187.485 s at 294, 190.012 s at 297, 230.180 s at 301, 190.655 s at 311, 211.202 s at 317, 195.419 s at 322, 184.182 s at 326, 180.964 s at 326, 266.112 s and 191.187 s at 339, 185.556 s at 340, 193.319 s at 351, 218.984 s at 369 -
+and 163.920 s and 161.829 s at 237, 165.360 s and 164.902 s at 243, 161.647 s and 162.674 s at 250, 162.726 s and 162.167 s at 251, 171.616 s and 163.434 s at 252, 163.769 s and 163.748 s at 255, 226.912 s and 217.651 s at 260, 193.167 s and 191.909 s at 273, 206.150 s at 279, 193.904 s at 284, 201.464 s at 289, 189.864 s and 187.485 s at 294, 190.012 s at 297, 230.180 s at 301, 190.655 s at 311, 211.202 s at 317, 195.419 s at 322, 184.182 s at 326, 180.964 s at 326, 266.112 s and 191.187 s at 339, 185.556 s at 340, 193.319 s at 351, 218.984 s at 369, 238.576 s at 376 -
 those last windows carry a dose test that runs three short CPU trainings, which are about 27 s of
 them, so that entry is not slower hardware; consecutive runs of one commit agree to 4%, where the
 147 and 157 windows an afternoon earlier were 1.6x apart for ten more tests. The
@@ -2208,7 +2215,7 @@ that they ran - see Phase 4, item 6. How each of those states was found, with th
 ## 🔬 Reproducing and measuring
 
 ```bash
-python -m unittest discover -s tests -t .   # 376 tests in .venv, 239 s; see "Running the tests"
+python -m unittest discover -s tests -t .   # 381 tests in .venv, 230 s; see "Running the tests"
 python bench_env.py --seconds 4             # env throughput, physics vs Python split
 python bench_mjx.py --sizes 32,128          # MJX/JAX batched stepping
 python verify.py                            # Phase-2 artifact check (exits 2 when missing)

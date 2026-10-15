@@ -1,0 +1,14 @@
+2026-10-15 09:29:47 chain33 launcher pid 7736 (seed 7, cold window)
+2026-10-15 09:29:47 machine claimed by pid 7736
+2026-10-15 09:29:47 BASELINE waiting for an idle AND cool device (max 60 min), then three reads 15 s apart
+2026-10-15 09:29:47   waiting for a cold device: 09:29:47 pre-baseline 57 %, 698 MiB, 66, 2550 MHz, 0x0000000000000000
+2026-10-15 09:34:47   waiting for a cold device: 09:34:47 pre-baseline 10 %, 1080 MiB, 72, 2550 MHz, 0x0000000000000000
+2026-10-15 09:39:48   waiting for a cold device: 09:39:48 pre-baseline 68 %, 917 MiB, 68, 2550 MHz, 0x0000000000000000
+2026-10-15 09:44:48   waiting for a cold device: 09:44:48 pre-baseline 73 %, 618 MiB, 65, 2550 MHz, 0x0000000000000000
+2026-10-15 09:49:48   09:49:48 baseline1 0 %, 253 MiB, 55, 210 MHz, 0x0000000000000001
+2026-10-15 09:50:04   09:50:04 baseline2 0 %, 253 MiB, 53, 210 MHz, 0x0000000000000001
+2026-10-15 09:50:19   09:50:19 baseline3 0 %, 253 MiB, 52, 210 MHz, 0x0000000000000001
+2026-10-15 09:50:19 START PPO 10M target n=32 v9 seed 7 (idle-gap replication)
+2026-10-15 10:20:24 DONE  PPO 10M target n=32 v9 seed 7 (idle-gap replication) (exit ) seconds=1805
+2026-10-15 10:20:24 CHAIN33 COMPLETE
+2026-10-15 10:20:24 machine released

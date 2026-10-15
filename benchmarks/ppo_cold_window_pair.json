@@ -1,0 +1,121 @@
+{
+  "protocol": "PPO, 10M requested and 9,961,472 collected at rollout boundaries, num_envs 32, task_phase target, reset_mode mixed, target_forward_velocity 1.2, world v9, device cuda - the recipe of both published draws - re-run once per seed on a machine whose GPU was sampled at rest before the first step and every 30 s after; each run scored with eval_phase1.py --num-episodes 20 --seed 11",
+  "cells": {
+    "seed8_cold": {
+      "seconds": 2558,
+      "exit_code": null,
+      "exit_code_recorded": false,
+      "finished_utc": "2026-10-15 09:43:53",
+      "collected_steps": 9961472,
+      "env_steps_per_second": 3894.2,
+      "seconds_per_1m": 256.8,
+      "device": "cuda",
+      "torch_threads": 24,
+      "scored_in_version": "standup_balance_walk_curriculum_v9",
+      "mean": 34707.81,
+      "reached_target_pct": 0.0,
+      "falls_per_episode": 3.05,
+      "artifact": "benchmarks/ppo_10m_seed8_idle_gap.json",
+      "gpu": {
+        "baseline_reads": 3,
+        "baseline_util_pct_max": 0,
+        "baseline_memory_mib_max": 269,
+        "baseline_temperature_max_c": 49,
+        "baseline_sm_clock_mhz": 210,
+        "samples_during_run": 84,
+        "util_pct_mean": 60.2,
+        "util_pct_min": 0,
+        "temperature_min_c": 49,
+        "temperature_max_c": 83,
+        "sm_clock_min_mhz": 210,
+        "sm_clock_max_mhz": 2565,
+        "throttle_reason_flags_seen": [
+          "0x0000000000000000",
+          "0x0000000000000001"
+        ],
+        "throttle_flags_beyond_idle": []
+      }
+    },
+    "seed7_cold": {
+      "seconds": 1805,
+      "exit_code": null,
+      "exit_code_recorded": false,
+      "finished_utc": "2026-10-15 10:20:24",
+      "collected_steps": 9961472,
+      "env_steps_per_second": 5518.8,
+      "seconds_per_1m": 181.2,
+      "device": "cuda",
+      "torch_threads": 24,
+      "scored_in_version": "standup_balance_walk_curriculum_v9",
+      "mean": 39232.09,
+      "reached_target_pct": 5.0,
+      "falls_per_episode": 2.85,
+      "artifact": "benchmarks/ppo_10m_seed7_idle_gap.json",
+      "gpu": {
+        "baseline_reads": 3,
+        "baseline_util_pct_max": 0,
+        "baseline_memory_mib_max": 253,
+        "baseline_temperature_max_c": 55,
+        "baseline_sm_clock_mhz": 210,
+        "samples_during_run": 59,
+        "util_pct_mean": 21.0,
+        "util_pct_min": 0,
+        "temperature_min_c": 53,
+        "temperature_max_c": 58,
+        "sm_clock_min_mhz": 210,
+        "sm_clock_max_mhz": 1980,
+        "throttle_reason_flags_seen": [
+          "0x0000000000000001"
+        ],
+        "throttle_flags_beyond_idle": []
+      }
+    }
+  },
+  "warm_draws": {
+    "seed8_warm": {
+      "seconds": 3636,
+      "env_steps_per_second": 2739.7,
+      "window": "2026-10-07 07:12:18 -> 08:12:54",
+      "seed": 8
+    },
+    "seed7_warm": {
+      "seconds": 1594,
+      "env_steps_per_second": 6249.4,
+      "window": "2026-10-06 23:03:01 -> 23:29:35",
+      "seed": 7
+    }
+  },
+  "per_seed": {
+    "seed7": {
+      "warm_seconds": 1594,
+      "cold_seconds": 1805,
+      "warm_over_cold": 0.883,
+      "warm_window": "2026-10-06 23:03:01 -> 23:29:35",
+      "cold_env_steps_per_second": 5518.8,
+      "warm_env_steps_per_second": 6249.4
+    },
+    "seed8": {
+      "warm_seconds": 3636,
+      "cold_seconds": 2558,
+      "warm_over_cold": 1.421,
+      "warm_window": "2026-10-07 07:12:18 -> 08:12:54",
+      "cold_env_steps_per_second": 3894.2,
+      "warm_env_steps_per_second": 2739.7
+    }
+  },
+  "verdict_inputs": {
+    "the_fast_seed_is_still_faster_cold": true,
+    "the_fast_seed_was_faster_warm": true,
+    "ordering_follows_the_seed_in_both_windows": true,
+    "cold_over_warm_spread": 1.417,
+    "runs_that_saw_a_real_throttle_flag": [],
+    "max_temperature_per_cold_run_c": {
+      "seed8_cold": 83,
+      "seed7_cold": 58
+    },
+    "gpu_went_at_least_20c_above_baseline": {
+      "seed8_cold": true,
+      "seed7_cold": false
+    }
+  }
+}

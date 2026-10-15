@@ -1597,6 +1597,153 @@ def fresh_shape_weight(cells):
     return weights.pop()
 
 
+PPO_IDLE_GAP_LOG = "chain32_evidence.log"
+PPO_GPU_SAMPLE_LOG = "chain32_gpu_samples.log"
+GPU_SAMPLE_RE = re.compile(
+    r"^(\d\d:\d\d:\d\d) (\S+)\s+(\d+) %, (\d+) MiB, (\d+), (\d+) MHz, (0x[0-9a-f]+)")
+PPO_DONE_RE = re.compile(r"^(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d) DONE\s+(.+?) \(exit (\d*)\)\s*seconds=(\d+)$")
+PPO_START_RE = re.compile(r"^(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d) START\s+(.+?)\s*$")
+
+
+def ppo_cold_run(log, gpu_log, scored_artifact, label):
+    """One cold-window PPO run: its clock from the launcher log, its device state from the sampler.
+
+    The two are read from separate files because the launcher writes the clock and the sampler writes
+    the hardware state; neither is a claim the other can stand in for. A run that did not finish, or a
+    sampler that never got its baseline reads, raises rather than producing half a comparison.
+    """
+    with open(os.path.join(ROOT, log), encoding="utf-8", errors="replace") as handle:
+        lines = [line.strip() for line in handle]
+    done = None
+    for line in lines:
+        m = PPO_DONE_RE.match(line)
+        if m and label in m.group(2):
+            # The launcher that wrote this line read $proc.ExitCode without calling WaitForExit first, so
+            # the field came out empty: the exit code is *not recorded*, which is disclosed rather than
+            # guessed at. That the run finished is established by its own artifact instead - the collected
+            # step count below can only be read from a checkpoint that exists.
+            done = {"finished_utc": m.group(1), "label": m.group(2),
+                    "exit_code": int(m.group(3)) if m.group(3) else None,
+                    "seconds": int(m.group(4))}
+    if done is None or (done["exit_code"] is not None and done["exit_code"] != 0):
+        raise FileNotFoundError(f"{log} has no completed run labelled {label!r}")
+
+    samples = []
+    with open(os.path.join(ROOT, gpu_log), encoding="utf-8", errors="replace") as handle:
+        for line in handle:
+            m = GPU_SAMPLE_RE.match(line.strip())
+            if m:
+                samples.append({"clock": m.group(1), "phase": m.group(2), "util_pct": int(m.group(3)),
+                                "memory_mib": int(m.group(4)), "temperature_c": int(m.group(5)),
+                                "sm_clock_mhz": int(m.group(6)), "throttle_reasons": m.group(7)})
+    baseline = [s for s in samples if s["phase"].startswith("baseline")]
+    during = [s for s in samples if s["phase"] == "during"]
+    if not baseline or not during:
+        raise FileNotFoundError(f"{gpu_log} is missing its baseline or its during-run samples")
+
+    scored = json.load(open(os.path.join(ROOT, scored_artifact), encoding="utf-8"))
+    steps = max(int(v["global_step"]) for v in scored["models"].values() if v["global_step"])
+    if steps < 9_000_000:
+        raise ValueError(f"{scored_artifact}: the scored checkpoint holds {steps} steps, not a 10M run")
+    cell = [v for v in scored["models"].values() if int(v["global_step"]) == steps][0]
+    reasons = sorted({s["throttle_reasons"] for s in during})
+    return {
+        "seconds": done["seconds"], "exit_code": done["exit_code"],
+        "exit_code_recorded": done["exit_code"] is not None,
+        "finished_utc": done["finished_utc"], "collected_steps": steps,
+        "env_steps_per_second": round(steps / done["seconds"], 1),
+        "seconds_per_1m": round(done["seconds"] * 1e6 / steps, 1),
+        "device": scored.get("device"), "torch_threads": scored.get("torch_threads"),
+        "scored_in_version": scored.get("scored_in_version"),
+        "mean": cell["mean"], "reached_target_pct": cell["reached_target_pct"],
+        "falls_per_episode": cell["falls_per_episode"], "artifact": scored_artifact,
+        "gpu": {
+            "baseline_reads": len(baseline),
+            "baseline_util_pct_max": max(s["util_pct"] for s in baseline),
+            "baseline_memory_mib_max": max(s["memory_mib"] for s in baseline),
+            "baseline_temperature_max_c": max(s["temperature_c"] for s in baseline),
+            "baseline_sm_clock_mhz": baseline[0]["sm_clock_mhz"],
+            "samples_during_run": len(during),
+            "util_pct_mean": round(sum(s["util_pct"] for s in during) / len(during), 1),
+            "util_pct_min": min(s["util_pct"] for s in during),
+            "temperature_min_c": min(s["temperature_c"] for s in during),
+            "temperature_max_c": max(s["temperature_c"] for s in during),
+            "sm_clock_min_mhz": min(s["sm_clock_mhz"] for s in during),
+            "sm_clock_max_mhz": max(s["sm_clock_mhz"] for s in during),
+            "throttle_reason_flags_seen": reasons,
+            # In the nvidia-smi bitmask 0x0 is "not throttled" and 0x1 is "GPU idle", which is what an
+            # instant sampled between two PPO updates reads. Anything else would be a real throttle cause,
+            # so it is listed here - and an empty list is the result that refutes the mechanism.
+            "throttle_flags_beyond_idle": sorted(
+                r for r in reasons
+                if r not in ("0x0000000000000000", "0x0000000000000001")),
+        },
+    }
+
+
+def ppo_cold_window_pair(out="benchmarks/ppo_cold_window_pair.json"):
+    """The idle-gap replication the PPO clock gap was left open on, run for both seeds.
+
+    Two draws of one recipe cost 1,594 s (seed 7) and 3,636 s (seed 8), and the README named the
+    candidate and the test: sustained throttling, because the slow window started four minutes after
+    two hours of GPU. One cold re-run of the slow seed cannot separate "this seed is slow" from "that
+    window was throttled", so both seeds are re-run on a device measured at rest before the first
+    step, each with its own sampler. That makes it a 2x2: two seeds, two window kinds, one manipulated
+    variable.
+
+    The sampler is what lets the mechanism be refuted rather than only the ordering: if a cold run
+    comes out slow again while no throttle reason beyond idle ever appears and the temperature stays
+    below the limit, then throttling was not the explanation whatever the seeds did.
+    """
+    cells = {"seed8_cold": ppo_cold_run("chain32_evidence.log", "chain32_gpu_samples.log",
+                                        "benchmarks/ppo_10m_seed8_idle_gap.json", "seed 8"),
+             "seed7_cold": ppo_cold_run("chain33_evidence.log", "chain33_gpu_samples.log",
+                                        "benchmarks/ppo_10m_seed7_idle_gap.json", "seed 7")}
+    draws = json.load(open(os.path.join(ROOT, "benchmarks", "ppo_10m_draws.json"),
+                           encoding="utf-8"))["draws"]
+    warm = {"seed8_warm": draws["seed8"], "seed7_warm": draws["seed7"]}
+    per_seed = {}
+    for seed in ("7", "8"):
+        cold, was = cells["seed" + seed + "_cold"], warm["seed" + seed + "_warm"]
+        per_seed["seed" + seed] = {
+            "warm_seconds": was["wall_clock_seconds"], "cold_seconds": cold["seconds"],
+            "warm_over_cold": round(was["wall_clock_seconds"] / cold["seconds"], 3),
+            "warm_window": was["wall_clock_window"],
+            "cold_env_steps_per_second": cold["env_steps_per_second"],
+            "warm_env_steps_per_second": was["env_steps_per_second"],
+        }
+    cold_split = cells["seed7_cold"]["seconds"] < cells["seed8_cold"]["seconds"]
+    warm_split = (warm["seed7_warm"]["wall_clock_seconds"]
+                  < warm["seed8_warm"]["wall_clock_seconds"])
+    return {
+        "protocol": ("PPO, 10M requested and 9,961,472 collected at rollout boundaries, num_envs 32, "
+                     "task_phase target, reset_mode mixed, target_forward_velocity 1.2, world v9, "
+                     "device cuda - the recipe of both published draws - re-run once per seed on a "
+                     "machine whose GPU was sampled at rest before the first step and every 30 s "
+                     "after; each run scored with eval_phase1.py --num-episodes 20 --seed 11"),
+        "cells": cells,
+        "warm_draws": {k: {"seconds": v["wall_clock_seconds"],
+                           "env_steps_per_second": v["env_steps_per_second"],
+                           "window": v["wall_clock_window"], "seed": v["seed"]}
+                       for k, v in warm.items()},
+        "per_seed": per_seed,
+        "verdict_inputs": {
+            "the_fast_seed_is_still_faster_cold": cold_split,
+            "the_fast_seed_was_faster_warm": warm_split,
+            "ordering_follows_the_seed_in_both_windows": cold_split == warm_split,
+            "cold_over_warm_spread": round(max(c["seconds"] for c in cells.values())
+                                           / min(c["seconds"] for c in cells.values()), 3),
+            "runs_that_saw_a_real_throttle_flag": [k for k, v in cells.items()
+                                                   if v["gpu"]["throttle_flags_beyond_idle"]],
+            "max_temperature_per_cold_run_c": {k: v["gpu"]["temperature_max_c"]
+                                               for k, v in cells.items()},
+            "gpu_went_at_least_20c_above_baseline": {
+                k: v["gpu"]["temperature_max_c"] >= v["gpu"]["baseline_temperature_max_c"] + 20
+                for k, v in cells.items()},
+        },
+    }, out
+
+
 BENCHMARKS = [
     phase3,
     lambda: phase3("eval_phase3_100ep.log", seed=11,
@@ -1642,6 +1789,8 @@ BENCHMARKS = [
     # The planner's value as an in-loop shaping signal for SAC, against the same code with the flag off,
     # with the parity of the unshaped path and the wall clocks read out of the launcher log.
     value_shaping_pair,
+    # The two-seed cold-window replication of the PPO clock gap, with the device state each run measured in.
+    ppo_cold_window_pair,
     # PPO against SAC at the same config: what each costs per environment step, and what that buys
     # in behaviour. The two answers point in opposite directions, so they live in one artifact.
     trainer_pair_ppo_sac,

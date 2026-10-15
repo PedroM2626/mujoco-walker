@@ -4567,6 +4567,109 @@ class TestReadmeValueShapingCells(ReadmeGate, unittest.TestCase):
         self.assertEqual(len(self.mech["pooled_v9_shaping_rows"]), 5)
 
 
+class TestReadmePpoColdWindowCells(ReadmeGate, unittest.TestCase):
+    """The 2x2 that retired the throttling explanation of the PPO clock gap.
+
+    The paragraph used to end with a candidate and a test owed to the reader. It now carries four clocks,
+    two spreads, a device-state claim and a "the behaviour did not move" claim, and each of those fails in
+    its own way: the clocks could drift from the launcher log, the spreads could be recomputed wrong, "at
+    rest" could be asserted instead of sampled, and a replication whose *scores* moved would no longer be a
+    comparison of speed. The last test is the one that keeps the whole paragraph honest.
+    """
+
+    PAIR = os.path.join(ROOT, "benchmarks", "ppo_cold_window_pair.json")
+    DRAWS = os.path.join(ROOT, "benchmarks", "ppo_10m_draws.json")
+    START = "Why the two windows differ is now measured"
+    END = "The behavioural limits are the familiar ones."
+
+    def setUp(self):
+        with open(README, encoding="utf-8") as handle:
+            readme = handle.read()
+        start = readme.index(self.START)
+        self.block = readme[start:readme.index(self.END, start)]
+        self.pair, self.draws = self.read_artifacts(self.PAIR, self.DRAWS)
+        self.cells = self.pair["cells"]
+        self.bad = []
+        self.what = "PPO cold-window 2x2"
+
+    def test_the_four_clocks_and_the_two_spreads(self):
+        m = self.sentence(r"Seed 7 took \*\*([\d,]+) s\*\* cold against its \*\*([\d,]+) s\*\* warm,\s*"
+                          r"seed 8 \*\*([\d,]+) s\*\* against \*\*([\d,]+) s\*\*", "the four clocks")
+        s7, s8 = self.cells["seed7_cold"], self.cells["seed8_cold"]
+        warm7, warm8 = self.pair["warm_draws"]["seed7_warm"], self.pair["warm_draws"]["seed8_warm"]
+        self.check("cold seconds", [m.group(1), m.group(3)], [s7["seconds"], s8["seconds"]], places=0)
+        self.check("warm seconds", [m.group(2), m.group(4)],
+                   [warm7["seconds"], warm8["seconds"]], places=0)
+        r = self.sentence(r"the spread between seeds falls from \*\*([\d.]+)x\*\* to \*\*([\d.]+)x\*\* "
+                          r"when neither run has a hot predecessor", "the two spreads")
+        self.check("warm spread", r.group(1), round(warm8["seconds"] / warm7["seconds"], 2), places=2)
+        self.check("cold spread", r.group(2), round(s8["seconds"] / s7["seconds"], 2), places=2)
+        self.assertLess(s8["seconds"] / s7["seconds"], warm8["seconds"] / warm7["seconds"],
+                        "the cold spread is no longer the narrower one, so 'falls from' is wrong")
+
+    def test_the_cold_start_is_sampled_and_not_asserted(self):
+        m = self.sentence(r"on a device sampled at rest before the first step \(0 % used, idle clocks, "
+                          r"([\d]+) °C before the seed-8 run and ([\d]+) °C before the seed-7 one\) and "
+                          r"every 30 s through the run", "the baseline reads")
+        g8, g7 = self.cells["seed8_cold"]["gpu"], self.cells["seed7_cold"]["gpu"]
+        self.check("baseline temperature", [m.group(1), m.group(2)],
+                   [g8["baseline_temperature_max_c"], g7["baseline_temperature_max_c"]], places=0)
+        for name, g in (("seed 8", g8), ("seed 7", g7)):
+            self.assertEqual(g["baseline_util_pct_max"], 0,
+                             f"{name}: the device was not idle at baseline, so this is not a cold start")
+            self.assertLessEqual(g["baseline_sm_clock_mhz"], 300,
+                                 f"{name}: baseline SM clocks were not at the idle floor")
+            self.assertGreaterEqual(g["samples_during_run"], 30,
+                                    f"{name}: too few samples to say anything about the run's device state")
+            self.assertEqual(g["baseline_reads"], 3)
+
+    def test_no_throttle_reason_beyond_idle_and_a_hot_device_anyway(self):
+        m = self.sentence(r"no throttle reason beyond .not throttled. or .GPU idle. was ever recorded - "
+                          r"even as seed 8's device climbed from ([\d]+) °C to \*\*([\d]+) °C\*\*",
+                          "the throttle reading")
+        g8, g7 = self.cells["seed8_cold"]["gpu"], self.cells["seed7_cold"]["gpu"]
+        self.check("climb", [m.group(1), m.group(2)],
+                   [g8["baseline_temperature_max_c"], g8["temperature_max_c"]], places=0)
+        self.assertEqual(self.pair["verdict_inputs"]["runs_that_saw_a_real_throttle_flag"], [],
+                         "a real throttle reason was recorded, so the mechanism this paragraph retires "
+                         "is back in play")
+        self.assertGreaterEqual(g8["temperature_max_c"] - g8["baseline_temperature_max_c"], 30,
+                                "the 'even at 83 C' half of the sentence no longer has a rise to point at")
+        self.assertEqual(set(g8["throttle_reason_flags_seen"]) <= {"0x0000000000000000",
+                                                                   "0x0000000000000001"}, True)
+
+    def test_the_cold_runs_scored_identically_so_only_speed_moves(self):
+        m = self.sentence(r"identical to their published final checkpoints \(([\d,.]+) at seed 8, "
+                          r"([\d,.]+) at seed 7\)", "the scored parity")
+        finals = {"8": self.draws["draws"]["seed8"]["final"], "7": self.draws["draws"]["seed7"]["final"]}
+        self.check("seed 8 final mean", m.group(1), finals["8"]["mean"], places=2)
+        self.check("seed 7 final mean", m.group(2), finals["7"]["mean"], places=2)
+        for key, seed in (("seed8_cold", "8"), ("seed7_cold", "7")):
+            cell = self.cells[key]
+            self.assertEqual(cell["mean"], finals[seed]["mean"],
+                             f"{key}: the replication scored differently from the published draw, so the "
+                             "paragraph is comparing behaviour and not speed")
+            self.assertEqual(cell["reached_target_pct"], finals[seed]["reached_pct"])
+            self.assertEqual(cell["collected_steps"], 9961472)
+            self.assertEqual(cell["collected_steps"], finals[seed]["step"])
+            self.assertFalse(cell["exit_code_recorded"],
+                             "the launcher now records its exit code, so the artifact's disclosure that "
+                             "it does not is stale - and completion should then be proven by both")
+
+    def test_the_ordering_follows_the_seed_and_the_window_moves_both_ways(self):
+        v = self.pair["verdict_inputs"]
+        self.assertTrue(v["ordering_follows_the_seed_in_both_windows"],
+                        "the ordering no longer holds in both window kinds, so 'follows the seed' is "
+                        "not what the 2x2 showed")
+        s7, s8 = self.cells["seed7_cold"], self.cells["seed8_cold"]
+        w7 = self.pair["warm_draws"]["seed7_warm"]["seconds"]
+        w8 = self.pair["warm_draws"]["seed8_warm"]["seconds"]
+        self.assertGreater(s7["seconds"], w7, "the cold window is no longer slower for the fast seed")
+        self.assertLess(s8["seconds"], w8, "the cold window is no longer faster for the slow seed")
+        self.sentence(r"So a thermal history moves this clock by tens of percent in either direction and "
+                      r"explains none of the ordering\.", "the verdict sentence")
+
+
 class TestReadmeTrainerPairCells(ReadmeGate, unittest.TestCase):
     """PPO against SAC: the rate claim and the behaviour claim are gated together or not at all.
 

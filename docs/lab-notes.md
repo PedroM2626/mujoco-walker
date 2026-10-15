@@ -519,12 +519,38 @@ recoverable from the observation; it said nothing about whether gradient ascent 
 bootstrapped TD target on data that never covers the actor's own states - not in the prediction.
 
 **How to apply:** report both halves. "The teacher is not imitable" alone would have closed the line early
-and wrongly; "the value is learnable but the offline actor-critic diverges" is the actual boundary, and it
-names the route still open - the learned value as an auxiliary signal inside an online loop, rather than a
-policy trained on planner transitions alone. And when a critic trains without erroring, check the shape of
+and wrongly; "the value is learnable but the offline actor-critic diverges" is the actual boundary. The
+route it left open - the learned value as an auxiliary signal inside an online loop, rather than a policy
+trained on planner transitions alone - was run on 2026-10-09 and did not buy arrival either; that is its
+own note below. And when a critic trains without erroring, check the shape of
 the TD target: a (batch,) reward broadcast against a (batch,1) Q produces a (batch,batch) target, which
 will minimize perfectly happily and print a plausible loss while meaning nothing. Related:
 [[probe-teacher-predictability-before-training-a-student]].
+
+## A policy-invariant potential is not a learning-rate-preserving one
+
+The shaping route was defended on paper before it was run: `F(s,s') = alpha * (gamma * Phi(s') - Phi(s))`
+with a state-only potential and Phi zeroed at a terminal state telescopes over an episode, so the optimal
+policy of the MDP is unchanged (Ng, Harada & Russell, 1999). That argument is correct, it was checked in
+code (`tests/test_value_shaping.py` pins the arithmetic, the terminal rule, and that scoring never loads
+the potential), and the arm still got worse: arriving standing fell from **2 of 20 to 1 of 20** at the same
+seed and budget, and the second seed reached in **0 of 20**.
+
+**Why that is not a contradiction:** the invariance theorem is a statement about the *fixed point* of an
+unbounded, exactly-solving optimiser. SAC at 5M steps is neither unbounded nor exact - it is a replay
+buffer, a bootstrapped critic and 25,000-ish updates. A term that provably cancels in the infinite-horizon
+sum still changes which gradient the learner sees per step, and therefore which basin it settles in before
+the budget runs out. What the shaped arm settled into was legible in the trace: more time inside the
+standing band (13.16% to 14.95%), less of it spent pointing at the goal (in-band velocity toward the target
+1.051 to 0.472 m/s, share of ground closed inside the band 0.806 to 0.518).
+
+**How to apply:** when invoking potential-based shaping, say which of the two claims you are making. If the
+claim is "this does not change the task", the theorem carries it and the scored reward must stay the
+published one - which is why the wrapper sits outside `RecordEpisodeStatistics` and the evaluator builds
+its own environment. If the claim is "this helps learning", the theorem is silent and only the paired run
+answers. Do not let the first sentence license the second. Related:
+[[fix-a-knobs-value-by-a-rule-before-the-outcome]], [[an-episode-mean-cannot-carry-a-verb]],
+[[judge-a-result-against-the-task-s-own-success-criterion]].
 
 ## A SAC return level does not survive a window; its arrival column does
 

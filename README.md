@@ -484,9 +484,9 @@ band where the teacher spends 12.64% - and their executed actions are further fr
 curve locates the failure: held-out TD error grows from 4,949.97 to 240,268.17 over 60 epochs, so the
 checkpoint validation selects is from epoch 5, before the actor has anything to exploit, and at that epoch
 the two actor modes are indistinguishable. So the planner's judgement is learnable as a critic and, trained
-offline against that critic, not usable as a gait. The route this leaves untested is putting the learned
-value inside the online loop as an auxiliary signal, rather than training a policy on planner transitions
-alone.
+offline against that critic, not usable as a gait. What that does not settle is the same value used
+*inside* an online loop, where the learner's own critic does the valuing and the planner's judgement only
+nudges the reward - and that version was run, in the next paragraph.
 
 **The planner's value, put inside SAC as a shaping term, buys posture and costs arrival.** That is the
 route, taken: `fit_planner_potential.py` freezes a state function Phi(s) on the recorded lookahead value

@@ -4841,6 +4841,9 @@ class TestReadmeTargetClipCells(ReadmeGate, unittest.TestCase):
             src = handle.read()
         self.assertIn("def test_moving_the_marker_leaves_the_observation_and_reward_trace_untouched",
                       src, "the README points at a parity control that is not in the test module")
+        self.assertIn("class TestTheRenderPipelineRunsEndToEnd", src,
+                      "the README says the render pipeline is exercised on every CI run, and the "
+                      "smoke that does that is gone")
 
     GIF_REL = "docs/media/target_clips_seed25_published_vs_gait_reduced.gif"
     # The committed media is the one figure in this repository that costs permanent history rather

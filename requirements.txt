@@ -34,6 +34,10 @@ mujoco==3.2.3
 # ModuleNotFoundError from inside the rollout loop.
 imageio>=2.31.0
 imageio-ffmpeg>=0.4.9
+# Declared, not inherited: make_target_clips.py draws its on-frame telemetry with PIL directly. It
+# resolves today only because matplotlib pulls Pillow in, which is the kind of dependency that breaks
+# the day someone trims the install.
+Pillow>=9.0
 # mlflow>=3, not 2.x: mlruns.db in this repo carries schema revision b7e2c1a4d9f3, written
 # by mlflow 3.x. mlflow 2.17.2 refuses to open it (alembic "Can't locate revision
 # identified by 'b7e2c1a4d9f3'"), so with the old pin `mlflow ui` and every log call fail

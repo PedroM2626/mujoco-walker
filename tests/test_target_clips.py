@@ -15,6 +15,7 @@ nothing here re-renders an episode.
 import json
 import os
 import sys
+import tempfile
 import unittest
 
 import numpy as np
@@ -27,7 +28,7 @@ import mujoco  # noqa: E402
 import envs.walker_ragdoll_env  # noqa: E402,F401
 from make_target_clips import (BELOW_FLOOR_TOL_M, arm_depth, arm_floor_contacts, classify,
                                frame_is_legible, geom_lowest_point, goal_camera, marker_in_frame,
-                               overlay)
+                               overlay, render_episode)
 
 
 def _env(phase="target", **kwargs):
@@ -262,6 +263,57 @@ class TestGoalCamera(unittest.TestCase):
     def test_the_distance_has_a_floor_so_close_episodes_stay_framed(self):
         cam = goal_camera(np.array([0.0, 0.0]), np.array([0.2, 0.0]), 0.2)
         self.assertGreaterEqual(cam.distance, 6.0)
+
+
+class TestTheRenderPipelineRunsEndToEnd(unittest.TestCase):
+    """The act of rendering, in the suite, with a scripted policy and no checkpoint.
+
+    The committed clip sidecars cannot be re-derived here - they need the 4M-step actor - so what
+    would otherwise rot quietly is the pipeline that writes them: environment under an alternative
+    XML, goal-framed camera, overlay, mp4 writer, filmstrip, telemetry. A broken writer or a GL
+    regression would then surface only the next time someone tried to make a clip. This runs the
+    whole path for a few dozen steps against a zero-action policy, which is enough to touch every
+    stage and costs about a second.
+    """
+
+    def _render(self, tmp, steps=24, world="published"):
+        from make_target_clips import variant_xml_path
+
+        path, tag = variant_xml_path(world, tmp)
+        tele = render_episode(lambda obs: np.zeros(17), path, 14, steps, 50, tmp, tag,
+                              f"{world}_smoke", 0.45,
+                              {"reset_mode": "mixed", "task_phase": "target"})
+        return tele, path
+
+    def test_a_short_episode_produces_video_frames_and_telemetry(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tele, _ = self._render(tmp)
+            self.assertEqual(tele["steps"], 24)
+            self.assertEqual(tele["frames"], 24)
+            self.assertIn(tele["outcome"], {"reached_upright", "reached_by_falling", "near_miss",
+                                            "dawdling", "stalled"})
+            for key in ("min_target_distance", "reached_target", "arm_floor_contact_steps",
+                        "arm_max_depth_below_floor_m", "mean_x_velocity", "video", "frame_check"):
+                self.assertIn(key, tele)
+            stem = os.path.join(tmp, tele["video"][:-4])
+            self.assertGreater(os.path.getsize(stem + ".mp4"), 10_000,
+                               "the mp4 is a stub - the writer is not encoding")
+            for suffix in ("start", "mid", "end"):
+                self.assertTrue(os.path.exists(f"{stem}_{suffix}.png"), f"no {suffix} frame")
+            self.assertTrue(os.path.exists(f"{stem}_filmstrip.png"))
+            self.assertIn("robot-coloured pixel ratio", tele["frame_check"])
+            self.assertGreater(int(tele["frame_check"].split("marker pixels")[1]), 0,
+                               "the goal was not in the first frame")
+
+    def test_the_reduced_world_is_reachable_through_the_same_pipeline(self):
+        # The variant XML has to load through gymnasium's `xml_file`, which is how the published
+        # contrast was produced; a relative path silently resolves against gymnasium's assets
+        # directory, and that is the failure this guards.
+        with tempfile.TemporaryDirectory() as tmp:
+            tele, path = self._render(tmp, steps=12, world="gait_reduced")
+            self.assertTrue(os.path.isabs(path))
+            self.assertEqual(tele["arm_floor_contact_steps"], 0,
+                             "an arm touched the floor in the reduced world, so the pair set changed")
 
 
 class TestTheCommittedClipsSayWhatTheParagraphClaims(unittest.TestCase):

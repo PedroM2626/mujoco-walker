@@ -106,6 +106,21 @@ def pair_friction(model, i, j):
     return np.maximum(expand(fi), expand(fj))
 
 
+def gait_pairs(model, xml_text=None):
+    """The boxer-style reduction: legs against floor and each other, trunk against floor, no arms.
+
+    Selected out of `candidate_pairs` rather than written out as a list of names, so it stays a subset
+    of what the published model can actually generate and the comparison remains one contact set
+    against another instead of one set against an invented one.
+    """
+    full = candidate_pairs(model, xml_text)
+    name_of = {gid: geom_name(model, gid) for gid in range(model.ngeom)}
+    return [(i, j) for i, j in full
+            if (name_of[i] == "floor" and name_of[j] in GAIT_FLOOR_GEOMS)
+            or (name_of[j] == "floor" and name_of[i] in GAIT_FLOOR_GEOMS)
+            or (name_of[i] in GAIT_SELF_GEOMS and name_of[j] in GAIT_SELF_GEOMS)]
+
+
 def build_variant_xml(model, pairs):
     """The published XML with `pairs` declared explicitly and the automatic filter disabled.
 
@@ -242,6 +257,37 @@ def bench(variants, sizes, seconds=6.0, frame_skip=5):
     return report
 
 
+def variant_xml_text(model, world, xml_text=None):
+    """The published XML rewritten for one of the three contact worlds.
+
+    This is the single definition of the gait-reduced set: the MJX bench, the native timing in
+    `bench_env.py` and the clip renderer all ask here, because three copies of a pair list is how a
+    "same world, different contact set" comparison silently stops being one.
+    """
+    if world == "published":
+        if xml_text is None:
+            with open(XML_PATH, encoding="utf-8") as handle:
+                xml_text = handle.read()
+        i = xml_text.index("<option")
+        return xml_text[:i] + "  " + SIZE_ELEMENT + "\n  " + xml_text[i:]
+    pairs = gait_pairs(model, xml_text) if world == "gait_reduced" \
+        else candidate_pairs(model, xml_text)
+    return build_variant_xml(model, pairs)
+
+
+def write_variant_xml(model, world, out_dir):
+    """Materialise one contact world as a file, so a subprocess or the env can load it by path."""
+    text = variant_xml_text(model, world)
+    os.makedirs(out_dir, exist_ok=True)
+    path = os.path.join(out_dir, f"walker_ragdoll_{world}.xml")
+    with open(path, "w", encoding="utf-8", newline="") as handle:
+        handle.write(text)
+    return os.path.abspath(path)
+
+
+CONTACT_WORLDS = ("published", "explicit_full", "gait_reduced")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--verify", action="store_true")
@@ -256,22 +302,13 @@ def main():
     print(f"published model: {published.ngeom} geoms, {len(full_pairs)} candidate pairs, "
           f"{published.npair} declared pairs")
 
-    name_of = {gid: geom_name(published, gid) for gid in range(published.ngeom)}
-    gait_set = set(GAIT_FLOOR_GEOMS) | set(GAIT_SELF_GEOMS)
-    gait_pairs = [(i, j) for i, j in full_pairs
-                  if (name_of[i] == "floor" and name_of[j] in GAIT_FLOOR_GEOMS)
-                  or (name_of[j] == "floor" and name_of[i] in GAIT_FLOOR_GEOMS)
-                  or (name_of[i] in GAIT_SELF_GEOMS and name_of[j] in GAIT_SELF_GEOMS)]
-    with open(XML_PATH, encoding="utf-8") as handle:
-        xml_text = handle.read()
-    i = xml_text.index("<option")
-    published_xml = xml_text[:i] + "  " + SIZE_ELEMENT + "\n  " + xml_text[i:]
+    gait = gait_pairs(published, open(XML_PATH, encoding="utf-8").read())
     variants = {
-        "published_automatic": published_xml,
-        "explicit_full": build_variant_xml(published, full_pairs),
-        "gait_reduced": build_variant_xml(published, gait_pairs),
+        "published_automatic": variant_xml_text(published, "published"),
+        "explicit_full": variant_xml_text(published, "explicit_full"),
+        "gait_reduced": variant_xml_text(published, "gait_reduced"),
     }
-    print(f"gait-reduced set: {len(gait_pairs)} pairs "
+    print(f"gait-reduced set: {len(gait)} pairs "
           f"(floor x {len(GAIT_FLOOR_GEOMS)} + self among {len(GAIT_SELF_GEOMS)} leg geoms)")
 
     result = {"protocol": ("explicit <pair> variants of walker_ragdoll.xml: the full candidate set "

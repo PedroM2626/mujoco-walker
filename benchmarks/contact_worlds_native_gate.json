@@ -1,0 +1,63 @@
+{
+  "protocol": "bench_env.py --mode all --n 32 --seconds 3 --reps 3 --task-phase target --contact-world published explicit_full gait_reduced, one process, medians of 3; the pair sets come from bench_mjx_pairs.py, the same definition the MJX bench and the clips use",
+  "training_path_mode": "ParallelVectorEnv (n=32, per_worker=auto, sparse=True)",
+  "steps_per_s": {
+    "physics only (mj_step x1)": {
+      "published": 11714.9,
+      "explicit_full": 13232.2,
+      "gait_reduced": 16202.5
+    },
+    "gym env.step (n=1)": {
+      "published": 2002.8,
+      "explicit_full": 2557.1,
+      "gait_reduced": 2766.4
+    },
+    "SyncVectorEnv (n=32, copy=True)": {
+      "published": 1754.6,
+      "explicit_full": 2239.9,
+      "gait_reduced": 2461.1
+    },
+    "SyncVectorEnv (n=32, copy=False)": {
+      "published": 1832.2,
+      "explicit_full": 1113.9,
+      "gait_reduced": 2515.5
+    },
+    "ParallelVectorEnv (n=32, per_worker=auto, sparse=False)": {
+      "published": 7435.5,
+      "explicit_full": 9003.6,
+      "gait_reduced": 9321.4
+    },
+    "ParallelVectorEnv (n=32, per_worker=auto, sparse=True)": {
+      "published": 9323.2,
+      "explicit_full": 10060.0,
+      "gait_reduced": 12140.7
+    }
+  },
+  "headline_ratio_explicit_full": 1.079,
+  "headline_ratio_gait_reduced": 1.302,
+  "explicit_full_is_the_same_mdp": true,
+  "gait_reduced_is_a_different_mdp": true,
+  "sac_cost_split_seconds": {
+    "collection": 1034.0,
+    "update_at_ratio_1": 1365.0,
+    "source": "benchmarks/utd_dose_pair.json"
+  },
+  "collection_share_of_clock_pct": {
+    "ratio_1": 43.1,
+    "ratio_4": 15.9
+  },
+  "training_clock_saved_pct": {
+    "ratio_1": {
+      "explicit_full": 3.2,
+      "gait_reduced": 10.0
+    },
+    "ratio_4": {
+      "explicit_full": 1.2,
+      "gait_reduced": 3.7
+    }
+  },
+  "mjx_comparison": {
+    "explicit_full_gpu_ratio": 1.019,
+    "gait_reduced_gpu_ratio": 2.045
+  }
+}

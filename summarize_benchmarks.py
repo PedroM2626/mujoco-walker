@@ -1798,6 +1798,64 @@ def mjx_pairs_gate(out="benchmarks/mjx_pairs_gate.json"):
     }, out
 
 
+CONTACT_TRAINING_MODE = "ParallelVectorEnv (n=32, per_worker=auto, sparse=True)"
+
+
+def contact_worlds_native_gate(out="benchmarks/contact_worlds_native_gate.json"):
+    """What the three contact worlds cost on the path training actually uses, and what that saves.
+
+    The MJX bench answered "does declaring pairs make MJX faster" (no). This answers the question that
+    was still open and is the fair one: the same three worlds timed with MuJoCo-C in worker processes,
+    back to back in one run of `bench_env.py`, with the ratio taken on the mode the trainer builds by
+    default (`sparse_info=True`). The second half turns a stepping ratio into a training-clock claim
+    using the committed cost decomposition of a ratio-1 SAC run at 32 envs - collection is the smaller
+    part of that clock, so a faster world cannot save what the gradient step spends.
+    """
+    timings = json.load(open(os.path.join(ROOT, "benchmarks", "contact_worlds_native.json"),
+                             encoding="utf-8"))
+    dose = json.load(open(os.path.join(ROOT, "benchmarks", "utd_dose_pair.json"), encoding="utf-8"))
+    gate = json.load(open(os.path.join(ROOT, "benchmarks", "mjx_pairs_gate.json"), encoding="utf-8"))
+    cells = {}
+    for row in timings:
+        cells.setdefault(row["label"], {})[row["contact_world"]] = row["steps_per_s"]
+    headline = cells[CONTACT_TRAINING_MODE]
+    ratio_full = headline["explicit_full"] / headline["published"]
+    ratio_gait = headline["gait_reduced"] / headline["published"]
+    derived = dose["derived_from_the_two_measurements"]
+    update_s = derived["update_seconds_at_ratio_1"]
+    collect_s = derived["collection_seconds"]
+    r1_total = update_s + collect_s
+    r4_total = collect_s + 4.0 * update_s
+
+    def saved(ratio, share):
+        return round(100.0 * share * (1.0 - 1.0 / ratio), 1)
+
+    return {
+        "protocol": ("bench_env.py --mode all --n 32 --seconds 3 --reps 3 --task-phase target "
+                     "--contact-world published explicit_full gait_reduced, one process, medians of 3; "
+                     "the pair sets come from bench_mjx_pairs.py, the same definition the MJX bench "
+                     "and the clips use"),
+        "training_path_mode": CONTACT_TRAINING_MODE,
+        "steps_per_s": {k: {w: round(v, 1) for w, v in c.items()} for k, c in cells.items()},
+        "headline_ratio_explicit_full": round(ratio_full, 3),
+        "headline_ratio_gait_reduced": round(ratio_gait, 3),
+        "explicit_full_is_the_same_mdp": gate["explicit_full_is_bit_equivalent"],
+        "gait_reduced_is_a_different_mdp": gate["gait_reduced_is_a_different_mdp"],
+        "sac_cost_split_seconds": {"collection": round(collect_s, 1), "update_at_ratio_1": update_s,
+                                   "source": "benchmarks/utd_dose_pair.json"},
+        "collection_share_of_clock_pct": {
+            "ratio_1": round(100.0 * collect_s / r1_total, 1),
+            "ratio_4": round(100.0 * collect_s / r4_total, 1)},
+        "training_clock_saved_pct": {
+            "ratio_1": {"explicit_full": saved(ratio_full, collect_s / r1_total),
+                        "gait_reduced": saved(ratio_gait, collect_s / r1_total)},
+            "ratio_4": {"explicit_full": saved(ratio_full, collect_s / r4_total),
+                        "gait_reduced": saved(ratio_gait, collect_s / r4_total)}},
+        "mjx_comparison": {"explicit_full_gpu_ratio": gate["explicit_vs_automatic_n512_ratio"],
+                           "gait_reduced_gpu_ratio": gate["reduced_vs_full_n512_ratio"]},
+    }, out
+
+
 def target_clips_contact_contrast(out="benchmarks/target_clips_contact_contrast.json"):
     """The two rendered worlds compared per seed, derived from the two clip sidecars.
 
@@ -1903,6 +1961,8 @@ BENCHMARKS = [
     # The explicit-<pair> counter-configuration for the MJX section: does declaring contacts like the
     # contact-dense projects do rescue MJX on this ragdoll? (No, and the gate says by how much.)
     mjx_pairs_gate,
+    # The same three contact worlds timed on the native path, and what that is worth in training clock.
+    contact_worlds_native_gate,
     # The two rendered contact worlds, compared per seed: what the clips actually show.
     target_clips_contact_contrast,
     # PPO against SAC at the same config: what each costs per environment step, and what that buys

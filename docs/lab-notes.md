@@ -610,6 +610,19 @@ project, then measure whether that mechanism is a cost here at all - `mjx_single
 equivalence before throughput. A throughput win on an unverified variant is not a win, it is a different
 task measured faster, and the number will look respectable. Third, set the port threshold as a number
 before running, because after running there is always a framing under which 2.045x looks like progress.
+
+**The follow-up measurement, and the correction it carried:** the ratios above are MJX-on-GPU, and this
+project trains on MuJoCo-C in worker processes, so the fair question was what the same three worlds cost
+there. `bench_env.py --contact-world` answers it in one back-to-back run, on the mode the trainer builds:
+declaring the same pairs is **1.079x** and the gait reduction **1.302x**. Two things follow. The null was
+specific to MJX - on the native path, declaring pairs does buy something (**1.13x** on raw `mj_step`),
+because the narrowphase skips the filter rather than the buffer being sized by it. And a stepping ratio is
+not a training ratio: the committed cost split puts collection at **43.1%** of a ratio-1 SAC clock and
+**15.9%** of the ratio-4 clock the published arms run at, so the reduction saves **10.0%** and **3.7%**
+respectively - about 240 s off a 6,494 s arm, for a world where a fallen arm sinks through the floor. The
+gate that rejected the port was written in env-steps/s against the native ceiling, which was the right
+instrument for "should we move to MJX" and silent on "would a cheaper world have been worth staying for".
+Related: [[throughput-knobs-can-hide-the-optimiser-dose]], [[borrowed-speed-config-carries-the-other-projects-bottleneck]].
 Related: [[quantify-cost-dont-claim-impossibility]],
 [[two-armed-comparisons-need-their-instrument-settings-recorded]], [[verify-a-run-is-stale-before-rerunning-it]].
 

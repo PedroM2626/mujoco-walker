@@ -4764,6 +4764,81 @@ class TestReadmeMjxPairsGateCells(ReadmeGate, unittest.TestCase):
                                 self.gate["env_steps_per_s_n512"]["gait_reduced"])
 
 
+class TestReadmeContactNativeCells(ReadmeGate, unittest.TestCase):
+    """The native re-measurement of the three contact worlds, and the clock it is worth.
+
+    The paragraph is the one place where a stepping ratio is allowed to become a training-time claim,
+    so the gate does the arithmetic itself: it recomputes both ratios from the timed steps/s, recomputes
+    the collection share from the committed C+U decomposition, and multiplies the two to check the
+    percentages and the seconds quoted. A faster world cannot save time the gradient step spends, and
+    the sentence that forgets that has never been allowed to stand here.
+    """
+
+    GATE = os.path.join(ROOT, "benchmarks", "contact_worlds_native_gate.json")
+    DOSE = os.path.join(ROOT, "benchmarks", "utd_dose_pair.json")
+    START = "**On the path this project actually trains on"
+    END = "**The reduced world is now on screen"
+
+    def setUp(self):
+        with open(README, encoding="utf-8") as handle:
+            readme = handle.read()
+        start = readme.index(self.START)
+        self.block = readme[start:readme.index(self.END, start)]
+        self.gate, self.dose = self.read_artifacts(self.GATE, self.DOSE)
+        self.bad = []
+        self.what = "native contact-world timings"
+
+    def test_the_headline_ratios_are_the_timed_ones(self):
+        m = self.sentence(r"declaring the same pairs explicitly is \*\*([\d.]+)x\*\*, the gait "
+                          r"reduction \*\*([\d.]+)x\*\*", "the headline ratios")
+        cells = self.gate["steps_per_s"][self.gate["training_path_mode"]]
+        self.check("explicit-full ratio", m.group(1),
+                   round(cells["explicit_full"] / cells["published"], 3), places=3)
+        self.check("gait-reduced ratio", m.group(2),
+                   round(cells["gait_reduced"] / cells["published"], 3), places=3)
+        self.assertEqual(self.gate["training_path_mode"],
+                         "ParallelVectorEnv (n=32, per_worker=auto, sparse=True)",
+                         "the headline is no longer the path the trainer builds")
+
+    def test_the_collection_share_and_the_saved_clock_follow_from_the_split(self):
+        m = self.sentence(r"collection at \*\*([\d.]+)%\*\* of its clock and \*\*([\d.]+)%\*\* of the "
+                          r"ratio-4 clock", "the collection share")
+        share = self.gate["collection_share_of_clock_pct"]
+        self.check("share ratio 1", m.group(1), share["ratio_1"], places=1)
+        self.check("share ratio 4", m.group(2), share["ratio_4"], places=1)
+        saved = self.gate["training_clock_saved_pct"]
+        s = self.sentence(r"is \*\*([\d.]+)%\*\* and \*\*([\d.]+)%\*\* at ratio 1, "
+                          r"\*\*([\d.]+)%\*\* and \*\*([\d.]+)%\*\* at ratio 4", "the saved clock")
+        self.check("saved ratio 1", [s.group(1), s.group(2)],
+                   [saved["ratio_1"]["explicit_full"], saved["ratio_1"]["gait_reduced"]], places=1)
+        self.check("saved ratio 4", [s.group(3), s.group(4)],
+                   [saved["ratio_4"]["explicit_full"], saved["ratio_4"]["gait_reduced"]], places=1)
+        r4 = self.dose["arms"]["n32_r4"]["wall_clock_seconds"]
+        g = self.sentence(r"about (\d+) s off the ([\d,]+) s that ratio-4 5M arm took",
+                          "the seconds the reduction saves")
+        self.check("5M arm seconds", int(g.group(2).replace(",", "")), r4, places=0)
+        predicted = r4 * saved["ratio_4"]["gait_reduced"] / 100.0
+        self.check("seconds saved", g.group(1), round(predicted), places=0)
+
+    def test_the_same_mdp_half_is_still_the_same_mdp(self):
+        self.assertTrue(self.gate["explicit_full_is_the_same_mdp"],
+                        "the explicit variant is no longer proven identical, so 'a few percent on the "
+                        "same task' is describing two different tasks")
+        self.assertTrue(self.gate["gait_reduced_is_a_different_mdp"])
+        m = self.sentence(r"(\d+\.\d+)x on raw `mj_step`", "the raw physics ratio")
+        phys = self.gate["steps_per_s"]["physics only (mj_step x1)"]
+        self.check("raw mj_step ratio", m.group(1),
+                   round(phys["explicit_full"] / phys["published"], 2), places=2)
+
+    def test_the_flag_the_paragraph_names_exists_in_the_bench(self):
+        with open(os.path.join(ROOT, "bench_env.py"), encoding="utf-8") as handle:
+            src = handle.read()
+        self.assertIn("--contact-world", src,
+                      "the README names a bench flag that is not in bench_env.py")
+        self.assertIn("bench_mjx_pairs", src,
+                      "the native timing no longer shares its pair definition with the MJX bench")
+
+
 class TestReadmeTargetClipCells(ReadmeGate, unittest.TestCase):
     """The rendered contact worlds: the geometry claim and the score claim, from one rollout each.
 

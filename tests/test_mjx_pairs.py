@@ -23,8 +23,9 @@ import numpy as np
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
-from bench_mjx_pairs import (GAIT_FLOOR_GEOMS, GAIT_SELF_GEOMS, XML_PATH, build_variant_xml,
-                             candidate_pairs, geom_name, pair_friction)
+from bench_mjx_pairs import (CONTACT_WORLDS, GAIT_FLOOR_GEOMS, GAIT_SELF_GEOMS, XML_PATH,
+                             build_variant_xml, candidate_pairs, gait_pairs, geom_name,
+                             pair_friction, variant_xml_text, write_variant_xml)
 
 
 def _published():
@@ -172,6 +173,58 @@ class TestGaitReductionIsADeliberateCut(unittest.TestCase):
         # fewer pairs than the published model can generate, so the contact set differs on some pose.
         variant = mujoco.MjModel.from_xml_string(build_variant_xml(self.model, self.gait))
         self.assertLess(int(variant.npair), len(self.pairs))
+
+
+class TestTheContactWorldsHaveOneDefinition(unittest.TestCase):
+    """The three worlds are built in one place, because three tools now time and render them.
+
+    `bench_mjx_pairs` (MJX), `bench_env` (native MuJoCo-C) and `make_target_clips` (pixels) all ask
+    for the same contact sets. If each kept its own list comprehension, a comparison across them would
+    quietly stop being about the same world - which is the exact failure the native re-measurement was
+    written to avoid.
+    """
+
+    def test_the_three_worlds_compile_to_the_pair_counts_the_artifacts_record(self):
+        model = _published()
+        worlds = {w: mujoco.MjModel.from_xml_string(variant_xml_text(model, w))
+                  for w in CONTACT_WORLDS}
+        self.assertEqual(int(worlds["published"].npair), 0)
+        self.assertGreater(sum(1 for g in range(worlds["published"].ngeom)
+                               if worlds["published"].geom_contype[g]
+                               or worlds["published"].geom_conaffinity[g]), 0)
+        self.assertEqual(int(worlds["explicit_full"].npair), len(candidate_pairs(model)))
+        self.assertEqual(int(worlds["gait_reduced"].npair), len(gait_pairs(model)))
+        for name in ("explicit_full", "gait_reduced"):
+            self.assertEqual(sum(1 for g in range(worlds[name].ngeom)
+                                 if worlds[name].geom_contype[g]
+                                 or worlds[name].geom_conaffinity[g]), 0,
+                             f"{name} still collides automatically")
+
+    def test_gait_pairs_is_a_subset_of_the_filter_and_shrinks_it(self):
+        model = _published()
+        self.assertLess(len(gait_pairs(model)), len(candidate_pairs(model)))
+        self.assertTrue(set(gait_pairs(model)) <= set(candidate_pairs(model)))
+
+    def test_write_variant_xml_returns_an_absolute_path_that_loads(self):
+        # Gymnasium resolves a relative xml_file against its own assets directory, so anything handed
+        # to it - including a worker process's kwarg - has to be absolute.
+        import tempfile
+
+        model = _published()
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write_variant_xml(model, "gait_reduced", tmp)
+            self.assertTrue(os.path.isabs(path))
+            self.assertTrue(os.path.exists(path))
+            self.assertEqual(int(mujoco.MjModel.from_xml_path(path).npair),
+                             len(gait_pairs(model)))
+
+    def test_bench_env_uses_that_definition_rather_than_its_own(self):
+        import inspect
+
+        import bench_env
+        src = inspect.getsource(bench_env)
+        self.assertIn("bench_mjx_pairs", src, "bench_env no longer shares the pair definition")
+        self.assertIn("--contact-world", src)
 
 
 if __name__ == "__main__":

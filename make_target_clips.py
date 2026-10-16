@@ -169,33 +169,22 @@ def marker_in_frame(renderer_frame, min_red_pixels=40):
 
 
 def variant_xml_path(world, out_dir):
-    """Write the chosen contact world to an XML file the environment can load."""
+    """The chosen contact world as a file the environment can load, plus a label for the frame."""
     if world == "published":
         return os.path.join(HERE, "walker_ragdoll.xml"), "v9 published (automatic filter)"
     import bench_mjx_pairs as pairs
 
-    model = mujoco.MjModel.from_xml_path(pairs.XML_PATH)
-    with open(pairs.XML_PATH, encoding="utf-8") as handle:
-        text = handle.read()
-    full = pairs.candidate_pairs(model, text)
-    name_of = {gid: pairs.geom_name(model, gid) for gid in range(model.ngeom)}
-    if world == "explicit_full":
-        chosen = full
-        tag = "explicit <pair> for every filtered candidate - same MDP, verified"
-    elif world == "gait_reduced":
-        chosen = [(i, j) for i, j in full
-                  if (name_of[i] == "floor" and name_of[j] in pairs.GAIT_FLOOR_GEOMS)
-                  or (name_of[j] == "floor" and name_of[i] in pairs.GAIT_FLOOR_GEOMS)
-                  or (name_of[i] in pairs.GAIT_SELF_GEOMS and name_of[j] in pairs.GAIT_SELF_GEOMS)]
-        tag = ("gait-reduced <pair> set - ARMS OUT OF COLLISION, this is NOT the published MDP")
-    else:
+    if world not in pairs.CONTACT_WORLDS:
         raise SystemExit(f"unknown --world {world!r}")
-    os.makedirs(out_dir, exist_ok=True)
-    # Gymnasium resolves a relative `xml_file` against its own assets directory, so the variant has to
-    # reach the environment as an absolute path.
-    path = os.path.abspath(os.path.join(out_dir, f"walker_ragdoll_{world}.xml"))
-    with open(path, "w", encoding="utf-8", newline="") as handle:
-        handle.write(pairs.build_variant_xml(model, chosen))
+    model = mujoco.MjModel.from_xml_path(pairs.XML_PATH)
+    # One definition of the pair sets, shared with the MJX bench and the native timing, so the clip,
+    # the throughput number and the fidelity check cannot each be describing a slightly different world.
+    path = pairs.write_variant_xml(model, world, out_dir)
+    chosen = (pairs.gait_pairs(model) if world == "gait_reduced"
+              else pairs.candidate_pairs(model))
+    tag = ("gait-reduced <pair> set - ARMS OUT OF COLLISION, this is NOT the published MDP"
+           if world == "gait_reduced"
+           else "explicit <pair> for every filtered candidate - same MDP, verified")
     return path, f"{tag} ({len(chosen)} declared pairs)"
 
 

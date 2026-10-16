@@ -46,9 +46,10 @@ def _time_fn(fn, make_args, seconds, warmup_steps=200):
     return len(samples) / total, total / len(samples) * 1e6
 
 
-def bench_physics(seconds, task_phase, reset_mode, physics_preset="v9"):
+def bench_physics(seconds, task_phase, reset_mode, physics_preset="v9", xml=None):
     """Raw MuJoCo cost: one mj_step per policy call, i.e. frame_skip substeps."""
-    xml = os.path.join(os.path.dirname(os.path.abspath(__file__)), "walker_ragdoll.xml")
+    if xml is None:
+        xml = os.path.join(os.path.dirname(os.path.abspath(__file__)), "walker_ragdoll.xml")
     model = mujoco.MjModel.from_xml_path(xml)
     apply_physics_preset(model, physics_preset)
     data = mujoco.MjData(model)
@@ -68,9 +69,20 @@ def bench_physics(seconds, task_phase, reset_mode, physics_preset="v9"):
     }
 
 
-def bench_single_env(seconds, task_phase, reset_mode, physics_preset="v9"):
-    env = gym.make("WalkerRagdoll-v0", task_phase=task_phase, reset_mode=reset_mode,
-                   physics_preset=physics_preset)
+def _env_kwargs(task_phase, reset_mode, physics_preset, xml):
+    """Kwargs for `gym.make`, adding `xml_file` only when a contact world was asked for.
+
+    Passing `xml_file=None` is not the same as omitting it in older revisions, and the published
+    timing must keep running the exact call the trainer runs.
+    """
+    kw = {"task_phase": task_phase, "reset_mode": reset_mode, "physics_preset": physics_preset}
+    if xml is not None:
+        kw["xml_file"] = xml
+    return kw
+
+
+def bench_single_env(seconds, task_phase, reset_mode, physics_preset="v9", xml=None):
+    env = gym.make("WalkerRagdoll-v0", **_env_kwargs(task_phase, reset_mode, physics_preset, xml))
     env.reset(seed=0)
     action = np.zeros(env.action_space.shape, dtype=np.float32) + 0.1
 
@@ -83,10 +95,10 @@ def bench_single_env(seconds, task_phase, reset_mode, physics_preset="v9"):
     return result
 
 
-def bench_vec_env(seconds, n, task_phase, reset_mode, copy, physics_preset="v9"):
+def bench_vec_env(seconds, n, task_phase, reset_mode, copy, physics_preset="v9", xml=None):
     def thunk():
-        e = gym.make("WalkerRagdoll-v0", task_phase=task_phase, reset_mode=reset_mode,
-                     physics_preset=physics_preset)
+        e = gym.make("WalkerRagdoll-v0",
+                     **_env_kwargs(task_phase, reset_mode, physics_preset, xml))
         e = gym.wrappers.FlattenObservation(e)
         return e
 
@@ -118,13 +130,13 @@ def bench_vec_env(seconds, n, task_phase, reset_mode, copy, physics_preset="v9")
 
 
 def bench_parallel_vec(seconds, n, task_phase, reset_mode, sparse_info=False,
-                      envs_per_worker=None, physics_preset="v9"):
+                      envs_per_worker=None, physics_preset="v9", xml=None):
     from envs.parallel_vector_env import ParallelVectorEnv
 
     specs = [
         ("envs.parallel_vector_env", "make_walker_thunk", (), {
             "index": i, "task_phase": task_phase, "reset_mode": reset_mode, "flatten": True,
-            "env_kwargs": {"physics_preset": physics_preset},
+            "env_kwargs": _env_kwargs(task_phase, reset_mode, physics_preset, xml),
         })
         for i in range(n)
     ]
@@ -184,6 +196,13 @@ def main():
     p.add_argument("--physics-preset", default="v9", choices=list(PHYSICS_PRESETS),
                    help="which compiled world to time. 'v9' is the published one; 'euler' and "
                         "'fast' are the screening presets.")
+    p.add_argument("--contact-world", default=["published"], nargs="+",
+                   choices=["published", "explicit_full", "gait_reduced"],
+                   help="which contact set to time, on the native path: the published XML, the same "
+                        "set declared with <pair>, or the boxer-style gait reduction. Pass more than "
+                        "one to time them back to back in one process. The sets are built by "
+                        "bench_mjx_pairs.py, the same definition the MJX bench and the clips use, so "
+                        "a native number is comparable with the GPU one.")
     p.add_argument("--json", type=str, default=None, help="Write results to this path.")
     p.add_argument("--envs-per-worker", type=int, default=None,
                    help="Group N envs into one worker process (default: auto).")
@@ -191,41 +210,63 @@ def main():
                    help="Sweep envs-per-worker 1..8 at --n and print the scaling curve.")
     args = p.parse_args()
 
-    common = dict(seconds=args.seconds, task_phase=args.task_phase, reset_mode=args.reset_mode,
-                  physics_preset=args.physics_preset)
+    # More than one world may be timed in one invocation, and the point of that is pairing: contact
+    # sets compared across separate runs of this script are also compared across different machine
+    # states, which is how a 3% difference becomes a 30% claim.
+    worlds = list(args.contact_world)
+    xml_of = {w: None for w in worlds}
+    if any(w != "published" for w in worlds):
+        import tempfile
+
+        import bench_mjx_pairs
+
+        variant_model = mujoco.MjModel.from_xml_path(bench_mjx_pairs.XML_PATH)
+        tmp = tempfile.mkdtemp(prefix="contact_world_")
+        for w in worlds:
+            if w != "published":
+                xml_of[w] = bench_mjx_pairs.write_variant_xml(variant_model, w, tmp)
+
     results = []
     run = lambda fn, **kw: _repeated(fn, args.reps, kw)
-    if args.sweep:
-        # Each cell here builds and tears down its own worker pool, so --reps costs about
-        # (reps - 1) x 6 pool startups. It is still the only way to say whether an
-        # envs-per-worker curve is a measurement or one lucky draw.
-        for size in (1, 2, 3, 4, 6, 8):
-            results.append(run(bench_parallel_vec, sparse_info=True, envs_per_worker=size,
-                               n=args.n, **common))
-    else:
-        if args.mode in ("all", "physics"):
-            results.append(run(bench_physics, **common))
-        if args.mode in ("all", "env"):
-            results.append(run(bench_single_env, **common))
-        if args.mode in ("all", "vec"):
-            results.append(run(bench_vec_env, copy=True, n=args.n, **common))
-            results.append(run(bench_vec_env, copy=False, n=args.n, **common))
-        if args.mode in ("all", "parallel"):
-            results.append(run(bench_parallel_vec, sparse_info=False, n=args.n, **common))
-            results.append(run(bench_parallel_vec, sparse_info=True, n=args.n, **common))
+    for world in worlds:
+        common = dict(seconds=args.seconds, task_phase=args.task_phase,
+                      reset_mode=args.reset_mode, physics_preset=args.physics_preset,
+                      xml=xml_of[world])
+        first_of_world = len(results)
+        if args.sweep:
+            # Each cell here builds and tears down its own worker pool, so --reps costs about
+            # (reps - 1) x 6 pool startups. It is still the only way to say whether an
+            # envs-per-worker curve is a measurement or one lucky draw.
+            for size in (1, 2, 3, 4, 6, 8):
+                results.append(run(bench_parallel_vec, sparse_info=True, envs_per_worker=size,
+                                   n=args.n, **common))
+        else:
+            if args.mode in ("all", "physics"):
+                results.append(run(bench_physics, **common))
+            if args.mode in ("all", "env"):
+                results.append(run(bench_single_env, **common))
+            if args.mode in ("all", "vec"):
+                results.append(run(bench_vec_env, copy=True, n=args.n, **common))
+                results.append(run(bench_vec_env, copy=False, n=args.n, **common))
+            if args.mode in ("all", "parallel"):
+                results.append(run(bench_parallel_vec, sparse_info=False, n=args.n, **common))
+                results.append(run(bench_parallel_vec, sparse_info=True, n=args.n, **common))
+        for r in results[first_of_world:]:
+            r["contact_world"] = world
 
     print(f"\nWalkerRagdoll-v0 throughput  (task_phase={args.task_phase}, {args.seconds}s per measurement"
           + (f", {args.reps} reps" if args.reps > 1 else "") + ")")
     print("-" * 78)
     for r in results:
         note = r.get("note", "")
+        world_tag = "" if len(worlds) == 1 else f"[{r['contact_world']}] "
         spread = (f"  spread {r['spread_pct']:.0f}% ({r['min_steps_per_s']:,.0f}-{r['max_steps_per_s']:,.0f})"
                   if "spread_pct" in r else "")
-        print(f"{r['label']:34s} {r['steps_per_s']:>11,.0f} steps/s  {r['us_per_step']:>9.1f} us/step"
+        print(f"{world_tag}{r['label']:34s} {r['steps_per_s']:>11,.0f} steps/s  {r['us_per_step']:>9.1f} us/step"
               f"{spread}  {note}")
     print("-" * 78)
 
-    if args.mode in ("all", "physics") and args.mode in ("all", "env"):
+    if args.mode in ("all", "physics") and args.mode in ("all", "env") and len(worlds) == 1:
         physics, env_only = results[0], [r for r in results if r["label"].startswith("gym env.step")]
         if env_only:
             # One env.step is frame_skip mj_steps, so put both on the same unit before

@@ -255,10 +255,14 @@ class WalkerRagdollEnv(MujocoEnv, gym.utils.EzPickle):
         self._target_body_id = mujoco.mj_name2id(
             self.model, mujoco.mjtObj.mjOBJ_BODY, "target_marker"
         )
+        # `target_marker` is a mocap body, so its rendered pose comes from data.mocap_pos and a write
+        # to model.body_pos alone leaves it parked where the XML put it. The marker is decorative - the
+        # reward and the observation read `_target_xy` - but a clip that is supposed to show the goal
+        # has to have the goal in the frame.
+        self._target_mocap_id = -1
         if self._target_body_id >= 0:
-            self.model.body_pos[self._target_body_id] = np.array(
-                [0.0, 0.0, -10.0], dtype=np.float64
-            )
+            self._target_mocap_id = int(self.model.body_mocapid[self._target_body_id])
+            self._set_marker_xy(0.0, 0.0, below_floor=True)
 
         # --- hot-loop caches ---------------------------------------------------
         # Every name lookup below used to happen on each env step; resolving them
@@ -408,16 +412,21 @@ class WalkerRagdollEnv(MujocoEnv, gym.utils.EzPickle):
         return math.hypot(float(self._target_xy[0] - xy[0]), float(self._target_xy[1] - xy[1]))
 
 
+    def _set_marker_xy(self, x, y, below_floor=False):
+        """Place the decorative target marker, in both the model default and the mocap state."""
+        z = -10.0 if below_floor else 0.05
+        pos = np.array([x, y, z], dtype=np.float64)
+        self.model.body_pos[self._target_body_id] = pos
+        if self._target_mocap_id >= 0:
+            self.data.mocap_pos[self._target_mocap_id] = pos
+
     def _set_target_marker(self):
-        if self._target_body_id >= 0:
-            if self._task_phase != "target":
-                self.model.body_pos[self._target_body_id] = np.array(
-                    [0.0, 0.0, -10.0], dtype=np.float64
-                )
-                return
-            self.model.body_pos[self._target_body_id] = np.array(
-                [self._target_xy[0], self._target_xy[1], 0.05], dtype=np.float64
-            )
+        if self._target_body_id < 0:
+            return
+        if self._task_phase != "target":
+            self._set_marker_xy(0.0, 0.0, below_floor=True)
+            return
+        self._set_marker_xy(float(self._target_xy[0]), float(self._target_xy[1]))
 
     def _impact(self):
         if not self._compute_impact:

@@ -4764,6 +4764,85 @@ class TestReadmeMjxPairsGateCells(ReadmeGate, unittest.TestCase):
                                 self.gate["env_steps_per_s_n512"]["gait_reduced"])
 
 
+class TestReadmeTargetClipCells(ReadmeGate, unittest.TestCase):
+    """The rendered contact worlds: the geometry claim and the score claim, from one rollout each.
+
+    Two failure modes are pinned. "The arm goes through the floor" is a geometric claim about a
+    specific rollout, so it is gated on the contact counts and depths the clips were drawn from - and
+    on the reduced world's contact total being exactly zero, which is what makes it a pair-set
+    difference rather than a solver-tuning difference. "It also changes the score" is the claim a
+    reader might act on, so the return pair and the label flip are gated beside it, from the same seed
+    of the same checkpoint. The README also names a parity control by test name; that control has to
+    exist, because it is what licenses touching the published environment at all.
+    """
+
+    CONTRAST = os.path.join(ROOT, "benchmarks", "target_clips_contact_contrast.json")
+    START = "**The reduced world is now on screen"
+    END = "**The learner was the other half of the JAX question"
+
+    def setUp(self):
+        with open(README, encoding="utf-8") as handle:
+            readme = handle.read()
+        start = readme.index(self.START)
+        self.block = readme[start:readme.index(self.END, start)]
+        self.art, = self.read_artifacts(self.CONTRAST)
+        self.flips = self.art["seeds_whose_arrival_label_changes"]
+        self.row = [e for e in self.art["episodes"] if e["seed"] == self.flips[0]][0]
+        self.bad = []
+        self.what = "target-clip contrast"
+
+    def test_the_contact_and_depth_contrast_are_the_measured_ones(self):
+        m = self.sentence(r"an arm rests on the floor in \*\*(\d+) to (\d+)\*\* steps per episode in "
+                          r"the published world and never\s*sinks more than \*\*([\d.]+) m\*\* under "
+                          r"the plane, while in the gait-reduced world it touches the floor in "
+                          r"\*\*(\d+)\*\* steps and reaches \*\*([\d.]+) m\*\* below it - "
+                          r"\*\*([\d.]+)x\*\* deeper", "the contact and depth contrast")
+        eps = self.art["episodes"]
+        self.check("published contact range", [m.group(1), m.group(2)],
+                   [min(e["published_arm_floor_contact_steps"] for e in eps),
+                    max(e["published_arm_floor_contact_steps"] for e in eps)], places=0)
+        self.check("published depth bound", m.group(3),
+                   self.art["published_max_arm_depth_below_floor_m"], places=3)
+        self.check("reduced contact total", m.group(4),
+                   self.art["reduced_arm_floor_contact_steps_total"], places=0)
+        self.assertEqual(self.art["reduced_arm_floor_contact_steps_total"], 0,
+                         "an arm touched the floor in the reduced world, so the pair set is no "
+                         "longer the difference being described")
+        self.check("reduced depth", m.group(5),
+                   self.art["reduced_max_arm_depth_below_floor_m"], places=3)
+        self.check("depth ratio", m.group(6),
+                   self.art["depth_ratio_reduced_over_published"], places=2)
+        self.assertTrue(self.art["published_always_rests_an_arm_on_the_floor"],
+                        "a published-world episode never had an arm on the floor, so 'rests on the "
+                        "floor in N to M steps' is no longer the contrast")
+
+    def test_the_same_seed_changes_its_arrival_label_and_its_return(self):
+        m = self.sentence(r"seed (\d+) is `(\w+)` with a return of \*\*([\d,.]+)\*\* in the published "
+                          r"world and\s*`(\w+)` with \*\*([\d,.]+)\*\* in the reduced one",
+                          "the label flip")
+        self.assertIn(int(m.group(1)), self.flips,
+                      "this seed's outcome no longer differs between the worlds")
+        self.assertEqual(m.group(2), self.row["published_outcome"])
+        self.assertEqual(m.group(4), self.row["reduced_outcome"])
+        self.check("published return", m.group(3), self.row["published_return"], places=2)
+        self.check("reduced return", m.group(5), self.row["reduced_return"], places=2)
+
+    def test_both_worlds_were_rendered_from_one_checkpoint_on_the_same_seeds(self):
+        self.assertIn(f"`{os.path.basename(self.art['model'])}`", self.block,
+                      "the paragraph no longer names the checkpoint the clips were drawn from")
+        self.assertEqual(len(self.art["episodes"]), len(self.art["seeds"]),
+                         "the two worlds do not share their seeds, so the per-seed contrast is "
+                         "not paired")
+        self.assertEqual(self.art["task_phase"], "target")
+        self.assertEqual(self.flips, [self.row["seed"]])
+
+    def test_the_marker_parity_control_the_paragraph_names_still_exists(self):
+        with open(os.path.join(ROOT, "tests", "test_target_clips.py"), encoding="utf-8") as handle:
+            src = handle.read()
+        self.assertIn("def test_moving_the_marker_leaves_the_observation_and_reward_trace_untouched",
+                      src, "the README points at a parity control that is not in the test module")
+
+
 class TestReadmeTrainerPairCells(ReadmeGate, unittest.TestCase):
     """PPO against SAC: the rate claim and the behaviour claim are gated together or not at all.
 

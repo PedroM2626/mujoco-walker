@@ -612,3 +612,28 @@ task measured faster, and the number will look respectable. Third, set the port 
 before running, because after running there is always a framing under which 2.045x looks like progress.
 Related: [[quantify-cost-dont-claim-impossibility]],
 [[two-armed-comparisons-need-their-instrument-settings-recorded]], [[verify-a-run-is-stale-before-rerunning-it]].
+
+## A decorative body can be invisible for the wrong reason
+
+The target-phase clips were meant to make the goal legible, and the environment could not have shown it.
+`target_marker` is declared `mocap="true"` in `walker_ragdoll.xml`, and the env placed it by writing
+`model.body_pos[bodyid]`. For a mocap body the model pose is only the *initial* value: the runtime pose
+lives in `data.mocap_pos`, which `mj_resetData` copies once - here copying the `(0, 0, -10)` the
+constructor parks it at. Verified rather than inferred: after a reset with the goal sampled at
+`(2.85, -0.29)` and an explicit `mj_forward`, `data.xpos[marker]` still read `(0, 0, -10)`. Every frame
+rendered through the published environment had the goal ten metres under the floor.
+
+**Why it survived:** the marker is decorative. The observation and the reward read `_target_xy`, a Python
+field, so no measurement in the repository could notice - not the golden rollouts, not the arrival
+percentages, not the parity tests between backends. The only thing that can fail this way is a picture,
+and pictures were written to a temporary directory and never looked at twice. The same gap made the
+clips themselves unreproducible: the tool that drew them was in that temporary directory too.
+
+**How to apply:** two rules came out of it. First, a change confined to a visual path still needs a
+parity control, because "it only moves a picture" is precisely the claim a wrong mocap index would break
+silently - `tests/test_target_clips.py` now runs the same seed twice, moves the marker in one copy, and
+requires identical observations and rewards for 60 steps. Second, a rendered artifact has to be checked
+*as an image*: the clip tool refuses to write a clip whose first frame has no robot-coloured pixels or no
+marker pixels, and the counts go into the committed sidecar, so "the goal is on screen" is a measurement
+and not a description. Related: [[a-human-facing-artifact-must-carry-its-own-evidence]],
+[[look-at-the-artifact-you-describe]], [[verify-panel-geometry-on-rendered-pixels]].

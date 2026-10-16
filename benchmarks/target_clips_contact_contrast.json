@@ -1,0 +1,80 @@
+{
+  "protocol": "make_target_clips.py, same checkpoint and seeds in both worlds; the numbers are the per-step arm/floor geometry and contact read out of the rollouts the clips were drawn from",
+  "model": "checkpoints/sac_target_from_scratch_40m/sac_ckpt_4000000.pt",
+  "task_phase": "target",
+  "target_radius": 0.45,
+  "below_floor_tolerance_m": 0.02,
+  "seeds": [
+    11,
+    14,
+    25,
+    29
+  ],
+  "episodes": [
+    {
+      "seed": 14,
+      "published_outcome": "stalled",
+      "reduced_outcome": "stalled",
+      "published_return": 11545.92,
+      "reduced_return": 13101.34,
+      "published_min_target_distance": 2.584,
+      "reduced_min_target_distance": 2.613,
+      "published_arm_floor_contact_steps": 875,
+      "reduced_arm_floor_contact_steps": 0,
+      "published_arm_max_depth_below_floor_m": 0.0846,
+      "reduced_arm_max_depth_below_floor_m": 0.6816,
+      "outcome_changed": false
+    },
+    {
+      "seed": 25,
+      "published_outcome": "reached_by_falling",
+      "reduced_outcome": "reached_upright",
+      "published_return": 39052.91,
+      "reduced_return": 59838.01,
+      "published_min_target_distance": 0.242,
+      "reduced_min_target_distance": 0.447,
+      "published_arm_floor_contact_steps": 416,
+      "reduced_arm_floor_contact_steps": 0,
+      "published_arm_max_depth_below_floor_m": 0.052,
+      "reduced_arm_max_depth_below_floor_m": 0.6704,
+      "outcome_changed": true
+    },
+    {
+      "seed": 11,
+      "published_outcome": "stalled",
+      "reduced_outcome": "stalled",
+      "published_return": 17349.74,
+      "reduced_return": 22490.3,
+      "published_min_target_distance": 3.071,
+      "reduced_min_target_distance": 2.8,
+      "published_arm_floor_contact_steps": 805,
+      "reduced_arm_floor_contact_steps": 0,
+      "published_arm_max_depth_below_floor_m": 0.0572,
+      "reduced_arm_max_depth_below_floor_m": 0.5657,
+      "outcome_changed": false
+    },
+    {
+      "seed": 29,
+      "published_outcome": "stalled",
+      "reduced_outcome": "stalled",
+      "published_return": 28761.09,
+      "reduced_return": 2729.94,
+      "published_min_target_distance": 2.689,
+      "reduced_min_target_distance": 2.937,
+      "published_arm_floor_contact_steps": 326,
+      "reduced_arm_floor_contact_steps": 0,
+      "published_arm_max_depth_below_floor_m": 0.0712,
+      "reduced_arm_max_depth_below_floor_m": 0.6353,
+      "outcome_changed": false
+    }
+  ],
+  "published_always_rests_an_arm_on_the_floor": true,
+  "published_min_arm_floor_contact_steps": 326,
+  "reduced_arm_floor_contact_steps_total": 0,
+  "published_max_arm_depth_below_floor_m": 0.0846,
+  "reduced_max_arm_depth_below_floor_m": 0.6816,
+  "depth_ratio_reduced_over_published": 8.06,
+  "seeds_whose_arrival_label_changes": [
+    25
+  ]
+}

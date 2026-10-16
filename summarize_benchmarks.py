@@ -1798,6 +1798,61 @@ def mjx_pairs_gate(out="benchmarks/mjx_pairs_gate.json"):
     }, out
 
 
+def target_clips_contact_contrast(out="benchmarks/target_clips_contact_contrast.json"):
+    """The two rendered worlds compared per seed, derived from the two clip sidecars.
+
+    The clips themselves are video and live in the gitignored `videos/`; what is versioned is the
+    telemetry they were drawn from. This builder is what lets a sentence about them be checked: the
+    contrast is not "the reduced world looks different" but "an arm that touches the floor in the
+    published world never touches it in the reduced one, and the same seed's arrival label changes".
+    """
+    def load(world):
+        path = os.path.join(ROOT, "benchmarks", f"target_clips_{world}.json")
+        with open(path, encoding="utf-8") as handle:
+            return json.load(handle)
+
+    pub, red = load("published"), load("gait_reduced")
+    if pub["model"] != red["model"]:
+        raise SystemExit("the two clip worlds were rendered from different checkpoints")
+    by_seed = {e["seed"]: e for e in pub["episodes"]}
+    rows = []
+    for e in red["episodes"]:
+        p = by_seed.get(e["seed"])
+        if p is None:
+            continue
+        rows.append({"seed": e["seed"],
+                     "published_outcome": p["outcome"], "reduced_outcome": e["outcome"],
+                     "published_return": p["return"], "reduced_return": e["return"],
+                     "published_min_target_distance": p["min_target_distance"],
+                     "reduced_min_target_distance": e["min_target_distance"],
+                     "published_arm_floor_contact_steps": p["arm_floor_contact_steps"],
+                     "reduced_arm_floor_contact_steps": e["arm_floor_contact_steps"],
+                     "published_arm_max_depth_below_floor_m": p["arm_max_depth_below_floor_m"],
+                     "reduced_arm_max_depth_below_floor_m": e["arm_max_depth_below_floor_m"],
+                     "outcome_changed": p["outcome"] != e["outcome"]})
+    pub_contact = [r["published_arm_floor_contact_steps"] for r in rows]
+    pub_depth = max(r["published_arm_max_depth_below_floor_m"] for r in rows)
+    red_depth = max(r["reduced_arm_max_depth_below_floor_m"] for r in rows)
+    return {
+        "protocol": ("make_target_clips.py, same checkpoint and seeds in both worlds; the numbers are "
+                     "the per-step arm/floor geometry and contact read out of the rollouts the clips "
+                     "were drawn from"),
+        "model": pub["model"], "task_phase": pub["task_phase"],
+        "target_radius": pub["target_radius"],
+        "below_floor_tolerance_m": pub["below_floor_tolerance_m"],
+        "seeds": sorted(r["seed"] for r in rows),
+        "episodes": rows,
+        "published_always_rests_an_arm_on_the_floor": all(c > 0 for c in pub_contact),
+        "published_min_arm_floor_contact_steps": min(pub_contact),
+        "reduced_arm_floor_contact_steps_total": sum(
+            r["reduced_arm_floor_contact_steps"] for r in rows),
+        "published_max_arm_depth_below_floor_m": pub_depth,
+        "reduced_max_arm_depth_below_floor_m": red_depth,
+        "depth_ratio_reduced_over_published": round(red_depth / pub_depth, 2),
+        "seeds_whose_arrival_label_changes": [r["seed"] for r in rows if r["outcome_changed"]],
+    }, out
+
+
 BENCHMARKS = [
     phase3,
     lambda: phase3("eval_phase3_100ep.log", seed=11,
@@ -1848,6 +1903,8 @@ BENCHMARKS = [
     # The explicit-<pair> counter-configuration for the MJX section: does declaring contacts like the
     # contact-dense projects do rescue MJX on this ragdoll? (No, and the gate says by how much.)
     mjx_pairs_gate,
+    # The two rendered contact worlds, compared per seed: what the clips actually show.
+    target_clips_contact_contrast,
     # PPO against SAC at the same config: what each costs per environment step, and what that buys
     # in behaviour. The two answers point in opposite directions, so they live in one artifact.
     trainer_pair_ppo_sac,

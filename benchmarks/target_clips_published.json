@@ -13,7 +13,7 @@
  "target_radius": 0.45,
  "fps": 100,
  "below_floor_tolerance_m": 0.02,
- "seconds": 37.0,
+ "seconds": 33.9,
  "episodes": [
   {
    "steps": 1000,
@@ -31,7 +31,10 @@
    "outcome": "stalled",
    "frames": 1000,
    "frame_check": "robot-coloured pixel ratio 0.0054; marker pixels 312",
-   "video": "published_4000000s_seed14_stalled.mp4"
+   "video": "published_4000000s_seed14_stalled.mp4",
+   "published_path": "docs/media/clips/published_4000000s_seed14_stalled.mp4",
+   "published_sha256": "76ab813f0e3de37b40504eb3f3dd1efc4759a72fe82e2b57b974b32c0e405334",
+   "published_bytes": 1750454
   },
   {
    "steps": 1000,
@@ -49,7 +52,10 @@
    "outcome": "reached_by_falling",
    "frames": 1000,
    "frame_check": "robot-coloured pixel ratio 0.0061; marker pixels 310",
-   "video": "published_4000000s_seed25_reached_by_falling.mp4"
+   "video": "published_4000000s_seed25_reached_by_falling.mp4",
+   "published_path": "docs/media/clips/published_4000000s_seed25_reached_by_falling.mp4",
+   "published_sha256": "1ae5ca78db27fc7e004330d13d1aaff18c461bcf150f02fdd556bf0759a578f5",
+   "published_bytes": 4233006
   },
   {
    "steps": 1000,
@@ -67,7 +73,10 @@
    "outcome": "stalled",
    "frames": 1000,
    "frame_check": "robot-coloured pixel ratio 0.0033; marker pixels 297",
-   "video": "published_4000000s_seed11_stalled.mp4"
+   "video": "published_4000000s_seed11_stalled.mp4",
+   "published_path": "docs/media/clips/published_4000000s_seed11_stalled.mp4",
+   "published_sha256": "ead69e88d40d5f3420eff92decd7c9f6707b58c29fb3b502f426935b18f94e9c",
+   "published_bytes": 1500844
   },
   {
    "steps": 1000,
@@ -85,7 +94,10 @@
    "outcome": "stalled",
    "frames": 1000,
    "frame_check": "robot-coloured pixel ratio 0.0044; marker pixels 317",
-   "video": "published_4000000s_seed29_stalled.mp4"
+   "video": "published_4000000s_seed29_stalled.mp4",
+   "published_path": "docs/media/clips/published_4000000s_seed29_stalled.mp4",
+   "published_sha256": "8fecd9db5f3a516adc78381b8fcce5caf775450b1b1d5cd0fe4ac403a5ac0570",
+   "published_bytes": 3237151
   }
  ]
 }

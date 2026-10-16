@@ -13,7 +13,7 @@
  "target_radius": 0.45,
  "fps": 100,
  "below_floor_tolerance_m": 0.02,
- "seconds": 40.2,
+ "seconds": 37.9,
  "episodes": [
   {
    "steps": 1000,
@@ -31,7 +31,10 @@
    "outcome": "stalled",
    "frames": 1000,
    "frame_check": "robot-coloured pixel ratio 0.0054; marker pixels 312",
-   "video": "gait_reduced_4000000s_seed14_stalled.mp4"
+   "video": "gait_reduced_4000000s_seed14_stalled.mp4",
+   "published_path": "docs/media/clips/gait_reduced_4000000s_seed14_stalled.mp4",
+   "published_sha256": "a563481e1fbbe96adccb8abcb8f67a15df0c7d4b196e99de622c6e78310be6db",
+   "published_bytes": 3208533
   },
   {
    "steps": 1000,
@@ -49,7 +52,10 @@
    "outcome": "reached_upright",
    "frames": 1000,
    "frame_check": "robot-coloured pixel ratio 0.0061; marker pixels 310",
-   "video": "gait_reduced_4000000s_seed25_reached_upright.mp4"
+   "video": "gait_reduced_4000000s_seed25_reached_upright.mp4",
+   "published_path": "docs/media/clips/gait_reduced_4000000s_seed25_reached_upright.mp4",
+   "published_sha256": "6e56673b67869828945deb350d506c45f0c35f2e6d325e433bfb606d11ad6c02",
+   "published_bytes": 4014349
   },
   {
    "steps": 1000,
@@ -67,7 +73,10 @@
    "outcome": "stalled",
    "frames": 1000,
    "frame_check": "robot-coloured pixel ratio 0.0033; marker pixels 297",
-   "video": "gait_reduced_4000000s_seed11_stalled.mp4"
+   "video": "gait_reduced_4000000s_seed11_stalled.mp4",
+   "published_path": "docs/media/clips/gait_reduced_4000000s_seed11_stalled.mp4",
+   "published_sha256": "1b123cd641416552e69ddd7ef9f6817aa89f4f6f1163f8b06fb6b151e4e8de13",
+   "published_bytes": 1176990
   },
   {
    "steps": 1000,
@@ -85,7 +94,10 @@
    "outcome": "stalled",
    "frames": 1000,
    "frame_check": "robot-coloured pixel ratio 0.0044; marker pixels 317",
-   "video": "gait_reduced_4000000s_seed29_stalled.mp4"
+   "video": "gait_reduced_4000000s_seed29_stalled.mp4",
+   "published_path": "docs/media/clips/gait_reduced_4000000s_seed29_stalled.mp4",
+   "published_sha256": "a9211cb880ff459f27ddc8ad8320dc213656d5a2b84068e168c7a3218358b515",
+   "published_bytes": 3143957
   }
  ]
 }

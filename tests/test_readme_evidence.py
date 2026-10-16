@@ -4785,7 +4785,10 @@ class TestReadmeTargetClipCells(ReadmeGate, unittest.TestCase):
             readme = handle.read()
         start = readme.index(self.START)
         self.block = readme[start:readme.index(self.END, start)]
-        self.art, = self.read_artifacts(self.CONTRAST)
+        self.art, self.pub, self.red = self.read_artifacts(
+            self.CONTRAST,
+            os.path.join(ROOT, "benchmarks", "target_clips_published.json"),
+            os.path.join(ROOT, "benchmarks", "target_clips_gait_reduced.json"))
         self.flips = self.art["seeds_whose_arrival_label_changes"]
         self.row = [e for e in self.art["episodes"] if e["seed"] == self.flips[0]][0]
         self.bad = []
@@ -4845,25 +4848,27 @@ class TestReadmeTargetClipCells(ReadmeGate, unittest.TestCase):
                       "the README says the render pipeline is exercised on every CI run, and the "
                       "smoke that does that is gone")
 
-    GIF_REL = "docs/media/target_clips_seed25_published_vs_gait_reduced.gif"
-    # The committed media is the one figure in this repository that costs permanent history rather
-    # than disk, so its budget is stated where the file is and a re-encode that doubles it fails.
+    PAIR_GIF = "docs/media/target_clips_seed25_published_vs_gait_reduced.gif"
+    SINGLE_GIF = "docs/media/target_clips_seed14_published.gif"
+    # Committed media costs permanent history rather than disk, so each file's budget is stated where
+    # the file is and a re-encode that doubles it fails instead of quietly growing the repository.
     GIF_BUDGET_MB = 3.6
 
-    def test_the_embedded_gif_is_here_named_and_within_its_budget(self):
-        m = self.sentence(r"!\[[^\]]*\]\((docs/media/[\w.]+)\)", "the embedded clip")
-        self.assertEqual(m.group(1), self.GIF_REL)
-        path = os.path.join(ROOT, m.group(1))
-        self.assertTrue(os.path.exists(path),
-                        f"the README embeds {m.group(1)}, which is not in the repository")
-        size_mb = os.path.getsize(path) / 1e6
-        self.assertLessEqual(round(size_mb, 2), self.GIF_BUDGET_MB,
-                             f"{m.group(1)} is {size_mb:.2f} MB, over its {self.GIF_BUDGET_MB} MB "
-                             "budget - re-encode it smaller rather than growing the history")
+    def test_both_embedded_gifs_are_here_named_and_within_budget(self):
+        imgs = re.findall(r"!\[[^\]]*\]\((docs/media/[\w.]+)\)", re.sub(r"\s+", " ", self.block))
+        self.assertEqual(imgs, [self.PAIR_GIF, self.SINGLE_GIF],
+                         "the embedded clips are no longer the pair and the seed-14 single, in order")
+        for rel in imgs:
+            path = os.path.join(ROOT, rel.replace("/", os.sep))
+            self.assertTrue(os.path.exists(path), f"the README embeds {rel}, which is not here")
+            size_mb = os.path.getsize(path) / 1e6
+            self.assertLessEqual(round(size_mb, 2), self.GIF_BUDGET_MB,
+                                 f"{rel} is {size_mb:.2f} MB, over its {self.GIF_BUDGET_MB} MB "
+                                 "budget - re-encode it smaller rather than growing the history")
         with open(os.path.join(ROOT, "make_target_clips.py"), encoding="utf-8") as handle:
             tool = handle.read()
-        self.assertIn("--pair-gif", tool,
-                      "the embedded GIF is no longer produced by a committed tool")
+        self.assertIn("--gif-from", tool,
+                      "the embedded GIFs are no longer produced by a committed tool")
 
     def test_the_caption_of_the_embedded_clip_is_the_paired_artifact_row(self):
         m = self.sentence(r"Left: the published v9 world, labelled `(\w+)` with a return of "
@@ -4885,6 +4890,38 @@ class TestReadmeTargetClipCells(ReadmeGate, unittest.TestCase):
                    row["reduced_arm_floor_contact_steps"], places=0)
         self.check("reduced depth", m.group(8),
                    row["reduced_arm_max_depth_below_floor_m"], places=3)
+
+    def test_the_second_caption_is_a_typical_episode_not_the_highlight(self):
+        m = self.sentence(r"labelled\s*`(\w+)`, closest approach \*\*([\d.]+) m\*\*, mean forward "
+                          r"velocity \*\*([\d.]+) m/s\*\*, one fall, and an arm resting on the floor "
+                          r"in \*\*(\d+)\*\* of its 1,000 steps", "the seed-14 caption")
+        row = [e for e in self.pub["episodes"] if e["seed"] == 14][0]
+        self.assertEqual(m.group(1), row["outcome"])
+        self.assertEqual(row["outcome"], "stalled",
+                         "seed 14 is no longer the typical failure the paragraph describes")
+        self.check("closest approach", m.group(2), row["min_target_distance"], places=3)
+        self.check("mean velocity", m.group(3), row["mean_x_velocity"], places=4)
+        self.check("arm contact steps", m.group(4), row["arm_floor_contact_steps"], places=0)
+        self.assertEqual(row["steps"], 1000, "the caption's 'of its 1,000 steps' is stale")
+
+    def test_the_tracked_mp4_files_are_the_renders_the_sidecars_describe(self):
+        rows = ([e for e in self.pub["episodes"]], [e for e in self.red["episodes"]])
+        total = 0
+        for group in rows:
+            for ep in group:
+                self.assertTrue(ep["published_path"].startswith("docs/media/clips/"),
+                                f"{ep['video']} was published outside the tracked directory")
+                path = os.path.join(ROOT, ep["published_path"].replace("/", os.sep))
+                self.assertTrue(os.path.exists(path), f"{ep['published_path']} is missing")
+                with open(path, "rb") as handle:
+                    digest = hashlib.sha256(handle.read()).hexdigest()
+                self.assertEqual(digest, ep["published_sha256"],
+                                 f"{ep['published_path']} is not the render the sidecar describes - "
+                                 "a tracked clip drifted from its own telemetry")
+                self.assertEqual(os.path.getsize(path), ep["published_bytes"])
+                total += ep["published_bytes"]
+        m = self.sentence(r"\*\*([\d.]+) MB\*\* of mp4", "the tracked clip volume")
+        self.check("clip volume", m.group(1), round(total / 1e6, 2), places=2)
 
 
 class TestReadmeTrainerPairCells(ReadmeGate, unittest.TestCase):

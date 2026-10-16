@@ -199,27 +199,50 @@ def variant_xml_path(world, out_dir):
     return path, f"{tag} ({len(chosen)} declared pairs)"
 
 
-def pair_gif(left, right, out_path, seconds=6.0, width=400, fps=10):
-    """Side-by-side GIF of two rendered clips, cut to the same opening window.
+def clip_gif(sources, out_path, seconds=6.0, width=400, fps=10):
+    """GIF of one clip, or a two-up of two, cut to the same opening window.
 
-    A committed `.mp4` gives the reader a download link, not a player, so the one piece of media this
-    repository versions is a GIF. The frames already carry their own labels (world, phase, distance,
-    arm-floor state), which is what makes a two-up comparison readable without a caption per panel.
-    The palette is generated from the stacked stream so the checker floor does not dither.
+    A committed `.mp4` gives the reader a download link, not a player (checked against GitHub's own
+    community answers rather than assumed), so the media this repository versions for viewing is a
+    GIF. The frames already carry their own labels (world, phase, distance, arm-floor state), which is
+    what makes a two-up readable without a caption per panel.
     """
     import imageio_ffmpeg
     import subprocess
 
+    if not 1 <= len(sources) <= 2:
+        raise SystemExit("pass one clip for a single GIF, or two for the side-by-side")
     # No palettegen pass: measured on this content it costs more than it saves (4.5 MB against
-    # 3.1 MB), because the two-pass palette keeps more of the checker floor's colours alive.
-    graph = (f"[0:v]fps={fps},scale={width}:-1:flags=lanczos[a];"
-             f"[1:v]fps={fps},scale={width}:-1:flags=lanczos[b];"
-             f"[a][b]hstack")
-    cmd = [imageio_ffmpeg.get_ffmpeg_exe(), "-hide_banner", "-loglevel", "error", "-y",
-           "-t", str(seconds), "-i", left, "-t", str(seconds), "-i", right,
-           "-filter_complex", graph, out_path]
-    subprocess.run(cmd, check=True)
+    # 3.1 MB), because the two-pass palette keeps more of the checker floor's colours alive. The final
+    # output is left unlabelled either way - a labelled sink with no -map makes ffmpeg exit EINVAL.
+    scale = f"fps={fps},scale={width}:-1:flags=lanczos"
+    if len(sources) == 1:
+        graph = f"[0:v]{scale}"
+    else:
+        graph = (f"[0:v]{scale}[a];[1:v]{scale}[b];[a][b]hstack")
+    cmd = [imageio_ffmpeg.get_ffmpeg_exe(), "-hide_banner", "-loglevel", "error", "-y"]
+    for src in sources:
+        cmd += ["-t", str(seconds), "-i", src]
+    subprocess.run(cmd + ["-filter_complex", graph, out_path], check=True)
     return out_path
+
+
+def publish_clip(src, out_dir):
+    """Copy a rendered clip into the tracked directory, and record what actually landed there.
+
+    The sidecar keeps the hash so a test can recompute it: the committed mp4 is then provably the
+    render the published telemetry describes, not an older file that happens to carry the name.
+    """
+    import hashlib
+    import shutil
+
+    os.makedirs(out_dir, exist_ok=True)
+    dst = os.path.join(out_dir, os.path.basename(src))
+    shutil.copyfile(src, dst)
+    with open(dst, "rb") as handle:
+        digest = hashlib.sha256(handle.read()).hexdigest()
+    return {"published_path": os.path.relpath(dst, HERE).replace(os.sep, "/"),
+            "published_sha256": digest, "published_bytes": os.path.getsize(dst)}
 
 
 def render_episode(policy, path, seed, steps, fps, out_dir, world_tag, model_step, radius,
@@ -353,23 +376,26 @@ def main():
     ap.add_argument("--out-dir", default="videos")
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     ap.add_argument("--out-json", default=None)
-    ap.add_argument("--pair-gif", nargs=2, metavar=("LEFT.mp4", "RIGHT.mp4"),
-                    help="skip rendering and write a two-up GIF from these two clips instead")
+    ap.add_argument("--gif-from", nargs="+", metavar="CLIP.mp4",
+                    help="skip rendering and write a GIF from one clip, or a two-up from two")
     ap.add_argument("--gif-out", default="docs/media/target_clips_pair.gif")
     ap.add_argument("--gif-seconds", type=float, default=6.0)
     ap.add_argument("--gif-width", type=int, default=400)
     ap.add_argument("--gif-fps", type=int, default=10)
+    ap.add_argument("--publish-clips", default=None, metavar="DIR",
+                    help="copy each rendered mp4 into this tracked directory and record its sha256 "
+                         "in the sidecar, so the committed file is tied to the published telemetry")
     args = ap.parse_args()
 
-    if args.pair_gif:
-        for src in args.pair_gif:
+    if args.gif_from:
+        for src in args.gif_from:
             if not os.path.exists(src):
                 raise SystemExit(f"no such clip: {src}")
         os.makedirs(os.path.dirname(args.gif_out), exist_ok=True)
-        out = pair_gif(args.pair_gif[0], args.pair_gif[1], args.gif_out, args.gif_seconds,
-                       args.gif_width, args.gif_fps)
-        print(f"wrote {out} ({os.path.getsize(out) / 1e6:.2f} MB, {args.gif_seconds}s x 2 at "
-              f"{args.gif_width} px/{args.gif_fps} fps)")
+        out = clip_gif(list(args.gif_from), args.gif_out, args.gif_seconds, args.gif_width,
+                       args.gif_fps)
+        print(f"wrote {out} ({os.path.getsize(out) / 1e6:.2f} MB, {args.gif_seconds}s of "
+              f"{len(args.gif_from)} clip(s) at {args.gif_width} px/{args.gif_fps} fps)")
         return
 
     if not args.model:
@@ -394,6 +420,8 @@ def main():
     for seed in [int(s) for s in args.seeds.split(",")]:
         tele = render_episode(policy, path, seed, args.steps, args.fps, args.out_dir,
                               args.world, f"{args.world}_{ck_step}", radius, env_kwargs, banner)
+        if args.publish_clips:
+            tele.update(publish_clip(os.path.join(args.out_dir, tele["video"]), args.publish_clips))
         episodes.append(tele)
         print(f"[EP {seed}] {tele['outcome']}  min_dist={tele['min_target_distance']} m  "
               f"upright_arrival={tele['reached_target_upright']}  "

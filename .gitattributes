@@ -31,4 +31,5 @@ Dockerfile text eol=lf
 *.db binary
 *.png binary
 *.gif binary
+*.mp4 binary
 *.so binary

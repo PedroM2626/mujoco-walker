@@ -5036,6 +5036,87 @@ class TestReadmeTargetClipCells(ReadmeGate, unittest.TestCase):
         self.check("clip volume", m.group(1), round(total / 1e6, 2), places=2)
 
 
+class TestReadmeG1CostCells(ReadmeGate, unittest.TestCase):
+    """The boxing project's robot, priced here: every figure recomputed from the two cost artifacts.
+
+    This paragraph could mislead in two directions. "G1 is cheaper natively" is only true per
+    *simulated* second, and the two models chose different timesteps - so the gate checks the ratio and
+    the two microsecond figures against each other, not just the ratio. And "G1 is 4x faster in MJX" is
+    true and irrelevant unless the native ceiling is quoted beside it, which is the second test's job.
+    The third pins the provenance: the model is not vendored, so the commit it was measured from has to
+    be recorded.
+    """
+
+    ART = os.path.join(ROOT, "benchmarks", "g1_model_cost_comparison.json")
+    NATIVE = os.path.join(ROOT, "benchmarks", "g1_native_cost.json")
+    START = "**The model itself was priced too"
+    END = "**The learner was the other half of the JAX question"
+
+    def setUp(self):
+        with open(README, encoding="utf-8") as handle:
+            readme = handle.read()
+        start = readme.index(self.START)
+        self.block = readme[start:readme.index(self.END, start)]
+        self.art, self.native = self.read_artifacts(self.ART, self.NATIVE)
+        self.costs = self.art["costs"]
+        self.bad = []
+        self.what = "G1 cost comparison"
+
+    def test_the_native_costs_and_their_ratios_are_the_measured_ones(self):
+        m = self.sentence(r"0\.004 with (\d+)\s*declared foot-floor pairs", "the G1 pair count")
+        self.check("declared pairs", m.group(1),
+                   self.native["models"]["g1_mjx_scene"]["declared_pairs"], places=0)
+        s = self.sentence(r"Natively the G1 scene is \*\*([\d.]+)x\*\* the ragdoll's cost "
+                          r"\((\d[\d,]*) µs against \*\*(\d[\d,]*) µs\*\*\) - cheaper here,\s*"
+                          r"not dearer - and Menagerie's own mesh-collider description is "
+                          r"\*\*([\d.]+)x\*\*", "the native cost cells")
+        self.check("g1 scene ratio", s.group(1),
+                   self.costs["g1_mjx_scene"]["native_ratio_vs_ragdoll"], places=3)
+        self.check("g1 scene us", int(s.group(2).replace(",", "")),
+                   self.costs["g1_mjx_scene"]["native_us_per_simulated_second"], places=0)
+        self.check("ragdoll us", int(s.group(3).replace(",", "")),
+                   self.costs["walker_ragdoll"]["native_us_per_simulated_second"], places=0)
+        self.check("g1 native ratio", s.group(4),
+                   self.costs["g1_native"]["native_ratio_vs_ragdoll"], places=3)
+        # The two figures have to imply the ratio: a paragraph that quotes a cost and a ratio from
+        # different runs is the mistake this cell exists to catch.
+        implied = (self.costs["g1_mjx_scene"]["native_us_per_simulated_second"]
+                   / self.costs["walker_ragdoll"]["native_us_per_simulated_second"])
+        self.assertAlmostEqual(round(implied, 3),
+                               self.costs["g1_mjx_scene"]["native_ratio_vs_ragdoll"], places=3)
+
+    def test_the_mjx_speedup_is_quoted_against_the_native_ceiling(self):
+        m = self.sentence(r"by \*\*([\d.]+)x\*\* at `nworld=(\d+)`.*?real time \(([\d.]+) simulated "
+                          r"seconds per wall second\)", "the MJX cells")
+        self.check("g1 over ragdoll in mjx", m.group(1),
+                   self.art["g1_mjx_speedup_over_ragdoll_mjx"], places=2)
+        n = int(m.group(2))
+        self.check("g1 mjx rate", m.group(3), self.costs["g1_mjx_scene"]["mjx"][str(n)], places=2)
+        s = self.sentence(r"It is still \*\*([\d.]+)%\*\* of what the native 32-process ragdoll path "
+                          r"collects \(\*\*([\d.]+)\*\* simulated s/wall s\)", "the ceiling share")
+        self.check("share of ceiling", s.group(1),
+                   round(100 * self.art["best_mjx_share_of_native_ceiling"], 1), places=1)
+        self.check("native ceiling", s.group(2),
+                   self.art["native_ragdoll_ceiling_sim_s_per_wall_s"], places=2)
+        self.assertLess(self.art["best_mjx_cell_sim_s_per_wall_s"],
+                        self.art["native_ragdoll_ceiling_sim_s_per_wall_s"],
+                        "MJX on this card now beats the native path, which is a different story than "
+                        "the one this paragraph tells")
+
+    def test_the_model_is_measured_not_vendored(self):
+        with open(os.path.join(ROOT, ".gitignore"), encoding="utf-8") as handle:
+            ignore = handle.read()
+        self.assertIn("external/", ignore,
+                      "the G1 assets are supposed to stay out of the repository")
+        self.assertFalse([f for f in glob.glob(os.path.join(ROOT, "**", "g1*.xml"), recursive=True)
+                          if os.path.relpath(f, ROOT).startswith("unitree")],
+                         "a G1 description was committed at the repository root")
+        self.assertRegex(self.art["menagerie_commit"], r"^[0-9a-f]{40}$",
+                         "the paragraph names a commit; the artifact has to record which one")
+        self.assertIn("CYLINDER", self.costs["g1_native"]["mjx"]["unsupported"],
+                      "the reason Menagerie's native G1 cannot go on the GPU changed")
+
+
 class TestReadmeTrainerPairCells(ReadmeGate, unittest.TestCase):
     """PPO against SAC: the rate claim and the behaviour claim are gated together or not at all.
 

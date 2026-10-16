@@ -2102,6 +2102,26 @@ its own community answers, which is why the two images above are GIFs). Each sid
 sha256 and byte count of the file that landed there, and a test recomputes both, so a tracked clip
 cannot drift from the telemetry published beside it.
 
+**The model itself was priced too, and on this hardware it is not the reason either.** Menagerie's
+Unitree G1 - the robot boxer-rl trains, 29 actuators, `nv` 35, IMPLICITFAST at dt 0.004 with 49
+declared foot-floor pairs - was fetched to `external/` (36 MB of meshes, deliberately not vendored) and
+measured against the ragdoll in the one unit that survives a change of timestep: **microseconds per
+simulated second**, because comparing steps/s between a 0.002 and a 0.004 model compares clocks.
+Natively the G1 scene is **0.815x** the ragdoll's cost (29,352 µs against **36,003 µs**) - cheaper here,
+not dearer - and Menagerie's own mesh-collider description is **1.234x**. On the GPU in MJX the G1 does
+beat our ragdoll, by **4.14x** at `nworld=256`, and it is the first cell in this section that crosses
+real time (0.87 simulated seconds per wall second). It is still **1.3%** of what the native 32-process
+ragdoll path collects (**66.94** simulated s/wall s), so the fastest G1 configuration measured on this
+machine collects a fraction of what the current one does. One incidental finding: MJX cannot take the
+native G1 description at all - `(CYLINDER, MESH) collisions not implemented` - which is exactly why a
+second, primitive-collider file exists upstream (`bench_g1_cost.py`,
+`benchmarks/g1_model_cost_comparison.json`).
+
+So the G1 is not a speed lever here; it is a different robot, and running it would mean building its
+observation, reward and target task from scratch, since every one of those reads the ragdoll's body
+layout. That is a separate project, not a configuration, and this repository's own conclusion stands:
+the cost is in the learner and the update, not in which humanoid is standing up.
+
 **The learner was the other half of the JAX question, and it does not win either.** The physics is
 one reason to stay off XLA; the argument for porting anyway was that the learner is a recurrence of
 about ten tiny kernels per step, which is exactly what XLA fusion is good at.
@@ -2252,12 +2272,12 @@ Three facts to keep in mind:
 
 The suite is plain `unittest` (no pytest required) and covers the environment contract, the
 golden reward rollouts, the parallel/serial vector-env parity, checkpointing and the race
-harness — **455 tests, 401 s in this window** (`Ran 455 tests in 401.094s ... OK
+harness — **458 tests, 397 s in this window** (`Ran 458 tests in 397.254s ... OK
 (skipped=7)` under `.venv`). Windows of this suite have measured 176.3 s at 102 tests, 269.995 s
 at 121, 261.1 s at 127, 329.964 s at 128, 319.168 s at 130, 184.716 s, 203.108 s and 306.976 s at
 140, 144.678 s at 147, 230.268 s at 157, 171.016 s and 170.304 s at 194, and 174.008 s,
 170.391 s, 175.036 s, 168.775 s, 168.986 s and 166.606 s at 201/205/210, 169.919 s at 214,
-and 163.920 s and 161.829 s at 237, 165.360 s and 164.902 s at 243, 161.647 s and 162.674 s at 250, 162.726 s and 162.167 s at 251, 171.616 s and 163.434 s at 252, 163.769 s and 163.748 s at 255, 226.912 s and 217.651 s at 260, 193.167 s and 191.909 s at 273, 206.150 s at 279, 193.904 s at 284, 201.464 s at 289, 189.864 s and 187.485 s at 294, 190.012 s at 297, 230.180 s at 301, 190.655 s at 311, 211.202 s at 317, 195.419 s at 322, 184.182 s at 326, 180.964 s at 326, 266.112 s and 191.187 s at 339, 185.556 s at 340, 193.319 s at 351, 218.984 s at 369, 238.576 s at 376, 355.206 s at 399, 339.222 s and 373.536 s at 424/426, 320.360 s, 308.791 s, 398.060 s and 401.094 s at 428/430/438/455 -
+and 163.920 s and 161.829 s at 237, 165.360 s and 164.902 s at 243, 161.647 s and 162.674 s at 250, 162.726 s and 162.167 s at 251, 171.616 s and 163.434 s at 252, 163.769 s and 163.748 s at 255, 226.912 s and 217.651 s at 260, 193.167 s and 191.909 s at 273, 206.150 s at 279, 193.904 s at 284, 201.464 s at 289, 189.864 s and 187.485 s at 294, 190.012 s at 297, 230.180 s at 301, 190.655 s at 311, 211.202 s at 317, 195.419 s at 322, 184.182 s at 326, 180.964 s at 326, 266.112 s and 191.187 s at 339, 185.556 s at 340, 193.319 s at 351, 218.984 s at 369, 238.576 s at 376, 355.206 s at 399, 339.222 s and 373.536 s at 424/426, 320.360 s, 308.791 s, 398.060 s, 401.094 s and 397.254 s at 428/430/438/455/458 -
 those last windows carry a dose test that runs three short CPU trainings, which are about 27 s of
 them, so that entry is not slower hardware; consecutive runs of one commit agree to 4%, where the
 147 and 157 windows an afternoon earlier were 1.6x apart for ten more tests. The
@@ -2321,7 +2341,7 @@ that they ran - see Phase 4, item 6. How each of those states was found, with th
 ## 🔬 Reproducing and measuring
 
 ```bash
-python -m unittest discover -s tests -t .   # 455 tests in .venv, 401 s; see "Running the tests"
+python -m unittest discover -s tests -t .   # 458 tests in .venv, 397 s; see "Running the tests"
 python bench_env.py --seconds 4             # env throughput, physics vs Python split
 python bench_mjx.py --sizes 32,128          # MJX/JAX batched stepping
 python bench_mjx_pairs.py --verify          # is an explicit-<pair> world the same MDP? (MuJoCo-C)
@@ -2345,6 +2365,10 @@ python make_target_clips.py --gif-from docs/media/clips/published_4000000s_seed2
   docs/media/target_clips_seed25_published_vs_gait_reduced.gif
                                           # the two-up GIF the MJX section embeds (pass one clip for a
                                           # single-panel GIF); the size budget is a test assertion
+python bench_g1_cost.py --native --out benchmarks/g1_native_cost.json
+                                          # the ragdoll and Menagerie's G1 priced per simulated second
+                                          # on this CPU; --mjx runs the GPU path under WSL (needs the
+                                          # mujoco 3.16 venv, and external/ fetched separately)
 python verify.py                            # Phase-2 artifact check (exits 2 when missing)
 python bench_device.py                        # SAC update cost, CPU vs CUDA
 python bench_dreamer_update.py --mode scaling # per-loop-step cost, eager vs captured, 3 batch points

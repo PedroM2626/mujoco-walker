@@ -1,0 +1,76 @@
+{
+ "protocol": "microseconds per mj_step and per simulated second, one process, back to back; the ragdoll is this repository's published world and the G1 files are Menagerie's, fetched to external/ and not vendored",
+ "control_step_s": 0.01,
+ "menagerie_commit": "62ab00f2bc44f6f20c1c9b7a13f3fb1dd41a4e35",
+ "models": {
+  "walker_ragdoll": {
+   "xml": "walker_ragdoll.xml",
+   "xml_sha256": "95bf8a74a2911d4005f6a0104410e599272bb23afce533f7dad28ea8d7811d79",
+   "nbody": 15,
+   "nq": 24,
+   "nv": 23,
+   "nu": 17,
+   "ngeom": 19,
+   "collidable_geoms": 18,
+   "declared_pairs": 0,
+   "nmesh": 0,
+   "timestep": 0.002,
+   "integrator": "mjINT_RK4",
+   "steps_per_control_action": 5.0,
+   "native": {
+    "mj_step_us": 72.0,
+    "steps_per_s": 13887.7,
+    "per_simulated_second_us": 36003.1,
+    "control_actions_per_s": 2777.5,
+    "steps": 55600,
+    "seconds": 4.0
+   }
+  },
+  "g1_native": {
+   "xml": "external/mujoco_menagerie/unitree_g1/g1.xml",
+   "xml_sha256": "8aad7f1eb6d3195e54c527e90ea1aac5ac63ec9a6ca6d25ebba012bbd221f49e",
+   "nbody": 31,
+   "nq": 36,
+   "nv": 35,
+   "nu": 29,
+   "ngeom": 71,
+   "collidable_geoms": 36,
+   "declared_pairs": 0,
+   "nmesh": 35,
+   "timestep": 0.002,
+   "integrator": "mjINT_IMPLICITFAST",
+   "steps_per_control_action": 5.0,
+   "native": {
+    "mj_step_us": 88.8,
+    "steps_per_s": 11256.7,
+    "per_simulated_second_us": 44417.8,
+    "control_actions_per_s": 2251.3,
+    "steps": 45200,
+    "seconds": 4.0
+   }
+  },
+  "g1_mjx_scene": {
+   "xml": "external/mujoco_menagerie/unitree_g1/scene_mjx.xml",
+   "xml_sha256": "4ec9944356d76ccc633dee9be6e8252f826bd03986b435f06d0ebcdf9a588e86",
+   "nbody": 31,
+   "nq": 36,
+   "nv": 35,
+   "nu": 29,
+   "ngeom": 63,
+   "collidable_geoms": 1,
+   "declared_pairs": 49,
+   "nmesh": 35,
+   "timestep": 0.004,
+   "integrator": "mjINT_IMPLICITFAST",
+   "steps_per_control_action": 2.5,
+   "native": {
+    "mj_step_us": 117.4,
+    "steps_per_s": 8517.4,
+    "per_simulated_second_us": 29351.5,
+    "control_actions_per_s": 3407.0,
+    "steps": 34200,
+    "seconds": 4.0
+   }
+  }
+ }
+}

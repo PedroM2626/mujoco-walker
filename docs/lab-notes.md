@@ -650,3 +650,37 @@ requires identical observations and rewards for 60 steps. Second, a rendered art
 marker pixels, and the counts go into the committed sidecar, so "the goal is on screen" is a measurement
 and not a description. Related: [[a-human-facing-artifact-must-carry-its-own-evidence]],
 [[look-at-the-artifact-you-describe]], [[verify-panel-geometry-on-rendered-pixels]].
+
+## A borrowed model is a different question from a borrowed configuration
+
+The boxing project's speed had two candidate explanations. The contact configuration was measured and
+rejected, so the remaining one was the robot: two Unitree G1s instead of this 17-actuator ragdoll. The
+G1 was fetched from Menagerie (36 MB of meshes, kept in `external/` and not vendored) and priced in the
+only unit that survives the two models choosing different timesteps - 0.002 against 0.004 - which is
+**microseconds per simulated second**. The answer has three parts, and each is a different mistake to
+make.
+
+- Natively the G1 is **not** expensive: its MJX-oriented scene costs **0.815x** what the ragdoll costs
+  per simulated second here (29,352 µs against 36,003 µs), because it steps 2.5 times as coarsely and
+  collides 49 declared pairs instead of 126 filtered candidates. Judging a model by its step count
+  would have said the opposite.
+- In MJX on this GPU the G1 really is faster than the ragdoll - **4.14x** at `nworld=256`, and the only
+  cell in this whole line of work that crosses real time (0.87 simulated seconds per wall second). That
+  is a true sentence about the model and the backend together, and it is still the wrong conclusion,
+  because the comparison that decides whether to move is against the path actually training:
+  0.87 is **1.3%** of the 66.94 simulated s/wall s the 32-process native ragdoll collects.
+- The instrument mattered more than usual. Absolute MJX rates moved ~1.3x between draws with the XLA
+  memory fraction, the venv that produced this repository's published MJX table cannot put a
+  pair-declaring model on the GPU at all (`jnp.clip(a_min=)`), and Menagerie's *native* G1 description
+  cannot be loaded into MJX either - `(CYLINDER, MESH) collisions not implemented` - so which model file
+  exists is dictated by which backend you intend to run. Only ratios measured back to back in one
+  process are claimed.
+
+**How to apply:** price an imported speed claim in the unit the budget pays in, and against the ceiling
+you actually train at rather than against the other project's path; check whether the model you want to
+compare is even loadable in the backend you are comparing, before treating "it ran" as a measurement;
+and when a hardware stack has two live versions on the machine, write the version into the artifact,
+because the same script produces different absolute numbers under each. Related:
+[[borrowed-speed-config-carries-the-other-projects-bottleneck]],
+[[two-armed-comparisons-need-their-instrument-settings-recorded]],
+[[a-timing-measured-once-is-a-claim-waiting-to-be-refuted]].

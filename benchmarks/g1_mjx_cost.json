@@ -1,0 +1,96 @@
+{
+ "protocol": "microseconds per mj_step and per simulated second, one process, back to back; the ragdoll is this repository's published world and the G1 files are Menagerie's, fetched to external/ and not vendored",
+ "control_step_s": 0.01,
+ "menagerie_commit": "62ab00f2bc44f6f20c1c9b7a13f3fb1dd41a4e35",
+ "instrument": {
+  "mujoco": "3.16.0",
+  "xla_python_client_mem_fraction": "0.3",
+  "python": "Python 3.12.3"
+ },
+ "models": {
+  "walker_ragdoll": {
+   "xml": "walker_ragdoll.xml",
+   "xml_sha256": "95bf8a74a2911d4005f6a0104410e599272bb23afce533f7dad28ea8d7811d79",
+   "nbody": 15,
+   "nq": 24,
+   "nv": 23,
+   "nu": 17,
+   "ngeom": 19,
+   "collidable_geoms": 18,
+   "declared_pairs": 0,
+   "nmesh": 0,
+   "timestep": 0.002,
+   "integrator": "mjINT_RK4",
+   "steps_per_control_action": 5.0,
+   "mjx": [
+    {
+     "nworld": 64,
+     "backend": "gpu",
+     "mj_steps_per_s": 29.6,
+     "simulated_seconds_per_wall_second": 0.06,
+     "control_actions_per_s": 5.92,
+     "seconds": 43.2
+    },
+    {
+     "nworld": 256,
+     "backend": "gpu",
+     "mj_steps_per_s": 103.2,
+     "simulated_seconds_per_wall_second": 0.21,
+     "control_actions_per_s": 20.64,
+     "seconds": 49.6
+    }
+   ]
+  },
+  "g1_native": {
+   "xml": "external/mujoco_menagerie/unitree_g1/g1.xml",
+   "xml_sha256": "8aad7f1eb6d3195e54c527e90ea1aac5ac63ec9a6ca6d25ebba012bbd221f49e",
+   "nbody": 31,
+   "nq": 36,
+   "nv": 35,
+   "nu": 29,
+   "ngeom": 71,
+   "collidable_geoms": 36,
+   "declared_pairs": 0,
+   "nmesh": 35,
+   "timestep": 0.002,
+   "integrator": "mjINT_IMPLICITFAST",
+   "steps_per_control_action": 5.0,
+   "mjx": {
+    "unsupported": "(mjtGeom.mjGEOM_CYLINDER, mjtGeom.mjGEOM_MESH) collisions not implemented."
+   }
+  },
+  "g1_mjx_scene": {
+   "xml": "external/mujoco_menagerie/unitree_g1/scene_mjx.xml",
+   "xml_sha256": "4ec9944356d76ccc633dee9be6e8252f826bd03986b435f06d0ebcdf9a588e86",
+   "nbody": 31,
+   "nq": 36,
+   "nv": 35,
+   "nu": 29,
+   "ngeom": 63,
+   "collidable_geoms": 1,
+   "declared_pairs": 49,
+   "nmesh": 35,
+   "timestep": 0.004,
+   "integrator": "mjINT_IMPLICITFAST",
+   "steps_per_control_action": 2.5,
+   "mjx": [
+    {
+     "nworld": 64,
+     "backend": "gpu",
+     "mj_steps_per_s": 45.4,
+     "simulated_seconds_per_wall_second": 0.18,
+     "control_actions_per_s": 18.18,
+     "seconds": 28.2
+    },
+    {
+     "nworld": 256,
+     "backend": "gpu",
+     "mj_steps_per_s": 217.9,
+     "simulated_seconds_per_wall_second": 0.87,
+     "control_actions_per_s": 87.16,
+     "seconds": 23.5
+    }
+   ]
+  }
+ }
+}

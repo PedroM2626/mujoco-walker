@@ -1911,6 +1911,56 @@ def target_clips_contact_contrast(out="benchmarks/target_clips_contact_contrast.
     }, out
 
 
+def g1_model_cost_comparison(out="benchmarks/g1_model_cost_comparison.json"):
+    """The boxing project's robot, priced on this machine, in the unit a training budget pays in.
+
+    Two artifacts, two paths: native MuJoCo-C (what this repository trains on) and batched MJX on the
+    GPU (what boxer-rl trains on). The comparison is per *simulated* second, because the two models
+    chose different timesteps - 0.002 against 0.004 - and a ratio of steps per second would be a ratio
+    of clocks. The MJX cells carry their instrument (mujoco/jax version, XLA memory fraction) because
+    the levels moved with it; the ratios are what replicates.
+    """
+    native = json.load(open(os.path.join(ROOT, "benchmarks", "g1_native_cost.json"), encoding="utf-8"))
+    mjx = json.load(open(os.path.join(ROOT, "benchmarks", "g1_mjx_cost.json"), encoding="utf-8"))
+    rag_us = native["models"]["walker_ragdoll"]["native"]["per_simulated_second_us"]
+    per_model = {}
+    for name, cell in native["models"].items():
+        row = {"native_us_per_simulated_second": cell["native"]["per_simulated_second_us"],
+               "native_ratio_vs_ragdoll": round(cell["native"]["per_simulated_second_us"] / rag_us, 3),
+               "timestep": cell["timestep"], "declared_pairs": cell["declared_pairs"],
+               "nv": cell["nv"], "nu": cell["nu"]}
+        m = mjx["models"].get(name, {}).get("mjx")
+        if isinstance(m, dict):
+            row["mjx"] = m
+        elif m:
+            row["mjx"] = {c["nworld"]: c["simulated_seconds_per_wall_second"] for c in m}
+        per_model[name] = row
+    best_mjx = max((v["mjx"][256] for v in per_model.values() if isinstance(v.get("mjx"), dict)
+                    and 256 in v["mjx"]), default=0.0)
+    ceiling = MJX_PAIRS_NATIVE_REFERENCE["parallel_vec_env_steps_per_s_n32"] * 0.01
+    return {
+        "protocol": ("bench_g1_cost.py: the published ragdoll and Menagerie's Unitree G1 (the model "
+                     "boxer-rl trains), priced per simulated second on both paths; G1 files are in "
+                     "external/ and not vendored"),
+        "menagerie_commit": mjx["menagerie_commit"],
+        "mjx_instrument": mjx["instrument"],
+        "control_step_s": native["control_step_s"],
+        "costs": per_model,
+        "native_ragdoll_ceiling_sim_s_per_wall_s": round(ceiling, 2),
+        "best_mjx_cell_sim_s_per_wall_s": best_mjx,
+        "best_mjx_share_of_native_ceiling": round(best_mjx / ceiling, 4),
+        "g1_cheaper_than_ragdoll_natively":
+            per_model["g1_mjx_scene"]["native_ratio_vs_ragdoll"] < 1.0,
+        "g1_faster_than_ragdoll_in_mjx":
+            isinstance(per_model.get("g1_mjx_scene", {}).get("mjx"), dict)
+            and isinstance(per_model.get("walker_ragdoll", {}).get("mjx"), dict)
+            and per_model["g1_mjx_scene"]["mjx"][256] > per_model["walker_ragdoll"]["mjx"][256],
+        "g1_mjx_speedup_over_ragdoll_mjx": round(
+            per_model["g1_mjx_scene"]["mjx"][256]
+            / per_model["walker_ragdoll"]["mjx"][256], 2),
+    }, out
+
+
 BENCHMARKS = [
     phase3,
     lambda: phase3("eval_phase3_100ep.log", seed=11,
@@ -1963,6 +2013,8 @@ BENCHMARKS = [
     mjx_pairs_gate,
     # The same three contact worlds timed on the native path, and what that is worth in training clock.
     contact_worlds_native_gate,
+    # The boxing project's robot, priced per simulated second on both paths.
+    g1_model_cost_comparison,
     # The two rendered contact worlds, compared per seed: what the clips actually show.
     target_clips_contact_contrast,
     # PPO against SAC at the same config: what each costs per environment step, and what that buys

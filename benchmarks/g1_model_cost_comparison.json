@@ -1,0 +1,53 @@
+{
+  "protocol": "bench_g1_cost.py: the published ragdoll and Menagerie's Unitree G1 (the model boxer-rl trains), priced per simulated second on both paths; G1 files are in external/ and not vendored",
+  "menagerie_commit": "62ab00f2bc44f6f20c1c9b7a13f3fb1dd41a4e35",
+  "mjx_instrument": {
+    "mujoco": "3.16.0",
+    "xla_python_client_mem_fraction": "0.3",
+    "python": "Python 3.12.3"
+  },
+  "control_step_s": 0.01,
+  "costs": {
+    "walker_ragdoll": {
+      "native_us_per_simulated_second": 36003.1,
+      "native_ratio_vs_ragdoll": 1.0,
+      "timestep": 0.002,
+      "declared_pairs": 0,
+      "nv": 23,
+      "nu": 17,
+      "mjx": {
+        "64": 0.06,
+        "256": 0.21
+      }
+    },
+    "g1_native": {
+      "native_us_per_simulated_second": 44417.8,
+      "native_ratio_vs_ragdoll": 1.234,
+      "timestep": 0.002,
+      "declared_pairs": 0,
+      "nv": 35,
+      "nu": 29,
+      "mjx": {
+        "unsupported": "(mjtGeom.mjGEOM_CYLINDER, mjtGeom.mjGEOM_MESH) collisions not implemented."
+      }
+    },
+    "g1_mjx_scene": {
+      "native_us_per_simulated_second": 29351.5,
+      "native_ratio_vs_ragdoll": 0.815,
+      "timestep": 0.004,
+      "declared_pairs": 49,
+      "nv": 35,
+      "nu": 29,
+      "mjx": {
+        "64": 0.18,
+        "256": 0.87
+      }
+    }
+  },
+  "native_ragdoll_ceiling_sim_s_per_wall_s": 66.94,
+  "best_mjx_cell_sim_s_per_wall_s": 0.87,
+  "best_mjx_share_of_native_ceiling": 0.013,
+  "g1_cheaper_than_ragdoll_natively": true,
+  "g1_faster_than_ragdoll_in_mjx": true,
+  "g1_mjx_speedup_over_ragdoll_mjx": 4.14
+}

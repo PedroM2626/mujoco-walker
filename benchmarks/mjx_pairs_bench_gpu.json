@@ -1,0 +1,45 @@
+{
+ "protocol": "explicit <pair> variants of walker_ragdoll.xml: the full candidate set declared verbatim (contype/conaffinity zeroed), and a boxer-style gait-only reduction (feet/shins/thighs vs floor and each other, head/torso/butt vs floor, arms removed from collision)",
+ "published_candidate_pairs": 126,
+ "bench": {
+  "published_automatic": {
+   "declared_pairs": 0,
+   "static_contact_slots": 138,
+   "jax_backend": "gpu",
+   "nworld_128": {
+    "env_steps_per_s": 731.7,
+    "seconds": 7.0
+   },
+   "nworld_512": {
+    "env_steps_per_s": 1148.5,
+    "seconds": 8.9
+   }
+  },
+  "explicit_full": {
+   "declared_pairs": 126,
+   "static_contact_slots": 138,
+   "jax_backend": "gpu",
+   "nworld_128": {
+    "env_steps_per_s": 661.3,
+    "seconds": 7.7
+   },
+   "nworld_512": {
+    "env_steps_per_s": 1170.3,
+    "seconds": 8.7
+   }
+  },
+  "gait_reduced": {
+   "declared_pairs": 20,
+   "static_contact_slots": 28,
+   "jax_backend": "gpu",
+   "nworld_128": {
+    "env_steps_per_s": 863.7,
+    "seconds": 8.9
+   },
+   "nworld_512": {
+    "env_steps_per_s": 2393.0,
+    "seconds": 8.6
+   }
+  }
+ }
+}

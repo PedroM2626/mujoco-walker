@@ -1744,6 +1744,60 @@ def ppo_cold_window_pair(out="benchmarks/ppo_cold_window_pair.json"):
     }, out
 
 
+MJX_PAIRS_NATIVE_REFERENCE = {
+    # The native comparator, measured by bench_env.py (2026-10-01) and quoted as the committed
+    # ceiling throughout the MJX section: 32 worker processes, MuJoCo-C, RK4.
+    "source": "benchmarks/vec_backend_scaling.json + bench_env.py, measured 2026-10-01",
+    "parallel_vec_env_steps_per_s_n32": 6694.0,
+}
+
+
+def mjx_pairs_gate(out="benchmarks/mjx_pairs_gate.json"):
+    """The explicit-<pair> counter-configuration, derived from its two committed artifacts.
+
+    Every figure in the README paragraph comes from here: the fidelity numbers from the native
+    verification (which is the only half that can prove a variant is the same MDP), the slot counts
+    and rates from the GPU bench (which is the half that can prove it does not help), and the gate
+    verdict recomputed rather than remembered.
+    """
+    verify = json.load(open(os.path.join(ROOT, "benchmarks", "mjx_pairs_verify.json"),
+                            encoding="utf-8"))
+    bench = json.load(open(os.path.join(ROOT, "benchmarks", "mjx_pairs_bench_gpu.json"),
+                           encoding="utf-8"))["bench"]
+    native = MJX_PAIRS_NATIVE_REFERENCE["parallel_vec_env_steps_per_s_n32"]
+    full, reduced = bench["explicit_full"], bench["gait_reduced"]
+    published = bench["published_automatic"]
+    gate_threshold = 2.0 * native
+    best = max(cell[f"nworld_{n}"]["env_steps_per_s"] for cell in (full, reduced)
+               for n in (128, 512))
+    return {
+        "protocol": ("bench_mjx_pairs.py: the published XML, the full candidate set declared "
+                     "explicitly (verified bit-equivalent first), and a boxer-style gait-only "
+                     "reduction, benched back to back on one GPU window"),
+        "candidate_pairs": verify["published_candidate_pairs"],
+        "fidelity": {name: cell for name, cell in verify["verify"].items()},
+        "explicit_full_is_bit_equivalent":
+            verify["verify"]["explicit_full"]["contact_set_mismatch_steps_total"] == 0
+            and verify["verify"]["explicit_full"]["max_abs_qpos_diff"] < 1e-9,
+        "slots": {name: cell["static_contact_slots"] for name, cell in bench.items()},
+        "env_steps_per_s_n512": {name: cell["nworld_512"]["env_steps_per_s"]
+                                 for name, cell in bench.items()},
+        "explicit_vs_automatic_n512_ratio": round(
+            full["nworld_512"]["env_steps_per_s"] / published["nworld_512"]["env_steps_per_s"], 3),
+        "reduced_vs_full_n512_ratio": round(
+            reduced["nworld_512"]["env_steps_per_s"] / full["nworld_512"]["env_steps_per_s"], 3),
+        "native_parallel_env_steps_per_s": native,
+        "gate": {"condition": "the reduced variant must reach 2x the native parallel path to "
+                              "justify porting training to MJX",
+                 "threshold_env_steps_per_s": gate_threshold,
+                 "best_reduced_cell": best,
+                 "passed": best >= gate_threshold,
+                 "shortfall_ratio": round(gate_threshold / best, 2)},
+        "gait_reduced_is_a_different_mdp":
+            verify["verify"]["gait_reduced"]["contact_set_mismatch_steps_total"] > 0,
+    }, out
+
+
 BENCHMARKS = [
     phase3,
     lambda: phase3("eval_phase3_100ep.log", seed=11,
@@ -1791,6 +1845,9 @@ BENCHMARKS = [
     value_shaping_pair,
     # The two-seed cold-window replication of the PPO clock gap, with the device state each run measured in.
     ppo_cold_window_pair,
+    # The explicit-<pair> counter-configuration for the MJX section: does declaring contacts like the
+    # contact-dense projects do rescue MJX on this ragdoll? (No, and the gate says by how much.)
+    mjx_pairs_gate,
     # PPO against SAC at the same config: what each costs per environment step, and what that buys
     # in behaviour. The two answers point in opposite directions, so they live in one artifact.
     trainer_pair_ppo_sac,

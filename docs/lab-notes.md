@@ -573,3 +573,42 @@ to be about arrivals, falls or metres closed - not about a return level. A retur
 is allowed only as context, never as the second half of a ratio. Related:
 [[two-armed-comparisons-need-their-instrument-settings-recorded]],
 [[a-timing-measured-once-is-a-claim-waiting-to-be-refuted]].
+
+## A borrowed speed configuration is a hypothesis about the bottleneck, not a lever
+
+`boxer-rl` runs two contact-dense Unitree G1 humanoids as batched MJX worlds and trains in a fraction of
+this project's wall clock. Its XML declares every collision it cares about with `<pair>` instead of
+leaving it to the contype/conaffinity filter, so the obvious reading was that the declaration is the
+lever, and `bench_mjx_pairs.py` was written to pull it. Both halves of it moved nothing:
+
+- Declaring the same contacts explicitly - all **126** pairs the automatic filter admits, geom by geom,
+  with every `contype`/`conaffinity` zeroed - leaves MJX's static contact buffer at **138** slots, exactly
+  where the published XML puts it. Back to back on one GPU window at `nworld=512`: **1,148.5** env-steps/s
+  against **1,170.3**, a ratio of **1.019**. The variant was proven to be the same MDP first (**0**
+  contact-set mismatches over 6 x 300 steps, max |dqpos| **1.9e-13**) so that null is a comparison of two
+  identical worlds, not two worlds differing in some unnoticed way.
+- Declaring *fewer* pairs does buy throughput - a boxer-style gait-only set (**28** slots, arms out of
+  collision entirely) runs **2.045x** faster, **2,393.0** env-steps/s - and it is the wrong MDP to be fast
+  in: **1,497** contact-set mismatches in the same rollouts, first divergence at step 17, a fallen arm
+  sinking through the floor while the published reward reads exactly those contacts. It is still only
+  **0.36x** the native process-parallel path (**6,694**). The gate written before the arm ran - the fast
+  variant must reach 2x native to justify porting training - fails by **5.59x**.
+
+**Why the trick works there and not here:** pair declarations do not make the contact pipeline cheaper;
+they make the *set of contacts* explicit. boxer-rl's speedup comes from where native MuJoCo is expensive -
+two 29-joint G1 humanoids in one scene (its own README: 55 geoms, 208 declared pairs, `nu` 58, against the
+18 collidable geoms and 126 candidate pairs here) with enough simultaneous contacts that the sparse
+solver's per-step factorisation and the Python-into-C hop dominate - and from MJX then amortising that
+across a batched GPU world. On a 17-actuator ragdoll whose contacts are few and whose expensive part is
+the RK4 pipeline rather than the solver, the native path is already the fast one, so there is no
+bottleneck for the configuration to address. Copying a configuration across projects silently copies the
+other project's bottleneck with it.
+
+**How to apply:** when a speedup is borrowed, first name the mechanism that produces it in the source
+project, then measure whether that mechanism is a cost here at all - `mjx_single_step_rate` and the native
+`bench_env.py` ceiling already said native won before any pair was declared. Second, order the two gates:
+equivalence before throughput. A throughput win on an unverified variant is not a win, it is a different
+task measured faster, and the number will look respectable. Third, set the port threshold as a number
+before running, because after running there is always a framing under which 2.045x looks like progress.
+Related: [[quantify-cost-dont-claim-impossibility]],
+[[two-armed-comparisons-need-their-instrument-settings-recorded]], [[verify-a-run-is-stale-before-rerunning-it]].

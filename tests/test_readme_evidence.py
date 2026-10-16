@@ -4670,6 +4670,100 @@ class TestReadmePpoColdWindowCells(ReadmeGate, unittest.TestCase):
                       r"explains none of the ordering\.", "the verdict sentence")
 
 
+class TestReadmeMjxPairsGateCells(ReadmeGate, unittest.TestCase):
+    """The explicit-<pair> counter-configuration, gated on its own measured artifacts.
+
+    This paragraph could mislead in two directions and each is pinned. "Declaring pairs buys nothing"
+    is only legal because the explicit variant was *proven* the same MDP first - so the fidelity
+    numbers are gated, and if the variant ever stops being bit-equivalent the throughput comparison
+    beside them stops meaning anything. And the gate verdict is recomputed from the artifacts rather
+    than quoted, because "we decided not to port" and "the port failed its own gate" are different
+    sentences, and only the second one is what happened.
+    """
+
+    GATE = os.path.join(ROOT, "benchmarks", "mjx_pairs_gate.json")
+    START = "**The obvious counter-configuration was built and gated"
+    END = "**The learner was the other half of the JAX question"
+
+    def setUp(self):
+        with open(README, encoding="utf-8") as handle:
+            readme = handle.read()
+        start = readme.index(self.START)
+        self.block = readme[start:readme.index(self.END, start)]
+        self.gate, = self.read_artifacts(self.GATE)
+        self.bad = []
+        self.what = "MJX pairs gate"
+
+    def test_the_explicit_variant_is_proven_the_same_mdp_first(self):
+        m = self.sentence(r"\(6 rollouts x 300 steps, \*\*(\d+)\*\* contact-set mismatches, "
+                          r"max \|qpos diff\| \*\*([\d.e-]+)\*\*\)", "the equivalence proof")
+        fidelity = self.gate["fidelity"]["explicit_full"]
+        self.check("mismatch steps", m.group(1),
+                   fidelity["contact_set_mismatch_steps_total"], places=0)
+        # An exponent-form figure, so check() cannot gate it: rounding both sides to any number of
+        # decimals below 13 turns a 1e-13 into 0.0 and the comparison would pass on anything.
+        # Instead the README's own rounding has to be the artifact's rounding.
+        rounds = f"{fidelity['max_abs_qpos_diff']:.2g}"
+        if m.group(2) != rounds:
+            self.bad.append(f"max qpos diff: README says {m.group(2)}, artifact rounds to {rounds}")
+        self.assertTrue(self.gate["explicit_full_is_bit_equivalent"],
+                        "the explicit variant is no longer bit-equivalent, so the throughput "
+                        "comparison next to this sentence is comparing two different MDPs")
+
+    def test_declaring_the_same_pairs_buys_nothing(self):
+        m = self.sentence(r"The candidate set .*,? is (\d+) pairs, and MJX allocates the same "
+                          r"\*\*(\d+)\*\* static contact slots", "the slot counts")
+        self.check("candidate pairs", m.group(1), self.gate["candidate_pairs"], places=0)
+        self.check("static slots", m.group(2), self.gate["slots"]["explicit_full"], places=0)
+        self.assertEqual(self.gate["slots"]["published_automatic"],
+                         self.gate["slots"]["explicit_full"],
+                         "the slot counts diverged, so 'the same number' is no longer what the "
+                         "bench measured")
+        r = self.sentence(r"Measured back to back at n=512: \*\*([\d,.]+)\*\* env-steps/s "
+                          r"\(published XML\) against \*\*([\d,.]+)\*\*\s*\(explicit full set\)",
+                          "the back-to-back rates")
+        rates = self.gate["env_steps_per_s_n512"]
+        self.check("published rate", r.group(1).replace(",", ""),
+                   rates["published_automatic"], places=1)
+        self.check("explicit rate", r.group(2).replace(",", ""), rates["explicit_full"], places=1)
+        self.assertLess(self.gate["explicit_vs_automatic_n512_ratio"], 1.10,
+                        "declaring the full set explicitly now moves the rate by more than window "
+                        "noise, so 'buys nothing' is stale")
+
+    def test_the_reduced_variant_is_a_different_mdp_and_still_loses(self):
+        m = self.sentence(r"cuts the slots to \*\*(\d+)\*\* and multiplies the rate by ([\d.]+)x "
+                          r"\(\*\*([\d,.]+)\*\* env-steps/s at n=512\), but that is still\s*"
+                          r"\*\*([\d.]+)x\*\* the native process-parallel path's", "the reduced cell")
+        self.check("reduced slots", m.group(1), self.gate["slots"]["gait_reduced"], places=0)
+        self.check("reduced-vs-full ratio", m.group(2), self.gate["reduced_vs_full_n512_ratio"],
+                   places=3)
+        self.check("reduced rate", m.group(3).replace(",", ""),
+                   self.gate["env_steps_per_s_n512"]["gait_reduced"], places=1)
+        native = self.gate["native_parallel_env_steps_per_s"]
+        self.check("vs native", m.group(4),
+                   round(self.gate["env_steps_per_s_n512"]["gait_reduced"] / native, 2), places=2)
+        self.assertTrue(self.gate["gait_reduced_is_a_different_mdp"],
+                        "the reduced variant now reproduces the published contacts, which would make "
+                        "it the same MDP *and* faster - a different and much bigger result")
+        mism = self.sentence(r"\(([\d,]+) contact-set mismatches in the same 6 rollouts\)",
+                             "the mismatch count")
+        self.check("reduced mismatch steps", mism.group(1).replace(",", ""),
+                   self.gate["fidelity"]["gait_reduced"]["contact_set_mismatch_steps_total"],
+                   places=0)
+
+    def test_the_gate_verdict_is_recomputed_not_remembered(self):
+        m = self.sentence(r"must reach 2x native to justify porting training — fails by "
+                          r"([\d.]+)x", "the gate verdict")
+        gate = self.gate["gate"]
+        self.assertFalse(gate["passed"], "the gate now passes, so the decision not to port is "
+                                         "no longer backed by its own criterion")
+        self.check("shortfall", m.group(1), gate["shortfall_ratio"], places=2)
+        self.assertEqual(gate["threshold_env_steps_per_s"],
+                         2 * self.gate["native_parallel_env_steps_per_s"])
+        self.assertGreaterEqual(gate["best_reduced_cell"],
+                                self.gate["env_steps_per_s_n512"]["gait_reduced"])
+
+
 class TestReadmeTrainerPairCells(ReadmeGate, unittest.TestCase):
     """PPO against SAC: the rate claim and the behaviour claim are gated together or not at all.
 

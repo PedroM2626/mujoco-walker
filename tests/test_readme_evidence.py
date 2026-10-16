@@ -4842,6 +4842,47 @@ class TestReadmeTargetClipCells(ReadmeGate, unittest.TestCase):
         self.assertIn("def test_moving_the_marker_leaves_the_observation_and_reward_trace_untouched",
                       src, "the README points at a parity control that is not in the test module")
 
+    GIF_REL = "docs/media/target_clips_seed25_published_vs_gait_reduced.gif"
+    # The committed media is the one figure in this repository that costs permanent history rather
+    # than disk, so its budget is stated where the file is and a re-encode that doubles it fails.
+    GIF_BUDGET_MB = 3.6
+
+    def test_the_embedded_gif_is_here_named_and_within_its_budget(self):
+        m = self.sentence(r"!\[[^\]]*\]\((docs/media/[\w.]+)\)", "the embedded clip")
+        self.assertEqual(m.group(1), self.GIF_REL)
+        path = os.path.join(ROOT, m.group(1))
+        self.assertTrue(os.path.exists(path),
+                        f"the README embeds {m.group(1)}, which is not in the repository")
+        size_mb = os.path.getsize(path) / 1e6
+        self.assertLessEqual(round(size_mb, 2), self.GIF_BUDGET_MB,
+                             f"{m.group(1)} is {size_mb:.2f} MB, over its {self.GIF_BUDGET_MB} MB "
+                             "budget - re-encode it smaller rather than growing the history")
+        with open(os.path.join(ROOT, "make_target_clips.py"), encoding="utf-8") as handle:
+            tool = handle.read()
+        self.assertIn("--pair-gif", tool,
+                      "the embedded GIF is no longer produced by a committed tool")
+
+    def test_the_caption_of_the_embedded_clip_is_the_paired_artifact_row(self):
+        m = self.sentence(r"Left: the published v9 world, labelled `(\w+)` with a return of "
+                          r"\*\*([\d,.]+)\*\*, an arm resting on the floor for (\d+) of its steps and "
+                          r"never more than \*\*([\d.]+) m\*\* under it\. Right: the gait-reduced\s*"
+                          r"`<pair>` set, labelled `(\w+)` with \*\*([\d,.]+)\*\*, \*\*(\d+)\*\* "
+                          r"arm-floor contacts and an arm reaching \*\*([\d.]+) m\*\* below the plane",
+                          "the clip caption")
+        row = self.row
+        self.assertEqual(m.group(1), row["published_outcome"])
+        self.check("published return", m.group(2), row["published_return"], places=2)
+        self.check("published contact steps", m.group(3),
+                   row["published_arm_floor_contact_steps"], places=0)
+        self.check("published depth", m.group(4),
+                   row["published_arm_max_depth_below_floor_m"], places=3)
+        self.assertEqual(m.group(5), row["reduced_outcome"])
+        self.check("reduced return", m.group(6), row["reduced_return"], places=2)
+        self.check("reduced contact steps", m.group(7),
+                   row["reduced_arm_floor_contact_steps"], places=0)
+        self.check("reduced depth", m.group(8),
+                   row["reduced_arm_max_depth_below_floor_m"], places=3)
+
 
 class TestReadmeTrainerPairCells(ReadmeGate, unittest.TestCase):
     """PPO against SAC: the rate claim and the behaviour claim are gated together or not at all.

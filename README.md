@@ -2049,6 +2049,16 @@ wrote its pose into `model.body_pos`, so through the published env the marker st
 the floor and no frame could show the target - the parity test in `tests/test_target_clips.py` pins
 that moving it changes no observation and no reward.
 
+![Seed 25 of the 4M-step SAC actor, the published contact world and the gait-reduced one, side by side](docs/media/target_clips_seed25_published_vs_gait_reduced.gif)
+
+*Same checkpoint, same seed, same deterministic policy; only the declared contact set differs. Left:
+the published v9 world, labelled `reached_by_falling` with a return of **39,052.91**, an arm resting on
+the floor for 416 of its steps and never more than **0.052 m** under it. Right: the gait-reduced
+`<pair>` set, labelled `reached_upright` with **59,838.01**, **0** arm-floor contacts and an arm
+reaching **0.670 m** below the plane. Six seconds of a ten-second episode at 400 px; the numbers are
+the episode totals from `benchmarks/target_clips_contact_contrast.json`, and each frame carries its own
+live readout.*
+
 **The learner was the other half of the JAX question, and it does not win either.** The physics is
 one reason to stay off XLA; the argument for porting anyway was that the learner is a recurrence of
 about ten tiny kernels per step, which is exactly what XLA fusion is good at.
@@ -2199,19 +2209,19 @@ Three facts to keep in mind:
 
 The suite is plain `unittest` (no pytest required) and covers the environment contract, the
 golden reward rollouts, the parallel/serial vector-env parity, checkpointing and the race
-harness — **424 tests, 339 s in this window** (`Ran 424 tests in 339.222s ... OK
+harness — **426 tests, 374 s in this window** (`Ran 426 tests in 373.536s ... OK
 (skipped=7)` under `.venv`). Windows of this suite have measured 176.3 s at 102 tests, 269.995 s
 at 121, 261.1 s at 127, 329.964 s at 128, 319.168 s at 130, 184.716 s, 203.108 s and 306.976 s at
 140, 144.678 s at 147, 230.268 s at 157, 171.016 s and 170.304 s at 194, and 174.008 s,
 170.391 s, 175.036 s, 168.775 s, 168.986 s and 166.606 s at 201/205/210, 169.919 s at 214,
-and 163.920 s and 161.829 s at 237, 165.360 s and 164.902 s at 243, 161.647 s and 162.674 s at 250, 162.726 s and 162.167 s at 251, 171.616 s and 163.434 s at 252, 163.769 s and 163.748 s at 255, 226.912 s and 217.651 s at 260, 193.167 s and 191.909 s at 273, 206.150 s at 279, 193.904 s at 284, 201.464 s at 289, 189.864 s and 187.485 s at 294, 190.012 s at 297, 230.180 s at 301, 190.655 s at 311, 211.202 s at 317, 195.419 s at 322, 184.182 s at 326, 180.964 s at 326, 266.112 s and 191.187 s at 339, 185.556 s at 340, 193.319 s at 351, 218.984 s at 369, 238.576 s at 376, 355.206 s at 399, 339.222 s at 424 -
+and 163.920 s and 161.829 s at 237, 165.360 s and 164.902 s at 243, 161.647 s and 162.674 s at 250, 162.726 s and 162.167 s at 251, 171.616 s and 163.434 s at 252, 163.769 s and 163.748 s at 255, 226.912 s and 217.651 s at 260, 193.167 s and 191.909 s at 273, 206.150 s at 279, 193.904 s at 284, 201.464 s at 289, 189.864 s and 187.485 s at 294, 190.012 s at 297, 230.180 s at 301, 190.655 s at 311, 211.202 s at 317, 195.419 s at 322, 184.182 s at 326, 180.964 s at 326, 266.112 s and 191.187 s at 339, 185.556 s at 340, 193.319 s at 351, 218.984 s at 369, 238.576 s at 376, 355.206 s at 399, 339.222 s and 373.536 s at 424/426 -
 those last windows carry a dose test that runs three short CPU trainings, which are about 27 s of
 them, so that entry is not slower hardware; consecutive runs of one commit agree to 4%, where the
 147 and 157 windows an afternoon earlier were 1.6x apart for ten more tests. The
-399 and 424-test windows are the same kind of move: 355.206 s and 339.222 s against the 230.118 s
-taken at 381, while the forty-three tests added across those two bumps cost 0.301 s of it between
-them (`Ran 18 tests in 0.188s` and `Ran 25 tests in 0.113s`; they parse a MuJoCo model and read
-committed JSON), so the difference is this machine's state on the day rather than a slower suite. The
+399, 424 and 426-test windows are the same kind of move: 355.206 s, 339.222 s and 373.536 s against the
+230.118 s taken at 381, while the forty-five tests added across those three bumps cost under 0.31 s of
+it between them (`Ran 18 tests in 0.188s` and `Ran 25 tests in 0.113s`; they parse a MuJoCo model and
+read committed JSON), so the difference is this machine's state on the day rather than a slower suite. The
 duration belongs to the machine's state, the
 count does not, and a gate checks the count so it cannot go stale quietly):
 
@@ -2266,7 +2276,7 @@ that they ran - see Phase 4, item 6. How each of those states was found, with th
 ## 🔬 Reproducing and measuring
 
 ```bash
-python -m unittest discover -s tests -t .   # 424 tests in .venv, 339 s; see "Running the tests"
+python -m unittest discover -s tests -t .   # 426 tests in .venv, 374 s; see "Running the tests"
 python bench_env.py --seconds 4             # env throughput, physics vs Python split
 python bench_mjx.py --sizes 32,128          # MJX/JAX batched stepping
 python bench_mjx_pairs.py --verify          # is an explicit-<pair> world the same MDP? (MuJoCo-C)
@@ -2275,6 +2285,11 @@ python make_target_clips.py --model checkpoints/sac_target_from_scratch_40m/sac_
   --seeds 14,25,11,29 --out-dir videos      # labelled target clips; --world gait_reduced renders the
                                             # arm-through-the-floor contrast, and both write a JSON
                                             # sidecar into benchmarks/ that the README is gated against
+python make_target_clips.py --pair-gif videos/published_4000000s_seed25_reached_by_falling.mp4 \
+  videos/gait_reduced_4000000s_seed25_reached_upright.mp4 --gif-out \
+  docs/media/target_clips_seed25_published_vs_gait_reduced.gif
+                                          # the two-up GIF the MJX section embeds - the only media this
+                                          # repository versions, and its size budget is a test assertion
 python verify.py                            # Phase-2 artifact check (exits 2 when missing)
 python bench_device.py                        # SAC update cost, CPU vs CUDA
 python bench_dreamer_update.py --mode scaling # per-loop-step cost, eager vs captured, 3 batch points

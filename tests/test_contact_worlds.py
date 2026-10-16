@@ -79,6 +79,26 @@ class TestTheStampReachesTheSubEnv(unittest.TestCase):
         finally:
             vec.close()
 
+    def test_the_parallel_backend_stamps_too(self):
+        # The second instance of the same bug, and the one that matters: the published runs use
+        # num_envs=32, which builds a ParallelVectorEnv whose sub-environments live in other
+        # processes. There is nothing to walk into there, so the version has to be stamped by the
+        # builder from the configuration it was handed.
+        from types import SimpleNamespace
+
+        from train_walker import build_vec_env
+        args = SimpleNamespace(num_envs=2, vec_parallel_threshold=1, vec_dense_info=False,
+                               reset_mode="mixed", fixed_reset_probability=0.25,
+                               upright_reset_probability=0.15, fallen_velocity_scale=0.35,
+                               task_phase="target", target_forward_velocity=1.2,
+                               physics_preset="v9", contact_world="explicit_full",
+                               capture_video=False)
+        vec = build_vec_env(args, "stamp_parallel_test", num_envs=2)
+        try:
+            self.assertEqual(env_version_of(vec), f"{ENV_VERSION}_pairs")
+        finally:
+            vec.close()
+
     def test_the_published_world_still_stamps_the_constant(self):
         # The other direction: the fix must not start inventing suffixes for the default path, or
         # every committed checkpoint stops matching its own resume guard.

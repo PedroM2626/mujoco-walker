@@ -684,3 +684,29 @@ because the same script produces different absolute numbers under each. Related:
 [[borrowed-speed-config-carries-the-other-projects-bottleneck]],
 [[two-armed-comparisons-need-their-instrument-settings-recorded]],
 [[a-timing-measured-once-is-a-claim-waiting-to-be-refuted]].
+
+## A provenance field read off the live object was the default, on both backends
+
+Every SAC/TD3/PPO checkpoint stores `env_version`, and the resume guard compares it so a run cannot be
+continued in a world it did not start in. The value came from `env_version_of(envs)` - ask the running
+environment what version it is. That is correct for a single env and wrong for the thing the trainers
+actually hold: a vector env. `SyncVectorEnv` has no `_env_version`, so the lookup fell through to the
+module constant; `ParallelVectorEnv` is worse, because its sub-environments live in other processes and
+there is nothing to walk into. Result: every `euler`, `fast` - and, when it was added, contact-world -
+arm recorded itself as the published v9 MDP, and the guard that exists to catch that compared two
+identical strings and passed.
+
+It surfaced by accident, and only because a new option made the wrong answer observable: a smoke run
+with `--contact-world explicit_full` printed `env_version: standup_balance_walk_curriculum_v9`. Nothing
+already in the repository could have shown it - the preset arms were scored with the version the
+*evaluator* built from its own flag, so the published scores were right while the recorded lineage was
+wrong. The fix is a rule rather than a patch: the builder, which was handed the configuration, stamps
+the vector env with the version it was told to build, and `env_version_of` keeps the sub-env walk only
+as a fallback for envs constructed elsewhere.
+
+**How to apply:** a provenance field has to come from the code path that made the choice, not from
+inspecting an object that may be a proxy for it. When adding one, write the test that sets a *non-default*
+value first - a test that only checks the default passes on a completely broken implementation, which is
+what had been happening. And when an option is wired into one backend, smoke the other: the first attempt
+fixed the sync path and left the parallel one - the backend every published run uses - still wrong.
+Related: [[a-checkpoints-lineage-is-part-of-what-it-proves]], [[add-a-mode-ship-a-parity-control]].

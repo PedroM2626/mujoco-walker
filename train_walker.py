@@ -599,13 +599,22 @@ def build_vec_env(args, run_name, num_envs=None, capture_video=None):
             else "sync"
         )
 
+    def stamped(vec):
+        # The checkpoint's env version has to come from the configuration the vector env was built
+        # with, not from walking into it: a ParallelVectorEnv keeps its sub-environments in other
+        # processes, so there is nothing to walk and `env_version_of` would fall back to the module
+        # constant - which is how a run in another physics preset or contact world stamped itself as
+        # published v9 on exactly the backend the published runs use.
+        vec._env_version = current_env_version(args)
+        return vec
+
     if backend == "sync" or num_envs == 1:
-        return gym.vector.SyncVectorEnv(
+        return stamped(gym.vector.SyncVectorEnv(
             [
                 (lambda i=i: make_env(env_id, i, capture_video, run_name, **kwargs)())
                 for i in range(num_envs)
             ]
-        )
+        ))
 
     from envs.parallel_vector_env import ParallelVectorEnv
 
@@ -614,17 +623,17 @@ def build_vec_env(args, run_name, num_envs=None, capture_video=None):
         for i in range(num_envs)
     ]
     try:
-        return ParallelVectorEnv(specs, sparse_info=not getattr(args, "vec_dense_info", False))
+        return stamped(ParallelVectorEnv(specs, sparse_info=not getattr(args, "vec_dense_info", False)))
     except RuntimeError as error:
         # gymnasium>=1.0 dropped the SyncVectorEnv hooks the parallel backend extends.
         # Falling back keeps the run going on either version; the budget is identical.
         print(f"[VEC] parallel backend unavailable ({error}); using SyncVectorEnv.")
-        return gym.vector.SyncVectorEnv(
+        return stamped(gym.vector.SyncVectorEnv(
             [
                 (lambda i=i: make_env(env_id, i, capture_video, run_name, **kwargs)())
                 for i in range(num_envs)
             ]
-        )
+        ))
 
 
 def layer_init(layer):

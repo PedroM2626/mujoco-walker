@@ -1299,7 +1299,7 @@ and the pipes, not MuJoCo.
 
 **The `num_envs=8` in those screens is not only a plumbing choice, and saying so costs a flag.** The
 SAC loop runs one critic update per collection iteration, and a collection iteration is `num_envs`
-environment steps (`train_walker.py:2099-2142`), so the optimisation each environment step receives
+environment steps (`train_walker.py:2144-2187`), so the optimisation each environment step receives
 is 1/`num_envs`: at 8 envs a step is optimised four times as hard as at 32, and `--num-envs` was the
 only knob that could turn that. The two rates in this section are the same fact wearing a stopwatch -
 the `v9` arm of the 5M pair ran at **1,798.4 s per 1M steps** at 8 envs while the 40M run at 32 envs
@@ -2054,10 +2054,14 @@ models are bit-identical under the same physics problem (`bench_mjx_pairs.py --l
 contacts in **1907** of those steps and first diverges at step **3**, which is why it stays a bench
 option and not a training world. Default unchanged: `published` is what every committed run used and
 still uses, and any other world stamps the checkpoint's env version (`..._v9_pairs`) so a run there
-cannot be scored here by accident. Wiring it up also surfaced a real bug: `env_version_of` was asked
-for the version of a *vector* env, which carries none, so it returned the module constant - every
-`euler`, `fast` or contact-world arm trained at `num_envs < 16` had been stamping itself as published
-v9, and the resume guard that is supposed to catch exactly that had nothing to compare.
+cannot be scored here by accident. Wiring it up also surfaced a real bug, and it was wider than the
+feature: `env_version_of` was asked for the version of a *vector* env, which carries none, so it
+returned the module constant on **both** backends - the sync one because the wrapper has no
+`_env_version`, the parallel one because its sub-environments live in other processes and there is
+nothing to walk into. Every `euler`, `fast` or contact-world arm had therefore been stamping itself as
+published v9, and the resume guard that exists to catch exactly that had nothing to compare. The
+builder now stamps the version it was configured with, and a smoke run at `num_envs=32` - the parallel
+backend, the one every published arm uses - is the test that says so.
 
 **The reduced world is now on screen, and the frame carries its own evidence.** `make_target_clips.py`
 renders any of the three contact worlds with the same deterministic actor `eval_phase1.py` loads, and
@@ -2272,12 +2276,12 @@ Three facts to keep in mind:
 
 The suite is plain `unittest` (no pytest required) and covers the environment contract, the
 golden reward rollouts, the parallel/serial vector-env parity, checkpointing and the race
-harness — **458 tests, 397 s in this window** (`Ran 458 tests in 397.254s ... OK
+harness — **459 tests, 446 s in this window** (`Ran 459 tests in 446.193s ... OK
 (skipped=7)` under `.venv`). Windows of this suite have measured 176.3 s at 102 tests, 269.995 s
 at 121, 261.1 s at 127, 329.964 s at 128, 319.168 s at 130, 184.716 s, 203.108 s and 306.976 s at
 140, 144.678 s at 147, 230.268 s at 157, 171.016 s and 170.304 s at 194, and 174.008 s,
 170.391 s, 175.036 s, 168.775 s, 168.986 s and 166.606 s at 201/205/210, 169.919 s at 214,
-and 163.920 s and 161.829 s at 237, 165.360 s and 164.902 s at 243, 161.647 s and 162.674 s at 250, 162.726 s and 162.167 s at 251, 171.616 s and 163.434 s at 252, 163.769 s and 163.748 s at 255, 226.912 s and 217.651 s at 260, 193.167 s and 191.909 s at 273, 206.150 s at 279, 193.904 s at 284, 201.464 s at 289, 189.864 s and 187.485 s at 294, 190.012 s at 297, 230.180 s at 301, 190.655 s at 311, 211.202 s at 317, 195.419 s at 322, 184.182 s at 326, 180.964 s at 326, 266.112 s and 191.187 s at 339, 185.556 s at 340, 193.319 s at 351, 218.984 s at 369, 238.576 s at 376, 355.206 s at 399, 339.222 s and 373.536 s at 424/426, 320.360 s, 308.791 s, 398.060 s, 401.094 s and 397.254 s at 428/430/438/455/458 -
+and 163.920 s and 161.829 s at 237, 165.360 s and 164.902 s at 243, 161.647 s and 162.674 s at 250, 162.726 s and 162.167 s at 251, 171.616 s and 163.434 s at 252, 163.769 s and 163.748 s at 255, 226.912 s and 217.651 s at 260, 193.167 s and 191.909 s at 273, 206.150 s at 279, 193.904 s at 284, 201.464 s at 289, 189.864 s and 187.485 s at 294, 190.012 s at 297, 230.180 s at 301, 190.655 s at 311, 211.202 s at 317, 195.419 s at 322, 184.182 s at 326, 180.964 s at 326, 266.112 s and 191.187 s at 339, 185.556 s at 340, 193.319 s at 351, 218.984 s at 369, 238.576 s at 376, 355.206 s at 399, 339.222 s and 373.536 s at 424/426, 320.360 s, 308.791 s, 398.060 s, 401.094 s, 397.254 s and 446.193 s at 428/430/438/455/458/459 -
 those last windows carry a dose test that runs three short CPU trainings, which are about 27 s of
 them, so that entry is not slower hardware; consecutive runs of one commit agree to 4%, where the
 147 and 157 windows an afternoon earlier were 1.6x apart for ten more tests. The
@@ -2341,7 +2345,7 @@ that they ran - see Phase 4, item 6. How each of those states was found, with th
 ## 🔬 Reproducing and measuring
 
 ```bash
-python -m unittest discover -s tests -t .   # 458 tests in .venv, 397 s; see "Running the tests"
+python -m unittest discover -s tests -t .   # 459 tests in .venv, 446 s; see "Running the tests"
 python bench_env.py --seconds 4             # env throughput, physics vs Python split
 python bench_mjx.py --sizes 32,128          # MJX/JAX batched stepping
 python bench_mjx_pairs.py --verify          # is an explicit-<pair> world the same MDP? (MuJoCo-C)

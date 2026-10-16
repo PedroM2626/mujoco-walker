@@ -288,10 +288,71 @@ def write_variant_xml(model, world, out_dir):
 CONTACT_WORLDS = ("published", "explicit_full", "gait_reduced")
 
 
+def record_policy_controls(xml_file, policy_path, env_steps, seed=14, device="cpu",
+                           env_kwargs=None):
+    """Roll the scored policy in one world and return the control sequence it applies.
+
+    The controls are recorded once and then replayed into every variant, rather than each variant
+    being driven by its own policy calls. That is the difference between "the two worlds behave the
+    same" and "the two worlds behave the same when handed the same physics problem"; only the first
+    can drift because of a contact the other never generated, which is the thing being tested.
+    """
+    import gymnasium as gym
+    import numpy as np
+
+    import envs.walker_ragdoll_env  # noqa: F401  registers WalkerRagdoll-v0
+    from eval_phase1 import build_policy
+
+    label, phase, width, policy, reset, _ = build_policy(policy_path, device)
+    policy.reset = reset
+    kwargs = {"task_phase": phase or "target", "reset_mode": "mixed",
+              "xml_file": xml_file, **(env_kwargs or {})}
+    env = gym.make("WalkerRagdoll-v0", **kwargs)
+    try:
+        obs, _ = env.reset(seed=seed)
+        policy.reset()
+        qpos_init = env.unwrapped.data.qpos.copy()
+        qvel_init = env.unwrapped.data.qvel.copy()
+        ctrl = []
+        for _ in range(env_steps):
+            action = np.asarray(policy(obs), dtype=np.float64).reshape(-1)
+            ctrl.append(action.copy())
+            obs, _r, terminated, _tr, _i = env.step(action)
+            if terminated:
+                break
+    finally:
+        env.close()
+    return np.asarray(ctrl), qpos_init, qvel_init, label
+
+
+def long_equivalence(variants, ctrl, qpos0, qvel0):
+    """Replay one recorded control sequence into each variant and compare it to the reference."""
+    reference = variants["published_automatic"]
+    ref_model = mujoco.MjModel.from_xml_string(reference)
+    ref_trace = rollout_contact_trace(ref_model, ctrl, qpos0, qvel0)
+    report = {}
+    for name, xml in variants.items():
+        if name == "published_automatic":
+            continue
+        model = mujoco.MjModel.from_xml_string(xml)
+        trace = rollout_contact_trace(model, ctrl, qpos0, qvel0)
+        cmp = compare_traces(ref_trace, trace)
+        cmp["env_steps_compared"] = len(ctrl)
+        cmp["reference"] = "published_automatic"
+        report[name] = cmp
+    return report
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--verify", action="store_true")
     ap.add_argument("--bench", action="store_true")
+    ap.add_argument("--long-verify", default=None, metavar="CHECKPOINT.pt",
+                    help="replay a control sequence recorded from this actor in the published world "
+                         "into each variant, and compare state and contacts over the whole rollout")
+    ap.add_argument("--env-steps", type=int, default=2000)
+    ap.add_argument("--seed", type=int, default=14)
+    ap.add_argument("--device", default="cpu")
     ap.add_argument("--sizes", default="128,512")
     ap.add_argument("--seconds", type=float, default=6.0)
     ap.add_argument("--out", default=None)
@@ -318,13 +379,26 @@ def main():
               "published_candidate_pairs": len(full_pairs)}
     if args.verify:
         result["verify"] = verify(variants)
+    if args.long_verify:
+        ctrl, qpos0, qvel0, label = record_policy_controls(
+            XML_PATH, args.long_verify, args.env_steps, seed=args.seed, device=args.device)
+        result["long_verify"] = {
+            "actor": args.long_verify, "algo": label, "seed": args.seed,
+            "env_steps_recorded": int(len(ctrl)),
+            "sim_seconds": round(len(ctrl) * published.opt.timestep * 5, 1),
+            "cells": long_equivalence(variants, ctrl, qpos0, qvel0),
+        }
+        for name, cell in result["long_verify"]["cells"].items():
+            print(f"long {name}: {cell['contact_set_mismatch_steps']} contact mismatches of "
+                  f"{cell['steps']}, max |dqpos| {cell['max_abs_qpos_diff']:.3e}, "
+                  f"first divergence step {cell['first_qpos_divergence_step']}")
     if args.bench:
         result["bench"] = bench(variants, [int(s) for s in args.sizes.split(",")], args.seconds)
     if args.out:
         with open(args.out, "w", encoding="utf-8") as handle:
             json.dump(result, handle, indent=1)
         print(f"wrote {args.out}")
-    if not args.verify and not args.bench:
+    if not args.verify and not args.bench and not args.long_verify:
         print(json.dumps(result, indent=1))
 
 

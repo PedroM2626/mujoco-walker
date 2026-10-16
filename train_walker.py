@@ -25,7 +25,8 @@ from torch.utils.tensorboard import SummaryWriter
 
 import envs.walker_ragdoll_env
 from envs.reward_shaping import TRAINING_REWARD_KWARGS
-from envs.walker_ragdoll_env import ENV_VERSION, PHYSICS_PRESETS, env_version_of
+from envs.walker_ragdoll_env import (CONTACT_WORLDS, CONTACT_WORLD_SUFFIX, ENV_VERSION,
+                                     PHYSICS_PRESETS, env_version_of)
 from utils.checkpoint import force_delete_run, get_checkpoint_dir, get_run_dir
 
 
@@ -310,6 +311,14 @@ def parse_args():
                             "(RK4, every collision pair). 'euler' and 'fast' are cheaper worlds "
                             "for screening and are different MDPs, so their checkpoints record a "
                             "version string that says so and cannot be scored as v9.")
+    parser.add_argument("--contact-world", choices=CONTACT_WORLDS, default="published",
+                       help="Which collision set the model is built with. 'published' is "
+                            "walker_ragdoll.xml as committed; 'explicit_full' declares the same 126 "
+                            "pairs with <pair> (bit-identical over a policy-length rollout, worth "
+                            "1.079x on the collection path); 'gait_reduced' is the boxer-style "
+                            "reduction with the arms out of collision, which is a different MDP. "
+                            "Any value but 'published' stamps the checkpoint's env version, so a "
+                            "run in another world cannot be scored as the published one by accident.")
     parser.add_argument("--target-curriculum", action="store_true",
                         default=get_env_or_default("TARGET_CURRICULUM",
                                                    ENV_VARS["TARGET_CURRICULUM"]) == "1",
@@ -374,6 +383,7 @@ def make_env(
     target_forward_velocity=0.8,
     terminate_when_unhealthy=False,
     physics_preset="v9",
+    contact_world="published",
     reward_kwargs=None,
     target_curriculum=False,
     value_shaping=None,
@@ -388,6 +398,7 @@ def make_env(
             "target_forward_velocity": target_forward_velocity,
             "terminate_when_unhealthy": terminate_when_unhealthy,
             "physics_preset": physics_preset,
+            "contact_world": contact_world,
             "target_curriculum": target_curriculum,
             # Reward shaping for stable 1M-step walking, in one place shared with the
             # evaluators (envs.reward_shaping.TRAINING_REWARD_KWARGS): scoring with the
@@ -428,6 +439,7 @@ def env_common_kwargs(args):
         # Read tolerantly: a caller that has no preset (an older harness, a test that assembles its
         # own args namespace) must get the published world, not an AttributeError.
         "physics_preset": getattr(args, "physics_preset", "v9"),
+        "contact_world": getattr(args, "contact_world", "published"),
         "reward_kwargs": effective_reward_kwargs(args),
         "target_curriculum": bool(getattr(args, "target_curriculum", False)),
         "value_shaping": shaping_config(args),
@@ -558,6 +570,9 @@ def current_env_version(args):
     """The env version string this run's checkpoints should carry, and be checked against."""
     preset = getattr(args, "physics_preset", "v9")
     version = ENV_VERSION if preset == "v9" else f"{ENV_VERSION}_{preset}"
+    world = getattr(args, "contact_world", "published")
+    if world != "published":
+        version = f"{version}_{CONTACT_WORLD_SUFFIX[world]}"
     if getattr(args, "target_curriculum", False):
         version = f"{version}_tcur"
     return version

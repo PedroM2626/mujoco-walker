@@ -4839,6 +4839,43 @@ class TestReadmeContactNativeCells(ReadmeGate, unittest.TestCase):
                       "the native timing no longer shares its pair definition with the MJX bench")
 
 
+    LONG = os.path.join(ROOT, "benchmarks", "contact_equivalence_long.json")
+
+    def test_the_adoption_claim_is_the_policy_length_replay(self):
+        art, = self.read_artifacts(self.LONG)
+        cells = art["long_verify"]["cells"]
+        m = self.sentence(r"gives \*\*(\d+)\*\* contact-set mismatches over \*\*(\d+)\*\* env steps "
+                          r"and a max \|qpos diff\| of exactly \*\*(\d+)\*\*", "the equivalence replay")
+        full = cells["explicit_full"]
+        self.check("mismatch steps", m.group(1), full["contact_set_mismatch_steps"], places=0)
+        self.check("steps compared", m.group(2), full["steps"], places=0)
+        self.assertEqual(int(m.group(3)), 0, "the README says the explicit world is bit-identical")
+        self.assertEqual(full["max_abs_qpos_diff"], 0.0,
+                         "the explicit world now diverges, so it is no longer the same MDP and the "
+                         "adoption paragraph is describing a different measurement")
+        self.assertEqual(full["max_abs_qvel_diff"], 0.0)
+        g = self.sentence(r"disagrees about contacts in \*\*(\d+)\*\* of those steps and first "
+                          r"diverges at step \*\*(\d+)\*\*", "the reduced-world divergence")
+        gait = cells["gait_reduced"]
+        self.check("reduced mismatches", g.group(1), gait["contact_set_mismatch_steps"], places=0)
+        self.check("first divergence", g.group(2), gait["first_qpos_divergence_step"], places=0)
+        self.assertEqual(art["long_verify"]["actor"],
+                         "checkpoints/sac_target_from_scratch_40m/sac_ckpt_4000000.pt",
+                         "the replay tape is no longer the 4M actor the paragraph names")
+        self.assertIn("--long-verify",
+                      open(os.path.join(ROOT, "bench_mjx_pairs.py"), encoding="utf-8").read(),
+                      "the README names a mode that is not in the bench")
+
+    def test_the_stamp_the_paragraph_promises_is_reachable_from_both_scripts(self):
+        with open(os.path.join(ROOT, "envs", "walker_ragdoll_env.py"), encoding="utf-8") as handle:
+            env_src = handle.read()
+        self.assertIn("CONTACT_WORLD_SUFFIX", env_src)
+        self.assertIn("for sub in getattr(unwrapped, \"envs\", ())", env_src,
+                      "the vector-env stamp fix the paragraph describes is gone from env_version_of")
+        self.assertIn("contact_world: str = \"published\"", env_src,
+                      "the default the paragraph promises is no longer the published world")
+
+
 class TestReadmeTargetClipCells(ReadmeGate, unittest.TestCase):
     """The rendered contact worlds: the geometry claim and the score claim, from one rollout each.
 

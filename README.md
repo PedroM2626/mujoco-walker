@@ -405,7 +405,7 @@ and the best near miss in the repository comes to 1.8 cm inside the radius.
 **So the experiment was to change the gait, and one of the two arms did.** Both run at the dose the last
 two nights fixed (5M steps, `num_envs=32`, `--utd-ratio 4`, two seeds each), and each changes one thing
 the target phase actually computes. One candidate died before it was run: `stillness_penalty` is only
-computed when `task_phase == "balance"` (`envs/walker_ragdoll_env.py:502-507`), so raising
+computed when `task_phase == "balance"` (`envs/walker_ragdoll_env.py:537-542`), so raising
 `stillness_penalty_weight` in the target task changes no gradient at all - which is what the first draft of
 this experiment proposed. The live "do not collapse" term in target is `stability_reward_weight`, so arm A
 triples it, 20 to 60, through the new `--reward-override`; arm B is the new `--target-curriculum`, targets
@@ -2044,6 +2044,21 @@ surprise: declaring pairs does buy something native (1.13x on raw `mj_step`), wh
 in MJX, because the narrowphase here skips the filter instead of the buffer being sized by it. It is
 still a few percent, and it is not why boxer-rl is fast.
 
+**The same-MDP half is adopted as an option, after a longer proof than the one above.**
+`--contact-world explicit_full` now selects the declared-pair model in the trainer, the evaluator and
+the environment, and the adoption rests on a policy-length replay rather than a spot check: the 4M
+actor's own control sequence, recorded rolling in the published world and replayed into each variant,
+gives **0** contact-set mismatches over **2000** env steps and a max |qpos diff| of exactly **0** - the two
+models are bit-identical under the same physics problem (`bench_mjx_pairs.py --long-verify`,
+`benchmarks/contact_equivalence_long.json`). The gait reduction on the same tape disagrees about
+contacts in **1907** of those steps and first diverges at step **3**, which is why it stays a bench
+option and not a training world. Default unchanged: `published` is what every committed run used and
+still uses, and any other world stamps the checkpoint's env version (`..._v9_pairs`) so a run there
+cannot be scored here by accident. Wiring it up also surfaced a real bug: `env_version_of` was asked
+for the version of a *vector* env, which carries none, so it returned the module constant - every
+`euler`, `fast` or contact-world arm trained at `num_envs < 16` had been stamping itself as published
+v9, and the resume guard that is supposed to catch exactly that had nothing to compare.
+
 **The reduced world is now on screen, and the frame carries its own evidence.** `make_target_clips.py`
 renders any of the three contact worlds with the same deterministic actor `eval_phase1.py` loads, and
 writes the phase, the live goal distance, the torso height, the arm-floor contact state and the arrival
@@ -2237,12 +2252,12 @@ Three facts to keep in mind:
 
 The suite is plain `unittest` (no pytest required) and covers the environment contract, the
 golden reward rollouts, the parallel/serial vector-env parity, checkpointing and the race
-harness — **438 tests, 398 s in this window** (`Ran 438 tests in 398.060s ... OK
+harness — **455 tests, 401 s in this window** (`Ran 455 tests in 401.094s ... OK
 (skipped=7)` under `.venv`). Windows of this suite have measured 176.3 s at 102 tests, 269.995 s
 at 121, 261.1 s at 127, 329.964 s at 128, 319.168 s at 130, 184.716 s, 203.108 s and 306.976 s at
 140, 144.678 s at 147, 230.268 s at 157, 171.016 s and 170.304 s at 194, and 174.008 s,
 170.391 s, 175.036 s, 168.775 s, 168.986 s and 166.606 s at 201/205/210, 169.919 s at 214,
-and 163.920 s and 161.829 s at 237, 165.360 s and 164.902 s at 243, 161.647 s and 162.674 s at 250, 162.726 s and 162.167 s at 251, 171.616 s and 163.434 s at 252, 163.769 s and 163.748 s at 255, 226.912 s and 217.651 s at 260, 193.167 s and 191.909 s at 273, 206.150 s at 279, 193.904 s at 284, 201.464 s at 289, 189.864 s and 187.485 s at 294, 190.012 s at 297, 230.180 s at 301, 190.655 s at 311, 211.202 s at 317, 195.419 s at 322, 184.182 s at 326, 180.964 s at 326, 266.112 s and 191.187 s at 339, 185.556 s at 340, 193.319 s at 351, 218.984 s at 369, 238.576 s at 376, 355.206 s at 399, 339.222 s and 373.536 s at 424/426, 320.360 s, 308.791 s and 398.060 s at 428/430/438 -
+and 163.920 s and 161.829 s at 237, 165.360 s and 164.902 s at 243, 161.647 s and 162.674 s at 250, 162.726 s and 162.167 s at 251, 171.616 s and 163.434 s at 252, 163.769 s and 163.748 s at 255, 226.912 s and 217.651 s at 260, 193.167 s and 191.909 s at 273, 206.150 s at 279, 193.904 s at 284, 201.464 s at 289, 189.864 s and 187.485 s at 294, 190.012 s at 297, 230.180 s at 301, 190.655 s at 311, 211.202 s at 317, 195.419 s at 322, 184.182 s at 326, 180.964 s at 326, 266.112 s and 191.187 s at 339, 185.556 s at 340, 193.319 s at 351, 218.984 s at 369, 238.576 s at 376, 355.206 s at 399, 339.222 s and 373.536 s at 424/426, 320.360 s, 308.791 s, 398.060 s and 401.094 s at 428/430/438/455 -
 those last windows carry a dose test that runs three short CPU trainings, which are about 27 s of
 them, so that entry is not slower hardware; consecutive runs of one commit agree to 4%, where the
 147 and 157 windows an afternoon earlier were 1.6x apart for ten more tests. The
@@ -2306,11 +2321,14 @@ that they ran - see Phase 4, item 6. How each of those states was found, with th
 ## 🔬 Reproducing and measuring
 
 ```bash
-python -m unittest discover -s tests -t .   # 438 tests in .venv, 398 s; see "Running the tests"
+python -m unittest discover -s tests -t .   # 455 tests in .venv, 401 s; see "Running the tests"
 python bench_env.py --seconds 4             # env throughput, physics vs Python split
 python bench_mjx.py --sizes 32,128          # MJX/JAX batched stepping
 python bench_mjx_pairs.py --verify          # is an explicit-<pair> world the same MDP? (MuJoCo-C)
 python bench_mjx_pairs.py --bench --sizes 128,512   # and does it step faster? (needs MJX: WSL2)
+python bench_mjx_pairs.py --long-verify checkpoints/sac_target_from_scratch_40m/sac_ckpt_4000000.pt \n  --env-steps 2000 --device cuda --out benchmarks/contact_equivalence_long.json
+                                          # replay one actor's own control tape into every contact
+                                          # world: the adoption proof, not a 300-step spot check
 python bench_env.py --mode all --n 32 --reps 3 --task-phase target \
   --contact-world published explicit_full gait_reduced \
   --json benchmarks/contact_worlds_native.json      # the same three worlds on the native path, back

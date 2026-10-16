@@ -72,6 +72,28 @@ def apply_physics_preset(model, preset):
 RESET_MODES = {"fixed", "mixed", "fallen", "upright"}
 TASK_PHASES = {"recovery", "balance", "walk", "target"}
 
+# Which collision set the model is built with. `published` is `walker_ragdoll.xml` as committed; the
+# other two are the same geometry with the contact pairs rewritten by `bench_mjx_pairs.py`. They are a
+# different world, so they get a different version stamp - and `explicit_full`, although proven
+# bit-identical over a policy-length rollout, is stamped too: identity of behaviour is not identity of
+# model, and a checkpoint should say which model produced it.
+CONTACT_WORLDS = ("published", "explicit_full", "gait_reduced")
+CONTACT_WORLD_SUFFIX = {"explicit_full": "pairs", "gait_reduced": "gaitpairs"}
+CONTACT_WORLD_CACHE = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".contact_worlds")
+
+
+def resolve_contact_world(world):
+    """The XML path for a contact world, cached on disk so 32 workers share one file."""
+    if world == "published":
+        return None
+    if world not in CONTACT_WORLDS:
+        raise ValueError(f"contact_world must be one of {CONTACT_WORLDS}, got {world!r}")
+    import bench_mjx_pairs
+
+    os.makedirs(CONTACT_WORLD_CACHE, exist_ok=True)
+    model = mujoco.MjModel.from_xml_path(bench_mjx_pairs.XML_PATH)
+    return bench_mjx_pairs.write_variant_xml(model, world, CONTACT_WORLD_CACHE)
+
 # The reward shaping the trainers apply lives in envs/reward_shaping.py, not here: it is a
 # property of the trainer, and `eval_phase1.py --env-commit` aliases an older revision of this
 # module in as `envs.walker_ragdoll_env`, which would silently replace the dict with that
@@ -134,8 +156,18 @@ class WalkerRagdollEnv(MujocoEnv, gym.utils.EzPickle):
         fallen_velocity_scale: float = 0.35,
         task_phase: str = "recovery",
         physics_preset: str = "v9",
+        contact_world: str = "published",
         **kwargs,
     ):
+        if contact_world not in CONTACT_WORLDS:
+            raise ValueError(
+                f"contact_world must be one of {CONTACT_WORLDS}, got {contact_world!r}")
+        # An explicit xml_file wins over the contact world: the clip tool passes a path it built
+        # itself, and silently rewriting that would make the picture and the number disagree. This has
+        # to happen before the default is filled in, or `xml_file is None` is never true and the
+        # option silently trains in the published world while stamping itself as something else.
+        if xml_file is None and contact_world != "published":
+            xml_file = resolve_contact_world(contact_world)
         if xml_file is None:
             xml_file = os.path.join(
                 os.path.dirname(os.path.dirname(__file__)), "walker_ragdoll.xml"
@@ -188,10 +220,13 @@ class WalkerRagdollEnv(MujocoEnv, gym.utils.EzPickle):
             raise ValueError(
                 f"physics_preset must be one of {list(PHYSICS_PRESETS)}, got {physics_preset!r}"
             )
+        self._contact_world = contact_world
         self._physics_preset = physics_preset
         self._target_curriculum = bool(target_curriculum)
         base_version = (ENV_VERSION if physics_preset == "v9"
                         else f"{ENV_VERSION}_{physics_preset}")
+        if self._contact_world != "published":
+            base_version = f"{base_version}_{CONTACT_WORLD_SUFFIX[self._contact_world]}"
         # A curriculum is a different task, not a different knob: the same policy faces a different
         # distribution of targets, so it gets its own version stamp the way a preset does.
         self._env_version = (f"{base_version}_tcur" if self._target_curriculum else base_version)
@@ -804,8 +839,20 @@ def env_version_of(env):
     carries - but a physics preset is a different world with the same module, so a trainer that
     records the constant would stamp an `euler` or `fast` run as the published v9 MDP. Reads the
     instance when there is one and falls back to the constant for callers that only have a spec.
+
+    The trainers hand this a *vector* env, and a `SyncVectorEnv`/`ParallelVectorEnv` carries no
+    `_env_version` of its own: asking it directly therefore returned the module constant for every
+    run, which is how a preset or contact-world arm would stamp itself as published v9. The sub-envs
+    are the thing that knows, so unwrap through them.
     """
     if env is None:
         return ENV_VERSION
     unwrapped = getattr(env, "unwrapped", env)
-    return getattr(unwrapped, "_env_version", ENV_VERSION)
+    version = getattr(unwrapped, "_env_version", None)
+    if version is not None:
+        return version
+    for sub in getattr(unwrapped, "envs", ()) or ():
+        sub_version = env_version_of(sub)
+        if sub_version != ENV_VERSION:
+            return sub_version
+    return ENV_VERSION

@@ -45,7 +45,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import gymnasium as gym  # noqa: E402
 import envs.walker_ragdoll_env  # noqa: E402,F401  (registers WalkerRagdoll-v0)
 from envs.reward_shaping import TRAINING_REWARD_KWARGS, reward_kwargs_for  # noqa: E402
-from envs.walker_ragdoll_env import ENV_VERSION, PHYSICS_PRESETS  # noqa: E402
+from envs.walker_ragdoll_env import (CONTACT_WORLDS, CONTACT_WORLD_SUFFIX, ENV_VERSION,
+                                     PHYSICS_PRESETS)  # noqa: E402
 from envs import normalize_compat  # noqa: F401,E402  pickle shim for obs_rms
 from evaluate_merging import EPSILON, CLIP, _policy_input  # noqa: E402
 from train_walker import PPOAgent, SACAgent  # noqa: E402
@@ -212,7 +213,7 @@ def build_policy(path, device):
 
 def score(policy, episodes, seed, task_phase, steps=EPISODE_STEPS, reset_mode="mixed",
           on_episode_start=_noop_reset, reward_kwargs=None, physics_preset="v9",
-          target_curriculum=False):
+          contact_world="published", target_curriculum=False):
     """Run `episodes` seeded episodes and return (reward, falls, standing, telemetry).
 
     The telemetry row answers the question the return value cannot: did the robot actually
@@ -223,6 +224,10 @@ def score(policy, episodes, seed, task_phase, steps=EPISODE_STEPS, reset_mode="m
     # the env module in as `envs.walker_ragdoll_env`, and that revision has no `physics_preset`
     # parameter, so an unconditional kwarg would break every re-score of a published number.
     preset_kwargs = {} if physics_preset == "v9" else {"physics_preset": physics_preset}
+    # Same reason as the preset: an aliased older revision has no `contact_world` parameter, so
+    # passing it unconditionally would break a re-score of a published number.
+    if contact_world != "published":
+        preset_kwargs["contact_world"] = contact_world
     # Same reason as the preset: an aliased older revision has no `target_curriculum` parameter, so
     # passing it unconditionally would break a re-score of a published number.
     if target_curriculum:
@@ -346,6 +351,10 @@ def main():
                         "'fast' are screening worlds with different dynamics, so a checkpoint "
                         "trained in one is only scored in the same one - the mismatch note below "
                         "compares against this.")
+    p.add_argument("--contact-world", default="published", choices=CONTACT_WORLDS,
+                   help="which collision set to score in. A checkpoint trained in another world "
+                        "stamps its env version with it, and the mismatch note below compares "
+                        "against this string, so scoring it in 'published' says so out loud.")
     p.add_argument("--target-curriculum", default="auto", choices=["auto", "on", "off"],
                    help="whether the target distance is widened by success while scoring. auto = "
                         "whatever the checkpoint was trained under (its own flag, or a _tcur "
@@ -397,6 +406,8 @@ def main():
             rsrc = f"forced --reward-weights={args.reward_weights}"
         running_version = (ENV_VERSION if args.physics_preset == "v9"
                            else f"{ENV_VERSION}_{args.physics_preset}")
+        if args.contact_world != "published":
+            running_version = f"{running_version}_{CONTACT_WORLD_SUFFIX[args.contact_world]}"
         if rinfo["env_version"] and rinfo["env_version"] != running_version:
             print(f"[NOTE] {name}: checkpoint salvo com env_version={rinfo['env_version']!r}, "
                   f"este repo e {running_version!r}; os retornos abaixo sao da env atual. Para o MDP "
@@ -429,6 +440,7 @@ def main():
                                                args.steps, args.reset_mode, on_episode_start=reset,
                                                reward_kwargs=rkw,
                                                physics_preset=args.physics_preset,
+                                               contact_world=args.contact_world,
                                                target_curriculum=curriculum)
         arr = np.asarray(rewards, dtype=float)
         step_match = re.search(r"(\d+)(?:\.\d+)?\.pt$", os.path.basename(path))
@@ -478,6 +490,7 @@ def main():
                      "same protocol as the Phase-3 table)"),
         "env_version": sys.modules["envs.walker_ragdoll_env"].ENV_VERSION,
         "physics_preset": args.physics_preset,
+        "contact_world": args.contact_world,
         "scored_in_version": (sys.modules["envs.walker_ragdoll_env"].ENV_VERSION
                               if args.physics_preset == "v9" else
                               f"{sys.modules['envs.walker_ragdoll_env'].ENV_VERSION}"

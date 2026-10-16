@@ -1,0 +1,31 @@
+{
+ "protocol": "explicit <pair> variants of walker_ragdoll.xml: the full candidate set declared verbatim (contype/conaffinity zeroed), and a boxer-style gait-only reduction (feet/shins/thighs vs floor and each other, head/torso/butt vs floor, arms removed from collision)",
+ "published_candidate_pairs": 126,
+ "long_verify": {
+  "actor": "checkpoints/sac_target_from_scratch_40m/sac_ckpt_4000000.pt",
+  "algo": "sac",
+  "seed": 14,
+  "env_steps_recorded": 2000,
+  "sim_seconds": 20.0,
+  "cells": {
+   "explicit_full": {
+    "steps": 2000,
+    "contact_set_mismatch_steps": 0,
+    "first_qpos_divergence_step": null,
+    "max_abs_qpos_diff": 0.0,
+    "max_abs_qvel_diff": 0.0,
+    "env_steps_compared": 2000,
+    "reference": "published_automatic"
+   },
+   "gait_reduced": {
+    "steps": 2000,
+    "contact_set_mismatch_steps": 1907,
+    "first_qpos_divergence_step": 3,
+    "max_abs_qpos_diff": 2.9660612560990565,
+    "max_abs_qvel_diff": 114.45136339400905,
+    "env_steps_compared": 2000,
+    "reference": "published_automatic"
+   }
+  }
+ }
+}

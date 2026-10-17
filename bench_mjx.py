@@ -144,6 +144,10 @@ def _sha256(path):
 def cpu_physics_reference(seconds, frame_skip, xml=None):
     """MuJoCo-C cost of the physics inside one env step, in two states.
 
+    A foreign model is compiled from its own path, exactly as the environment loads the ragdoll: the
+    <size> capacities are an MJX requirement, and giving the CPU reference them would stop it being
+    the committed path.
+
     MuJoCo-C is sparse: it only pays for *active* contacts, and a ragdoll driven by
     random actions spends most of its time on the floor with many more of them than
     when it stands.  MJX is dense - all 138 geom pairs are solved every step - so its
@@ -211,16 +215,14 @@ def build_mjx(nconmax, njmax, x64, integrator=None, xml=None):
         jax.config.update("jax_enable_x64", True)
     path = os.path.abspath(xml or XML_PATH)
     text = xml_with_sizes(nconmax, njmax, integrator, xml)
-    if "<include" in text:
-        # A scene that includes its robot cannot be compiled from a string: the include and the
-        # meshdir resolve against the file's own directory, which from_xml_string has no way to
-        # know. The rewritten text goes beside the original so the same instrument reads it.
-        sibling = os.path.join(os.path.dirname(path), "_mjx_sized_" + os.path.basename(path))
-        with open(sibling, "w", encoding="utf-8") as handle:
-            handle.write(text)
-        model = mujoco.MjModel.from_xml_path(sibling)
-    else:
-        model = mujoco.MjModel.from_xml_string(text)
+    # Always compiled by path, from a sibling of the original: compiling from a string resolves
+    # includes and meshdir against the process's cwd, which is where the ragdoll's assets happen to
+    # live but is not where Menagerie's are. The ragdoll's sibling sits in this same directory, so
+    # its compile route - and its numbers - are unchanged.
+    sibling = os.path.join(os.path.dirname(path), "_mjx_sized_" + os.path.basename(path))
+    with open(sibling, "w", encoding="utf-8") as handle:
+        handle.write(text)
+    model = mujoco.MjModel.from_xml_path(sibling)
     mjx_model = mjx.put_model(model)
     return model, mjx_model, mjx
 

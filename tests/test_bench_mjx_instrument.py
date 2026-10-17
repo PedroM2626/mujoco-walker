@@ -26,13 +26,11 @@ SIZED = '<size nconmax="512" njmax="4096"/>'
 
 
 def compile_text(text, directory):
-    """Compile rewritten text the way the instrument does: by path when it carries includes."""
-    if "<include" in text:
-        sibling = os.path.join(directory, "_mjx_sized_test.xml")
-        with open(sibling, "w", encoding="utf-8") as handle:
-            handle.write(text)
-        return mujoco.MjModel.from_xml_path(sibling)
-    return mujoco.MjModel.from_xml_string(text)
+    """Compile rewritten text the way the instrument does: by path, from a sibling of the original."""
+    sibling = os.path.join(directory, "_mjx_sized_test.xml")
+    with open(sibling, "w", encoding="utf-8") as handle:
+        handle.write(text)
+    return mujoco.MjModel.from_xml_path(sibling)
 
 
 class TestSizesOnThisRepoModel(unittest.TestCase):
@@ -120,6 +118,18 @@ class TestTheG1HarnessUsesThisInstrument(unittest.TestCase):
         self.assertIn("from bench_mjx import build_mjx", src)
         self.assertNotIn("mjx.put_model(", src,
                          "bench_g1_cost compiles for MJX again instead of borrowing the harness")
+
+    def test_the_harness_compiles_by_path_so_a_borrowed_models_assets_resolve(self):
+        # The first --xml run died on `Error opening file 'assets/right_hip_roll_link.STL'`:
+        # from_xml_string resolves relative assets against the process's cwd, which is where this
+        # repo's ragdoll lives and where Menagerie's robot does not.
+        with open(os.path.join(ROOT, "bench_mjx.py"), encoding="utf-8") as handle:
+            src = handle.read()
+        start = src.index("def build_mjx(")
+        body = src[start:src.index("def make_batched_data(", start)]
+        self.assertIn("from_xml_path(sibling)", body)
+        self.assertNotIn("from_xml_string", body,
+                         "build_mjx compiles a model file from a string again")
 
 
 if __name__ == "__main__":

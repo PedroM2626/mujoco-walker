@@ -104,17 +104,34 @@ def time_mjx(model, mjx_model, mjx, nworld, seconds=6.0):
     step = compile_batch_stepper(mjx_model, mjx, frame_skip=1, unroll=False)
     batch = make_batched_data(mjx_model, mjx, nworld, rng)
     ctrl = jnp.asarray(rng.uniform(-0.5, 0.5, size=(nworld, model.nu)), dtype=jnp.float32)
+    t_compile = time.perf_counter()
     out = step(batch, ctrl)
     jax.block_until_ready(out)
+    compile_s = time.perf_counter() - t_compile
+    # Warm up before the clock starts, exactly as bench_mjx does. The first calls after a compile
+    # allocate inside XLA's pool and cost about the same whatever the batch size: measured here at
+    # 1.88 s per call for both 64 and 256 worlds, which is an allocator, not a simulator. Without
+    # this the cell reports a rate 29x under the published harness for the same model on the same GPU.
+    for _ in range(5):
+        out = step(out, ctrl)
+    jax.block_until_ready(out)
+    t_probe = time.perf_counter()
+    out = step(out, ctrl)
+    jax.block_until_ready(out)
+    per_call = max(time.perf_counter() - t_probe, 1e-6)
+    block = max(1, int(0.5 / per_call))
+
     n, t0 = 0, time.perf_counter()
     while time.perf_counter() - t0 < seconds:
-        for _ in range(20):
+        for _ in range(block):
             out = step(out, ctrl)
         jax.block_until_ready(out)
-        n += 20 * nworld
+        n += block * nworld
     dt = time.perf_counter() - t0
     mj_steps_per_s = n / dt
     return {"nworld": nworld, "backend": jax.default_backend(),
+            "compile_s": round(compile_s, 1), "per_call_ms": round(per_call * 1e3, 1),
+            "calls_per_block": block,
             "mj_steps_per_s": round(mj_steps_per_s, 1),
             "simulated_seconds_per_wall_second": round(mj_steps_per_s * float(model.opt.timestep), 2),
             "control_actions_per_s": round(mj_steps_per_s * float(model.opt.timestep)

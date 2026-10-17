@@ -1,0 +1,98 @@
+{
+  "protocol": "SAC 1M, seed 7, num_envs 32 (the parallel CPU backend), utd_ratio 4, task_phase target, reset_mode mixed, target_forward_velocity 1.2, device cuda, one arm per contact world, each launcher recording its own wall clock and its own device samples",
+  "arms": {
+    "cw_abba_pub_1m_a1": {
+      "chain": "chain34",
+      "world": "published",
+      "seconds": 1719,
+      "exit": 0,
+      "device_used_mib_after": 367,
+      "device_sampling": "window edges only",
+      "credible": true
+    },
+    "cw_abba_pairs_1m_b1": {
+      "chain": "chain34",
+      "world": "explicit_full",
+      "seconds": 1859,
+      "exit": 0,
+      "device_used_mib_after": 340,
+      "device_sampling": "window edges only",
+      "credible": true
+    },
+    "cw_abba_pairs_1m_b2": {
+      "chain": "chain34",
+      "world": "explicit_full",
+      "seconds": 7261,
+      "exit": 0,
+      "device_used_mib_after": 4279,
+      "device_sampling": "window edges only",
+      "credible": false
+    },
+    "cw_abba_pub_1m_a2": {
+      "chain": "chain34",
+      "world": "published",
+      "seconds": 12,
+      "exit": 1,
+      "device_used_mib_after": 4272,
+      "device_sampling": "window edges only",
+      "credible": false
+    },
+    "cw_abba2_pairs_1m_b1#attempt1": {
+      "chain": "chain35",
+      "world": "explicit_full",
+      "seconds": 1624,
+      "exit": null,
+      "device_used_mib_peak": 649,
+      "device_sampling": "60 s inside the window",
+      "credible": false
+    },
+    "cw_ab37_pairs_1m_b1#attempt1": {
+      "chain": "chain37",
+      "world": "explicit_full",
+      "seconds": 1468,
+      "exit": "0",
+      "window": [
+        "2026-10-17 03:23:10",
+        "2026-10-17 03:47:37"
+      ],
+      "samples": 25,
+      "device_used_mib_peak": 649,
+      "device_contexts_peak": 6,
+      "python_workers_min": 12,
+      "device_sampling": "60 s inside the window",
+      "credible": true
+    },
+    "cw_ab37_pub_1m_a1#attempt1": {
+      "chain": "chain37",
+      "world": "published",
+      "seconds": 1459,
+      "exit": "0",
+      "window": [
+        "2026-10-17 03:47:37",
+        "2026-10-17 04:11:56"
+      ],
+      "samples": 24,
+      "device_used_mib_peak": 649,
+      "device_contexts_peak": 6,
+      "python_workers_min": 24,
+      "device_sampling": "60 s inside the window",
+      "credible": true
+    }
+  },
+  "comparisons": {
+    "chain34": {
+      "published_seconds": 1719,
+      "explicit_full_seconds": 1859,
+      "explicit_full_over_published": 1.081,
+      "difference_pct": 8.1
+    },
+    "chain37": {
+      "published_seconds": 1459,
+      "explicit_full_seconds": 1468,
+      "explicit_full_over_published": 1.006,
+      "difference_pct": 0.6
+    }
+  },
+  "published_clock_spread_across_chains": 1.178,
+  "prediction_being_tested": "bench_env.py's native stepping rate put the declared-pair world at 1.079x the published one, which inside a ratio-4 SAC clock - where collection is 15.9% of the window - is a 1.2% saving"
+}

@@ -1,0 +1,46 @@
+{
+ "protocol": "microseconds per mj_step and per simulated second, one process, back to back; the ragdoll is this repository's published world and the G1 files are Menagerie's, fetched to external/ and not vendored",
+ "control_step_s": 0.01,
+ "menagerie_commit": "62ab00f2bc44f6f20c1c9b7a13f3fb1dd41a4e35",
+ "instrument": {
+  "mujoco": "3.16.0",
+  "xla_python_client_mem_fraction": "0.45",
+  "python": "Python 3.12.3"
+ },
+ "models": {
+  "walker_ragdoll": {
+   "xml": "walker_ragdoll.xml",
+   "xml_sha256": "95bf8a74a2911d4005f6a0104410e599272bb23afce533f7dad28ea8d7811d79",
+   "nbody": 15,
+   "nq": 24,
+   "nv": 23,
+   "nu": 17,
+   "ngeom": 19,
+   "collidable_geoms": 18,
+   "declared_pairs": 0,
+   "nmesh": 0,
+   "timestep": 0.002,
+   "integrator": "mjINT_RK4",
+   "steps_per_control_action": 5.0,
+   "mjx": [
+    {
+     "nworld": 64,
+     "backend": "gpu",
+     "mj_steps_per_s": 34.0,
+     "simulated_seconds_per_wall_second": 0.07,
+     "control_actions_per_s": 6.81,
+     "seconds": 37.6
+    },
+    {
+     "nworld": 256,
+     "backend": "gpu",
+     "mj_steps_per_s": 135.2,
+     "simulated_seconds_per_wall_second": 0.27,
+     "control_actions_per_s": 27.04,
+     "seconds": 37.9
+    }
+   ],
+   "mjx_instrument": "bench_mjx.build_mjx nconmax=512 njmax=4096, one mj_step per vmap'd call"
+  }
+ }
+}

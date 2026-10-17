@@ -1,0 +1,11 @@
+2026-10-17 03:23:09 claimed machine.lock
+2026-10-17 03:23:10 sampler started pid=7376
+2026-10-17 03:23:10 START cw_ab37_pairs_1m_b1 world=explicit_full attempt=1
+2026-10-17 03:47:37 ARM cw_ab37_pairs_1m_b1 attempt=1 seconds=1468 exit=0
+2026-10-17 03:47:37 DONE cw_ab37_pairs_1m_b1 cw_ab37_pairs_1m_b1=1468 s
+2026-10-17 03:47:37 START cw_ab37_pub_1m_a1 world=published attempt=1
+2026-10-17 04:11:56 ARM cw_ab37_pub_1m_a1 attempt=1 seconds=1459 exit=0
+2026-10-17 04:11:56 DONE cw_ab37_pub_1m_a1 cw_ab37_pairs_1m_b1=1468 s  cw_ab37_pub_1m_a1=1459 s
+2026-10-17 04:11:56 SUMMARY cw_ab37_pairs_1m_b1=1468 s  cw_ab37_pub_1m_a1=1459 s
+2026-10-17 04:11:56 stopped sampler
+2026-10-17 04:11:56 released machine.lock

@@ -5036,19 +5036,94 @@ class TestReadmeTargetClipCells(ReadmeGate, unittest.TestCase):
         self.check("clip volume", m.group(1), round(total / 1e6, 2), places=2)
 
 
-class TestReadmeG1CostCells(ReadmeGate, unittest.TestCase):
-    """The boxing project's robot, priced here: every figure recomputed from the two cost artifacts.
+class TestReadmeContactClockCells(ReadmeGate, unittest.TestCase):
+    """The 1M contact-world A/B, gated against the launcher logs that produced it.
 
-    This paragraph could mislead in two directions. "G1 is cheaper natively" is only true per
-    *simulated* second, and the two models chose different timesteps - so the gate checks the ratio and
-    the two microsecond figures against each other, not just the ratio. And "G1 is 4x faster in MJX" is
-    true and irrelevant unless the native ceiling is quoted beside it, which is the second test's job.
-    The third pins the provenance: the model is not vendored, so the commit it was measured from has to
-    be recorded.
+    Two things a plain cell check cannot do here: the *rejected* arms have to stay quoted with the reason
+    they were rejected (a foreign CUDA context inside a window, an arm the trainer's device guard refused),
+    and the instrument's noise floor has to be quoted beside the effect size. A paragraph that reported
+    0.6% without saying the same world's clock moved 1.178x between windows would be publishing a
+    difference the launcher cannot resolve.
+    """
+
+    CLOCKS = os.path.join(ROOT, "benchmarks", "contact_world_train_clocks.json")
+    START = "**The trainer was then asked the same question"
+    END = "**The same-MDP half is adopted as an option"
+
+    def setUp(self):
+        with open(README, encoding="utf-8") as handle:
+            readme = handle.read()
+        start = readme.index(self.START)
+        self.block = readme[start:readme.index(self.END, start)]
+        self.art, = self.read_artifacts(self.CLOCKS)
+        self.arms = self.art["arms"]
+        self.c34 = self.art["comparisons"]["chain34"]
+        self.c37 = self.art["comparisons"]["chain37"]
+        self.bad = []
+        self.what = "contact-world training clocks"
+
+    def test_chain34s_credible_pair_and_the_two_arms_it_lost(self):
+        m = self.sentence(r"chain34 recorded published \*\*([\d,]+) s\*\* against explicit_full "
+                          r"\*\*([\d,]+) s\*\* - the declared-pair world \*\*([\d.]+)%\*\*",
+                          "the chain34 pair")
+        self.check("chain34 published", m.group(1), self.c34["published_seconds"], places=0)
+        self.check("chain34 explicit_full", m.group(2), self.c34["explicit_full_seconds"], places=0)
+        self.check("chain34 difference", m.group(3), self.c34["difference_pct"], places=1)
+        lost = self.arms["cw_abba_pairs_1m_b2"]
+        s = self.sentence(r"its third arm took \*\*([\d,]+) s\*\* with a foreign \*\*([\d,]+) MiB\*\*",
+                          "the contaminated arm")
+        self.check("contaminated seconds", s.group(1), lost["seconds"], places=0)
+        self.check("contaminated memory", s.group(2), lost["device_used_mib_after"], places=0)
+        self.assertFalse(lost["credible"], "the arm excluded for sharing the driver is marked credible")
+        refused = self.arms["cw_abba_pub_1m_a2"]
+        r = self.sentence(r"device guard \(`exit=(\d+)`, (\d+) s\)", "the refused arm")
+        self.check("refused exit", r.group(1), refused["exit"], places=0)
+        self.check("refused seconds", r.group(2), refused["seconds"], places=0)
+        self.assertFalse(refused["credible"], "an arm that never started is in the comparison")
+
+    def test_chain37s_sampled_pair_is_quoted_with_its_device_record(self):
+        m = self.sentence(r"a peak of \*\*([\d,]+) MiB\*\* across six contexts", "the clean peak")
+        pub = self.arms["cw_ab37_pub_1m_a1#attempt1"]
+        self.check("chain37 peak", m.group(1), pub["device_used_mib_peak"], places=0)
+        self.assertEqual(pub["device_contexts_peak"], 6, "the paragraph counts six contexts")
+        s = self.sentence(r"published \*\*([\d,]+) s\*\*, explicit_full \*\*([\d,]+) s\*\*, a difference "
+                          r"of \*\*([\d.]+)%\*\*", "the chain37 pair")
+        self.check("chain37 published", s.group(1), self.c37["published_seconds"], places=0)
+        self.check("chain37 explicit_full", s.group(2), self.c37["explicit_full_seconds"], places=0)
+        self.check("chain37 difference", s.group(3), self.c37["difference_pct"], places=1)
+        for name in ("cw_ab37_pub_1m_a1#attempt1", "cw_ab37_pairs_1m_b1#attempt1"):
+            self.assertTrue(self.arms[name]["credible"], f"{name} is quoted as a clock but excluded")
+            self.assertGreaterEqual(self.arms[name]["samples"], 20,
+                                    f"{name} was not sampled through its own window")
+
+    def test_the_noise_floor_is_quoted_beside_the_effect_size(self):
+        m = self.sentence(r"same world's\* clock had moved \*\*([\d.]+)x\*\* between the two",
+                          "the window-to-window spread")
+        spread = self.art["published_clock_spread_across_chains"]
+        self.check("spread", m.group(1), spread, places=3)
+        self.assertGreater(100 * (spread - 1), self.c37["difference_pct"],
+                           "the published clock now moves less between windows than the A/B's own gap, "
+                           "which would make the comparison readable after all")
+        self.assertGreater(100 * (spread - 1), self.c34["difference_pct"],
+                           "chain34's gap is now inside the noise floor this section names")
+
+
+class TestReadmeG1CostCells(ReadmeGate, unittest.TestCase):
+    """The boxing project's robot, priced here: every figure recomputed from the cost artifacts.
+
+    This paragraph could mislead in two directions, and it has already been misled once. "G1 is cheaper
+    natively" is only true per *simulated* second, and the two models chose different timesteps - so the
+    gate checks the ratio and the two microsecond figures against each other, not just the ratio. And the
+    MJX cells were first quoted from a timer that measured XLA growing its memory pool rather than a
+    simulator; the section now carries the corrected cells, the retired ones, the two controls that came
+    out small (venv, frame skip) and the physics budget that explains the gap, and every one of those
+    figures is checked here. The retracted pair (4.14x and 0.87) stays in the text as a named mistake, so
+    it is checked against the artifact that produced it too.
     """
 
     ART = os.path.join(ROOT, "benchmarks", "g1_model_cost_comparison.json")
     NATIVE = os.path.join(ROOT, "benchmarks", "g1_native_cost.json")
+    REC = os.path.join(ROOT, "benchmarks", "g1_mjx_instrument_reconciliation.json")
     START = "**The model itself was priced too"
     END = "**The learner was the other half of the JAX question"
 
@@ -5057,7 +5132,7 @@ class TestReadmeG1CostCells(ReadmeGate, unittest.TestCase):
             readme = handle.read()
         start = readme.index(self.START)
         self.block = readme[start:readme.index(self.END, start)]
-        self.art, self.native = self.read_artifacts(self.ART, self.NATIVE)
+        self.art, self.native, self.rec = self.read_artifacts(self.ART, self.NATIVE, self.REC)
         self.costs = self.art["costs"]
         self.bad = []
         self.what = "G1 cost comparison"
@@ -5085,23 +5160,98 @@ class TestReadmeG1CostCells(ReadmeGate, unittest.TestCase):
         self.assertAlmostEqual(round(implied, 3),
                                self.costs["g1_mjx_scene"]["native_ratio_vs_ragdoll"], places=3)
 
-    def test_the_mjx_speedup_is_quoted_against_the_native_ceiling(self):
-        m = self.sentence(r"by \*\*([\d.]+)x\*\* at `nworld=(\d+)`.*?real time \(([\d.]+) simulated "
-                          r"seconds per wall second\)", "the MJX cells")
-        self.check("g1 over ragdoll in mjx", m.group(1),
-                   self.art["g1_mjx_speedup_over_ragdoll_mjx"], places=2)
-        n = int(m.group(2))
-        self.check("g1 mjx rate", m.group(3), self.costs["g1_mjx_scene"]["mjx"][str(n)], places=2)
-        s = self.sentence(r"It is still \*\*([\d.]+)%\*\* of what the native 32-process ragdoll path "
-                          r"collects \(\*\*([\d.]+)\*\* simulated s/wall s\)", "the ceiling share")
-        self.check("share of ceiling", s.group(1),
-                   round(100 * self.art["best_mjx_share_of_native_ceiling"], 1), places=1)
+    def test_the_mjx_levels_come_from_the_published_harness_in_one_venv(self):
+        """The MJX cells the paragraph publishes, each recomputed from the reconciliation artifact.
+
+        These are the figures that replaced a 4.14x and a "crosses real time" read off a timer that
+        measured XLA's allocator instead of the simulator, so the gate now names the harness and the
+        venv in the same breath as the number.
+        """
+        cells = self.rec["cells_sim_s_per_wall_s"]
+        m = self.sentence(r"On the GPU in MJX the G1 is \*\*([\d.]+)x\*\* this ragdoll at "
+                          r"`nworld=(\d+)` - \*\*([\d,.]+)\*\* against \*\*([\d,.]+)\*\* simulated "
+                          r"seconds per wall second", "the MJX pair")
+        self.assertEqual(m.group(2), "256", "the paired cell is taken at a different batch size")
+        self.check("g1 over ragdoll", m.group(1), self.rec["g1_over_ragdoll_published_316_n256"],
+                   places=2)
+        self.check("g1 mjx rate", m.group(3), cells["g1_published_316"][m.group(2)], places=2)
+        self.check("ragdoll mjx rate", m.group(4), cells["ragdoll_published_316"][m.group(2)],
+                   places=2)
+        d = self.sentence(r"second draw ([\d.]+)% away at \*\*([\d,.]+)\*\*", "the replicate draw")
+        self.check("draw spread", d.group(1), 100 * self.rec["g1_draws_agree_within"], places=1)
+        self.check("repeat rate", d.group(2), cells["g1_published_316_repeat"]["256"], places=2)
+        s = self.sentence(r"first draw is \*\*([\d.]+)x\*\* what the native 32-process ragdoll path "
+                          r"collects \(\*\*([\d.]+)\*\* simulated s/wall s\), or \*\*([\d.]+)\*\* of one "
+                          r"world's real time", "the ceiling and per-world cells")
+        self.check("over native ceiling", s.group(1),
+                   self.rec["g1_first_draw_over_native_ceiling"], places=2)
         self.check("native ceiling", s.group(2),
-                   self.art["native_ragdoll_ceiling_sim_s_per_wall_s"], places=2)
-        self.assertLess(self.art["best_mjx_cell_sim_s_per_wall_s"],
-                        self.art["native_ragdoll_ceiling_sim_s_per_wall_s"],
-                        "MJX on this card now beats the native path, which is a different story than "
-                        "the one this paragraph tells")
+                   self.rec["native_ragdoll_ceiling_sim_s_per_wall_s"], places=2)
+        self.check("real time per world", s.group(3),
+                   self.rec["g1_first_draw_real_time_fraction_per_world"], places=2)
+        # The paragraph used to say MJX loses to native on this card. The corrected cells say the
+        # borrowed robot's world does not, so the gate refuses to let the old conclusion survive the
+        # new number silently.
+        self.assertGreater(self.rec["best_g1_cell_over_native_ceiling"], 1.0,
+                           "the section quotes a GPU win over the native path that the artifact "
+                           "does not measure")
+
+    def test_the_retired_timer_its_correction_and_the_two_small_suspects(self):
+        cells = self.rec["cells_sim_s_per_wall_s"]
+        m = self.sentence(r"\*\*([\d.]+)\*\* simulated s/wall s at 64 worlds against \*\*([\d.]+)\*\* "
+                          r"at 256, a factor of \*\*([\d.]+)\*\* for a batch 4x larger, where the same "
+                          r"step measured after warm-up scales \*\*([\d.]+)\*\*", "the cold-cell scaling")
+        self.check("cold cell n=64", m.group(1), cells["ragdoll_time_mjx_no_warmup"]["64"], places=2)
+        self.check("cold cell n=256", m.group(2), cells["ragdoll_time_mjx_no_warmup"]["256"], places=2)
+        self.check("cold batch scaling", m.group(3), self.rec["no_warmup_batch_scaling_ragdoll"],
+                   places=1)
+        self.check("warm batch scaling", m.group(4), self.rec["warm_batch_scaling_ragdoll"], places=1)
+        c = self.sentence(r"that row is \*\*([\d.]+)\*\*: a \*\*([\d.]+)x\*\* correction",
+                          "the warmed cell and its penalty")
+        self.check("warm cell n=256", c.group(1), cells["ragdoll_time_mjx"]["256"], places=2)
+        self.check("warm-up penalty", c.group(2), self.rec["warm_up_penalty_ragdoll_n256"], places=1)
+        self.check("g1 warm-up penalty", self.rec["warm_up_penalty_g1_n256"],
+                   round(cells["g1_time_mjx"]["256"] / cells["g1_time_mjx_no_warmup"]["256"], 1),
+                   places=1)
+        v = self.sentence(r"WSL venv moves the ragdoll's MJX level by \*\*([\d.]+)x\*\* "
+                          r"\(\*\*([\d.]+)\*\* in mujoco", "the venv control")
+        self.check("venv ratio", v.group(1), self.rec["venv_327_over_316_ragdoll_n256"], places=3)
+        self.check("venv 327 level", v.group(2), cells["ragdoll_published_327"]["256"], places=2)
+        f = self.sentence(r"instead of one whole action is worth \*\*([\d.]+)x\*\*",
+                          "the frame-skip control")
+        self.check("frame skip ratio", f.group(1), self.rec["frame_skip_1_over_5_ragdoll_316_n256"],
+                   places=3)
+        # The retracted pair is quoted as a mistake, but it is still a number the repository published,
+        # so it is gated against the artifact that produced it rather than left to drift.
+        r = self.sentence(r"The first version of this section said ([\d.]+)x and called ([\d.]+) "
+                          r"simulated s/wall s a cell that", "the retracted cells")
+        self.check("retracted speedup", r.group(1),
+                   self.art["g1_mjx_speedup_over_ragdoll_mjx"], places=2)
+        self.check("retracted cell", r.group(2),
+                   self.costs["g1_mjx_scene"]["mjx"]["256"], places=2)
+
+    def test_the_physics_budget_that_carries_the_gap_is_recorded(self):
+        b = self.rec["model_physics_budget"]
+        m = self.sentence(r"\*\*([\d,]+)\*\* per simulated second - while the G1 scene asks for one "
+                          r"implicitfast stage at dt 0\.004: \*\*([\d,]+)\*\*, eight times less",
+                          "the stage-evaluation cells")
+        self.check("ragdoll stages per simulated second", m.group(1),
+                   b["ragdoll"]["stage_evaluations_per_simulated_second"], places=0)
+        self.check("g1 stages per simulated second", m.group(2),
+                   b["g1_mjx_scene"]["stage_evaluations_per_simulated_second"], places=0)
+        self.assertAlmostEqual(round(b["ragdoll"]["stage_evaluations_per_simulated_second"]
+                                     / b["g1_mjx_scene"]["stage_evaluations_per_simulated_second"]), 8,
+                               delta=0.5, msg="the paragraph says eight times, the models must agree")
+        s = self.sentence(r"carries \*\*(\d+)\*\* static contact slots for this model against "
+                          r"\*\*(\d+)\*\* for that one", "the dense-slot cells")
+        self.check("ragdoll slots", s.group(1), b["ragdoll"]["mjx_static_contact_slots"], places=0)
+        self.check("g1 slots", s.group(2), b["g1_mjx_scene"]["mjx_static_contact_slots"], places=0)
+        i = self.sentence(r"pins the solver at \*\*(\d+)\*\* Newton iterations \(with \*\*(\d+)\*\* "
+                          r"line-search iterations\) where the ragdoll compiles at MuJoCo's default "
+                          r"\*\*(\d+)\*\*", "the solver budget")
+        self.check("g1 solver iterations", i.group(1), b["g1_mjx_scene"]["solver_iterations"], places=0)
+        self.check("g1 line-search iterations", i.group(2), b["g1_mjx_scene"]["ls_iterations"], places=0)
+        self.check("ragdoll solver iterations", i.group(3), b["ragdoll"]["solver_iterations"], places=0)
 
     def test_the_model_is_measured_not_vendored(self):
         with open(os.path.join(ROOT, ".gitignore"), encoding="utf-8") as handle:

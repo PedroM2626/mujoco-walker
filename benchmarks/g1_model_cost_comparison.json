@@ -47,6 +47,7 @@
   "native_ragdoll_ceiling_sim_s_per_wall_s": 66.94,
   "best_mjx_cell_sim_s_per_wall_s": 0.87,
   "best_mjx_share_of_native_ceiling": 0.013,
+  "mjx_cells_retired": "the MJX rows in this artifact come from bench_g1_cost.time_mjx; compare benchmarks/g1_mjx_instrument_reconciliation.json, which is priced by the harness that produced mjx_gpu_wsl.json",
   "g1_cheaper_than_ragdoll_natively": true,
   "g1_faster_than_ragdoll_in_mjx": true,
   "g1_mjx_speedup_over_ragdoll_mjx": 4.14

@@ -1,0 +1,13 @@
+2026-10-16 20:18:47 claimed machine.lock (PID 55148)
+2026-10-16 20:18:47 device cold at start: 20:18:47 start 0 %, 357 MiB, 49, 210 MHz, 0x0000000000000001
+2026-10-16 20:18:47 START cw_abba_pub_1m_a1 world=published 20:18:47 pre 0 %, 357 MiB, 49, 210 MHz, 0x0000000000000001
+2026-10-16 20:47:26 DONE cw_abba_pub_1m_a1 world=published seconds=1719 exit=0 20:47:26 post 0 %, 367 MiB, 52, 210 MHz, 0x0000000000000001
+2026-10-16 20:47:26 START cw_abba_pairs_1m_b1 world=explicit_full 20:47:26 pre 0 %, 367 MiB, 52, 210 MHz, 0x0000000000000001
+2026-10-16 21:18:25 DONE cw_abba_pairs_1m_b1 world=explicit_full seconds=1859 exit=0 21:18:25 post 0 %, 340 MiB, 48, 210 MHz, 0x0000000000000001
+2026-10-16 21:18:25 START cw_abba_pairs_1m_b2 world=explicit_full 21:18:25 pre 0 %, 340 MiB, 48, 210 MHz, 0x0000000000000001
+2026-10-16 23:19:26 DONE cw_abba_pairs_1m_b2 world=explicit_full seconds=7261 exit=0 23:19:26 post 51 %, 4279 MiB, 76, 2535 MHz, 0x0000000000000000
+2026-10-16 23:19:26 START cw_abba_pub_1m_a2 world=published 23:19:26 pre 51 %, 4279 MiB, 76, 2535 MHz, 0x0000000000000000
+2026-10-16 23:19:38 DONE cw_abba_pub_1m_a2 world=published seconds=12 exit=1 23:19:38 post 53 %, 4272 MiB, 77, 2535 MHz, 0x0000000000000000
+2026-10-16 23:19:38 SUMMARY cw_abba_pub_1m_a1=1719 s  cw_abba_pairs_1m_b1=1859 s  cw_abba_pairs_1m_b2=7261 s  cw_abba_pub_1m_a2=12 s
+2026-10-16 23:19:38 PREDICTION pairs should be ~1.2% under published; observed cw_abba_pub_1m_a1=1719 s  cw_abba_pairs_1m_b1=1859 s  cw_abba_pairs_1m_b2=7261 s  cw_abba_pub_1m_a2=12 s
+2026-10-16 23:19:38 released machine.lock

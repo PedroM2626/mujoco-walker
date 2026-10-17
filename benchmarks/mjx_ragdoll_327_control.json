@@ -1,0 +1,91 @@
+{
+  "machine": "Linux 6.18.33.2-microsoft-standard-WSL2, x86_64",
+  "backend": "MJX on JAX CPU (jaxlib has no CUDA wheel for native Windows)",
+  "protocol": "WalkerRagdoll model, frame_skip=5, dt/action=0.010s, ctrl U(-0.5,0.5), 6.0s steady-state per size, nconmax=512 njmax=4096",
+  "dtype": "float32",
+  "results": [
+    {
+      "backend": "MuJoCo C, single thread, in-process",
+      "frame_skip": 5,
+      "standing": {
+        "policy_actions_per_s": 4509.430154823654,
+        "us_per_policy_action": 221.75750941176423,
+        "mj_step_equivalent_per_s": 22547.150774118272,
+        "ncon": 0,
+        "nefc": 0
+      },
+      "fallen": {
+        "policy_actions_per_s": 4552.058568267459,
+        "us_per_policy_action": 219.68082901459812,
+        "mj_step_equivalent_per_s": 22760.292841337294,
+        "ncon": 1,
+        "nefc": 6
+      },
+      "mj_step_per_s": 22547.150774118272,
+      "env_steps_per_s_n1": 4509.430154823654,
+      "us_per_policy_action": 221.75750941176423
+    },
+    {
+      "nworld": 64,
+      "xml": "walker_ragdoll.xml",
+      "xml_sha256": "95bf8a74a2911d4005f6a0104410e599272bb23afce533f7dad28ea8d7811d79",
+      "frame_skip": 5,
+      "dt_per_action": 0.01,
+      "mjx_static_contact_slots": 138,
+      "mjx_nconmax": 512,
+      "mjx_njmax": 4096,
+      "dtype": "float32",
+      "compile_mode": "fori_loop",
+      "integrator": "mjINT_RK4",
+      "postconstraint_for_cfrc_ext": true,
+      "jax_backend": "gpu",
+      "jax_devices": "[CudaDevice(id=0)]",
+      "compile_s": 36.850359010000034,
+      "actions_per_s": 3.2786577589557413,
+      "env_steps_per_s": 209.83409657316744,
+      "us_per_env_step": 4765.669718749966,
+      "us_per_vector_step": 305002.8619999978,
+      "vector_steps_per_s": 3.2786577589557413,
+      "mj_steps_per_s": 1049.1704828658371,
+      "simulated_seconds_per_wall_second": 2.0983409657316745,
+      "measured_s": 6.1000572399999555,
+      "status": "ok",
+      "mjx_single_step_physics_per_s_n1": 68.79230957636513
+    },
+    {
+      "nworld": 256,
+      "xml": "walker_ragdoll.xml",
+      "xml_sha256": "95bf8a74a2911d4005f6a0104410e599272bb23afce533f7dad28ea8d7811d79",
+      "frame_skip": 5,
+      "dt_per_action": 0.01,
+      "mjx_static_contact_slots": 138,
+      "mjx_nconmax": 512,
+      "mjx_njmax": 4096,
+      "dtype": "float32",
+      "compile_mode": "fori_loop",
+      "integrator": "mjINT_RK4",
+      "postconstraint_for_cfrc_ext": true,
+      "jax_backend": "gpu",
+      "jax_devices": "[CudaDevice(id=0)]",
+      "compile_s": 46.64637971900004,
+      "actions_per_s": 4.293803957935691,
+      "env_steps_per_s": 1099.213813231537,
+      "us_per_env_step": 909.7411149338981,
+      "us_per_vector_step": 232893.7254230779,
+      "vector_steps_per_s": 4.293803957935691,
+      "mj_steps_per_s": 5496.069066157685,
+      "simulated_seconds_per_wall_second": 10.99213813231537,
+      "measured_s": 6.055236861000026,
+      "status": "ok",
+      "mjx_single_step_physics_per_s_n1": 55.983371068948834
+    }
+  ],
+  "cpu_reference": {
+    "source": "benchmarks/vec_backend_scaling.json + bench_env.py, measured 2026-10-01",
+    "mj_step_per_s_single_thread": 14000.0,
+    "env_step_us_single_thread": 698.9,
+    "parallel_vec_env_steps_per_s_n32": 6694.0,
+    "note": "parallel path is 32 worker processes; ~130us of serial parent-side pickle work per env per vector step is the ceiling"
+  },
+  "cpu_parallel_env_steps_per_s_n32": 6694.0
+}

@@ -664,23 +664,34 @@ make.
   per simulated second here (29,352 µs against 36,003 µs), because it steps 2.5 times as coarsely and
   collides 49 declared pairs instead of 126 filtered candidates. Judging a model by its step count
   would have said the opposite.
-- In MJX on this GPU the G1 really is faster than the ragdoll - **4.14x** at `nworld=256`, and the only
-  cell in this whole line of work that crosses real time (0.87 simulated seconds per wall second). That
-  is a true sentence about the model and the backend together, and it is still the wrong conclusion,
-  because the comparison that decides whether to move is against the path actually training:
-  0.87 is **1.3%** of the 66.94 simulated s/wall s the 32-process native ragdoll collects.
+- In MJX on this GPU the G1 is **23.22x** this ragdoll at `nworld=256` - 191.36 against 8.24 simulated
+  seconds per wall second, one harness in one venv, the replicate draw 3.8% away - which is **2.86x** the
+  66.94 simulated s/wall s the 32-process native ragdoll collects, and 0.75 of one world's real time for
+  each of its 256 worlds. The first draft of this bullet said 4.14x and called 0.87 "the only cell that
+  crosses real time": the ratio came from a timer that had not warmed up, and 0.87 was an aggregate over
+  256 worlds being read as a per-world clock. Corrected cells:
+  `benchmarks/g1_mjx_instrument_reconciliation.json`.
+- The warm-up was worth more than every other suspect combined. The cold timer's rate barely moved with
+  the batch - 0.07 simulated s/wall s at 64 worlds against 0.27 at 256, a factor of 3.9 for a batch 4x
+  larger, where the same step measured after warm-up scales 2.0 - which is the signature of XLA growing
+  its memory pool inside the measurement window. Warmed up, this repository's own timer lands at 7.70
+  where the published harness lands at 8.24; cold, it had said 0.27. The venv moves a level by 1.334x and
+  stepping one `mj_step` per compiled call instead of a whole action is worth 0.965x: real, and nothing
+  like the gap being explained.
 - The instrument mattered more than usual. Absolute MJX rates moved ~1.3x between draws with the XLA
   memory fraction, the venv that produced this repository's published MJX table cannot put a
   pair-declaring model on the GPU at all (`jnp.clip(a_min=)`), and Menagerie's *native* G1 description
   cannot be loaded into MJX either - `(CYLINDER, MESH) collisions not implemented` - so which model file
-  exists is dictated by which backend you intend to run. Only ratios measured back to back in one
-  process are claimed.
+  exists is dictated by which backend you intend to run. Only cells that name their harness, their venv
+  and their window are quotable, and the ratios are what replicates across them.
 
 **How to apply:** price an imported speed claim in the unit the budget pays in, and against the ceiling
 you actually train at rather than against the other project's path; check whether the model you want to
 compare is even loadable in the backend you are comparing, before treating "it ran" as a measurement;
-and when a hardware stack has two live versions on the machine, write the version into the artifact,
-because the same script produces different absolute numbers under each. Related:
+when a hardware stack has two live versions on the machine, write the version into the artifact,
+because the same script produces different absolute numbers under each; and warm a JAX/XLA timer up
+before starting the clock - if the rate you measure barely scales with the batch size, you are timing an
+allocator rather than a simulator, and every ratio built from those cells inherits the mistake. Related:
 [[borrowed-speed-config-carries-the-other-projects-bottleneck]],
 [[two-armed-comparisons-need-their-instrument-settings-recorded]],
 [[a-timing-measured-once-is-a-claim-waiting-to-be-refuted]].

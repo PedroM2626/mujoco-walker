@@ -1,0 +1,64 @@
+{
+  "machine": "Linux 6.18.33.2-microsoft-standard-WSL2, x86_64",
+  "backend": "MJX on JAX CPU (jaxlib has no CUDA wheel for native Windows)",
+  "protocol": "WalkerRagdoll model, frame_skip=1, dt/action=0.002s, ctrl U(-0.5,0.5), 6.0s steady-state per size, nconmax=512 njmax=4096",
+  "dtype": "float32",
+  "results": [
+    {
+      "backend": "MuJoCo C, single thread, in-process",
+      "frame_skip": 1,
+      "standing": {
+        "policy_actions_per_s": 15014.056800820736,
+        "us_per_policy_action": 66.60425048780523,
+        "mj_step_equivalent_per_s": 15014.056800820736,
+        "ncon": 0,
+        "nefc": 0
+      },
+      "fallen": {
+        "policy_actions_per_s": 15649.507281880948,
+        "us_per_policy_action": 63.899775372340535,
+        "mj_step_equivalent_per_s": 15649.507281880948,
+        "ncon": 0,
+        "nefc": 0
+      },
+      "mj_step_per_s": 15014.056800820736,
+      "env_steps_per_s_n1": 15014.056800820736,
+      "us_per_policy_action": 66.60425048780523
+    },
+    {
+      "nworld": 256,
+      "xml": "walker_ragdoll.xml",
+      "xml_sha256": "95bf8a74a2911d4005f6a0104410e599272bb23afce533f7dad28ea8d7811d79",
+      "frame_skip": 1,
+      "dt_per_action": 0.002,
+      "mjx_static_contact_slots": 138,
+      "mjx_nconmax": 512,
+      "mjx_njmax": 4096,
+      "dtype": "float32",
+      "compile_mode": "fori_loop",
+      "integrator": "mjINT_RK4",
+      "postconstraint_for_cfrc_ext": true,
+      "jax_backend": "gpu",
+      "jax_devices": "[CudaDevice(id=0)]",
+      "compile_s": 41.534577341000045,
+      "actions_per_s": 15.52037116432723,
+      "env_steps_per_s": 3973.215018067771,
+      "us_per_env_step": 251.68534686711058,
+      "us_per_vector_step": 64431.44879798031,
+      "vector_steps_per_s": 15.52037116432723,
+      "mj_steps_per_s": 3973.215018067771,
+      "simulated_seconds_per_wall_second": 7.946430036135542,
+      "measured_s": 6.378713431000051,
+      "status": "ok",
+      "mjx_single_step_physics_per_s_n1": 40.62979484397877
+    }
+  ],
+  "cpu_reference": {
+    "source": "benchmarks/vec_backend_scaling.json + bench_env.py, measured 2026-10-01",
+    "mj_step_per_s_single_thread": 14000.0,
+    "env_step_us_single_thread": 698.9,
+    "parallel_vec_env_steps_per_s_n32": 6694.0,
+    "note": "parallel path is 32 worker processes; ~130us of serial parent-side pickle work per env per vector step is the ceiling"
+  },
+  "cpu_parallel_env_steps_per_s_n32": 6694.0
+}

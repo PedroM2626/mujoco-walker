@@ -2044,6 +2044,22 @@ surprise: declaring pairs does buy something native (1.13x on raw `mj_step`), wh
 in MJX, because the narrowphase here skips the filter instead of the buffer being sized by it. It is
 still a few percent, and it is not why boxer-rl is fast.
 
+**The trainer was then asked the same question and, at this budget, cannot answer it.** Two launchers
+carry 1M SAC clocks for the two worlds now. chain34 recorded published **1,719 s** against explicit_full
+**1,859 s** - the declared-pair world **8.1%** *slower*, the opposite sign to the rate above - and then
+lost its own replication: its third arm took **7,261 s** with a foreign **4,279 MiB** CUDA context inside
+the window, and its fourth never started, refused by the trainer's own device guard (`exit=1`, 12 s).
+chain37 re-ran the pair with the device sampled every 60 s inside each window and both arms clean to a
+peak of **649 MiB** across six contexts, which are this run's own: published **1,459 s**, explicit_full
+**1,468 s**, a difference of **0.6%** - and the *same world's* clock had moved **1.178x** between the two
+windows. So the honest reading is that a 1M ratio-4 SAC arm costs about 1,459-1,859 s on this laptop
+depending on the night, that the effect this A/B was built to find is 1.2% of that, and that the
+instrument's own window-to-window spread is seven times larger. It is the same conclusion the 1M
+behaviour screens already recorded - a budget this small cannot rank a change this subtle - now with
+clocks instead of returns. `--contact-world explicit_full` therefore stands on the bit-identical rollout
+below rather than on a speed claim, and `published` remains the default (`benchmarks/
+contact_world_train_clocks.json`, built from the committed launcher logs).
+
 **The same-MDP half is adopted as an option, after a longer proof than the one above.**
 `--contact-world explicit_full` now selects the declared-pair model in the trainer, the evaluator and
 the environment, and the adoption rests on a policy-length replay rather than a spot check: the 4M
@@ -2112,13 +2128,36 @@ declared foot-floor pairs - was fetched to `external/` (36 MB of meshes, deliber
 measured against the ragdoll in the one unit that survives a change of timestep: **microseconds per
 simulated second**, because comparing steps/s between a 0.002 and a 0.004 model compares clocks.
 Natively the G1 scene is **0.815x** the ragdoll's cost (29,352 µs against **36,003 µs**) - cheaper here,
-not dearer - and Menagerie's own mesh-collider description is **1.234x**. On the GPU in MJX the G1 does
-beat our ragdoll, by **4.14x** at `nworld=256`, and it is the first cell in this section that crosses
-real time (0.87 simulated seconds per wall second). It is still **1.3%** of what the native 32-process
-ragdoll path collects (**66.94** simulated s/wall s), so the fastest G1 configuration measured on this
-machine collects a fraction of what the current one does. One incidental finding: MJX cannot take the
+not dearer - and Menagerie's own mesh-collider description is **1.234x**. On the GPU in MJX the G1 is
+**23.22x** this ragdoll at `nworld=256` - **191.36** against **8.24** simulated seconds per wall second,
+both cells from the published harness in the same WSL venv inside the same hour, the G1's second draw
+3.8% away at **198.61** - and that first draw is **2.86x** what the native 32-process ragdoll path
+collects (**66.94** simulated s/wall s), or **0.75** of one world's real time for every one of its 256
+worlds.
+
+The first version of this section said 4.14x and called 0.87 simulated s/wall s a cell that "crosses real
+time". Both were one instrument's fault, and the second was a unit error inside it: `bench_g1_cost`'s own
+MJX timer started its clock on the first device execution after a compile, while XLA is still growing its
+memory pool. The tell is that the cold cell barely scaled with the batch - **0.07** simulated s/wall s at
+64 worlds against **0.27** at 256, a factor of **3.9** for a batch 4x larger, where the same step
+measured after warm-up scales **2.0** - and the ragdoll's row read **0.27** where the published harness
+reads **8.24**. With the warm-up the timer now performs before it measures, that row is **7.70**: a
+**28.5x** correction, and `benchmarks/g1_mjx_instrument_reconciliation.json` keeps the retired cells
+under `*_no_warmup` beside the fixed ones. The two other suspects came out small: the WSL venv moves the
+ragdoll's MJX level by **1.334x** (**10.99** in mujoco 3.2.7/jax 0.10.2, the venv that produced
+`mjx_gpu_wsl.json`, against **8.24** in 3.16.0/jax 0.11.2), and paying one `mj_step` per compiled call
+instead of one whole action is worth **0.965x**, not a factor.
+
+**What one simulated second of each world buys is the rest of the answer.** Before a contact is solved,
+this ragdoll asks MuJoCo for four stage evaluations per step at dt 0.002 - **2,000** per simulated second
+- while the G1 scene asks for one implicitfast stage at dt 0.004: **250**, eight times less engine work
+for the same second of time. MJX's dense pipeline then carries **138** static contact slots for this
+model against **77** for that one, and the scene's own XML pins the solver at **5** Newton iterations
+(with **8** line-search iterations) where the ragdoll compiles at MuJoCo's default **100**. A GPU
+pipeline that is a bargain on a boxer's world is a bad trade on this one, which is the same mechanism the
+`<pair>` counter-configuration above could not move. One incidental finding stands: MJX cannot take the
 native G1 description at all - `(CYLINDER, MESH) collisions not implemented` - which is exactly why a
-second, primitive-collider file exists upstream (`bench_g1_cost.py`,
+second, primitive-collider file exists upstream (`bench_mjx.py --xml`, `bench_g1_cost.py`,
 `benchmarks/g1_model_cost_comparison.json`).
 
 So the G1 is not a speed lever here; it is a different robot, and running it would mean building its
@@ -2276,12 +2315,13 @@ Three facts to keep in mind:
 
 The suite is plain `unittest` (no pytest required) and covers the environment contract, the
 golden reward rollouts, the parallel/serial vector-env parity, checkpointing and the race
-harness — **467 tests, 255 s in this window** (`Ran 467 tests in 254.946s ... OK
+harness — **472 tests, 251 s in this window** (`Ran 472 tests in 250.889s ... OK
 (skipped=7)` under `.venv`). Windows of this suite have measured 176.3 s at 102 tests, 269.995 s
 at 121, 261.1 s at 127, 329.964 s at 128, 319.168 s at 130, 184.716 s, 203.108 s and 306.976 s at
 140, 144.678 s at 147, 230.268 s at 157, 171.016 s and 170.304 s at 194, and 174.008 s,
 170.391 s, 175.036 s, 168.775 s, 168.986 s and 166.606 s at 201/205/210, 169.919 s at 214,
-and 163.920 s and 161.829 s at 237, 165.360 s and 164.902 s at 243, 161.647 s and 162.674 s at 250, 162.726 s and 162.167 s at 251, 171.616 s and 163.434 s at 252, 163.769 s and 163.748 s at 255, 226.912 s and 217.651 s at 260, 193.167 s and 191.909 s at 273, 206.150 s at 279, 193.904 s at 284, 201.464 s at 289, 189.864 s and 187.485 s at 294, 190.012 s at 297, 230.180 s at 301, 190.655 s at 311, 211.202 s at 317, 195.419 s at 322, 184.182 s at 326, 180.964 s at 326, 266.112 s and 191.187 s at 339, 185.556 s at 340, 193.319 s at 351, 218.984 s at 369, 238.576 s at 376, 355.206 s at 399, 339.222 s and 373.536 s at 424/426, 320.360 s, 308.791 s, 398.060 s, 401.094 s, 397.254 s and 446.193 s at 428/430/438/455/458/459, and 253.676 s at 466, 254.946 s at 467 -
+and 163.920 s and 161.829 s at 237, 165.360 s and 164.902 s at 243, 161.647 s and 162.674 s at 250, 162.726 s and 162.167 s at 251, 171.616 s and 163.434 s at 252, 163.769 s and 163.748 s at 255, 226.912 s and 217.651 s at 260, 193.167 s and 191.909 s at 273, 206.150 s at 279, 193.904 s at 284, 201.464 s at 289, 189.864 s and 187.485 s at 294, 190.012 s at 297, 230.180 s at 301, 190.655 s at 311, 211.202 s at 317, 195.419 s at 322, 184.182 s at 326, 180.964 s at 326, 266.112 s and 191.187 s at 339, 185.556 s at 340, 193.319 s at 351, 218.984 s at 369, 238.576 s at 376, 355.206 s at 399, 339.222 s and 373.536 s at 424/426, 320.360 s, 308.791 s, 398.060 s, 401.094 s, 397.254 s and 446.193 s at 428/430/438/455/458/459, and 253.676 s, 254.946 s and 250.889 s at
+466/467/472 -
 those last windows carry a dose test that runs three short CPU trainings, which are about 27 s of
 them, so that entry is not slower hardware; consecutive runs of one commit agree to 4%, where the
 147 and 157 windows an afternoon earlier were 1.6x apart for ten more tests. The
@@ -2290,9 +2330,9 @@ them, so that entry is not slower hardware; consecutive runs of one commit agree
 added across those six bumps are exactly the contact-world, clip and gate modules, and run together
 they measure `Ran 57 tests in 3.187s` - 0.8% of the window that reported them - the whole clip module, including the two dozen frames its
 render smoke draws, measures `Ran 23 tests in 1.414s` - so the difference is this machine's state on
-the day rather than a slower suite. The 466 and 467 windows were measured at 01:33 and 01:52 with nothing
-else running on this machine and came in at 253.676 s and 254.946 s: eight more tests than the 459 window
-and 1.8x under its clock. The
+the day rather than a slower suite. The 466, 467 and 472 windows were measured at 01:33, 01:52 and 04:25
+with nothing else running on this machine and came in at 253.676 s, 254.946 s and 250.889 s: thirteen more
+tests than the 459 window and 1.8x under its clock. The
 duration belongs to the machine's state, the
 count does not, and a gate checks the count so it cannot go stale quietly):
 
@@ -2347,7 +2387,7 @@ that they ran - see Phase 4, item 6. How each of those states was found, with th
 ## 🔬 Reproducing and measuring
 
 ```bash
-python -m unittest discover -s tests -t .   # 467 tests in .venv, 255 s; see "Running the tests"
+python -m unittest discover -s tests -t .   # 472 tests in .venv, 251 s; see "Running the tests"
 python bench_env.py --seconds 4             # env throughput, physics vs Python split
 python bench_mjx.py --sizes 32,128          # MJX/JAX batched stepping
 python bench_mjx_pairs.py --verify          # is an explicit-<pair> world the same MDP? (MuJoCo-C)
@@ -2373,8 +2413,11 @@ python make_target_clips.py --gif-from docs/media/clips/published_4000000s_seed2
                                           # single-panel GIF); the size budget is a test assertion
 python bench_g1_cost.py --native --out benchmarks/g1_native_cost.json
                                           # the ragdoll and Menagerie's G1 priced per simulated second
-                                          # on this CPU; --mjx runs the GPU path under WSL (needs the
-                                          # mujoco 3.16 venv, and external/ fetched separately)
+                                          # on this CPU. For the GPU path the published harness is the
+                                          # instrument: bench_mjx.py --sizes 64,256 [--xml <file>] under
+                                          # WSL2 with external/ fetched. bench_g1_cost --mjx borrows its
+                                          # build_mjx and warms up before it starts the clock, which is
+                                          # what a 28.5x understatement bought
 python verify.py                            # Phase-2 artifact check (exits 2 when missing)
 python bench_device.py                        # SAC update cost, CPU vs CUDA
 python bench_dreamer_update.py --mode scaling # per-loop-step cost, eager vs captured, 3 batch points

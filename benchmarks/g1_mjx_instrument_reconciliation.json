@@ -1,0 +1,84 @@
+{
+  "protocol": "simulated seconds advanced per wall-clock second, batched MJX on the RTX 4070 under WSL2, 6 s steady-state per cell, nconmax=512 njmax=4096; `*_published_*` rows come from bench_mjx (one action of frame_skip mj_steps per compiled call), `*_time_mjx*` rows from bench_g1_cost (one mj_step per call), and `*_no_warmup` is the retired instrument that timed the first calls after a compile. 327 and 316 name the WSL venv: mujoco 3.2.7/jax 0.10.2 (the venv of mjx_gpu_wsl.json) and mujoco 3.16.0/jax 0.11.2",
+  "cells_sim_s_per_wall_s": {
+    "ragdoll_published_327": {
+      "64": 2.1,
+      "256": 10.99
+    },
+    "ragdoll_published_316": {
+      "64": 4.01,
+      "256": 8.24
+    },
+    "ragdoll_published_316_frameskip1": {
+      "256": 7.95
+    },
+    "g1_published_316": {
+      "64": 57.14,
+      "256": 191.36
+    },
+    "g1_published_316_repeat": {
+      "64": 60.34,
+      "256": 198.61
+    },
+    "ragdoll_time_mjx": {
+      "64": 3.94,
+      "256": 7.7
+    },
+    "g1_time_mjx": {
+      "64": 32.9,
+      "256": 116.68
+    },
+    "ragdoll_time_mjx_no_warmup": {
+      "64": 0.07,
+      "256": 0.27
+    },
+    "g1_time_mjx_no_warmup": {
+      "64": 0.26,
+      "256": 0.99
+    }
+  },
+  "warm_up_penalty_ragdoll_n256": 28.5,
+  "no_warmup_batch_scaling_ragdoll": 3.9,
+  "warm_batch_scaling_ragdoll": 2.0,
+  "warm_up_penalty_g1_n256": 117.9,
+  "per_call_ms_after_warmup": {
+    "ragdoll_time_mjx": {
+      "64": 25.1,
+      "256": 47.6
+    },
+    "g1_time_mjx": {
+      "64": 23.9,
+      "256": 44.8
+    }
+  },
+  "frame_skip_1_over_5_ragdoll_316_n256": 0.965,
+  "time_mjx_over_published_g1_n256": 0.61,
+  "venv_327_over_316_ragdoll_n256": 1.334,
+  "g1_draws_agree_within": 0.038,
+  "g1_over_ragdoll_published_316_n256": 23.22,
+  "native_ragdoll_ceiling_sim_s_per_wall_s": 66.94,
+  "best_g1_cell_over_native_ceiling": 2.97,
+  "g1_first_draw_over_native_ceiling": 2.86,
+  "g1_first_draw_real_time_fraction_per_world": 0.75,
+  "model_physics_budget": {
+    "ragdoll": {
+      "integrator": "mjINT_RK4",
+      "timestep": 0.002,
+      "solver_iterations": 100,
+      "ls_iterations": 50,
+      "declared_pairs": 0,
+      "mjx_static_contact_slots": 138,
+      "stage_evaluations_per_simulated_second": 2000.0
+    },
+    "g1_mjx_scene": {
+      "integrator": "mjINT_IMPLICITFAST",
+      "timestep": 0.004,
+      "solver_iterations": 5,
+      "ls_iterations": 8,
+      "declared_pairs": 49,
+      "mjx_static_contact_slots": 77,
+      "stage_evaluations_per_simulated_second": 250.0
+    }
+  },
+  "retired_cells": "benchmarks/g1_mjx_cost.json carries the no-warmup numbers this builder rebuts; benchmarks/g1_model_cost_comparison.json's MJX cells come from it"
+}

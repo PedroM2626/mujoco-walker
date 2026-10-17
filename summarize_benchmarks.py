@@ -1947,8 +1947,14 @@ def g1_model_cost_comparison(out="benchmarks/g1_model_cost_comparison.json"):
         "control_step_s": native["control_step_s"],
         "costs": per_model,
         "native_ragdoll_ceiling_sim_s_per_wall_s": round(ceiling, 2),
+        # RETIRED, and the reason it is retired is the subject of the next builder. These two cells
+        # divide two MJX numbers taken from bench_g1_cost.time_mjx, an instrument that turned out to
+        # disagree with the published bench_mjx harness by 193x on the same GPU and the same model.
         "best_mjx_cell_sim_s_per_wall_s": best_mjx,
         "best_mjx_share_of_native_ceiling": round(best_mjx / ceiling, 4),
+        "mjx_cells_retired": ("the MJX rows in this artifact come from bench_g1_cost.time_mjx; "
+                             "compare benchmarks/g1_mjx_instrument_reconciliation.json, which is "
+                             "priced by the harness that produced mjx_gpu_wsl.json"),
         "g1_cheaper_than_ragdoll_natively":
             per_model["g1_mjx_scene"]["native_ratio_vs_ragdoll"] < 1.0,
         "g1_faster_than_ragdoll_in_mjx":
@@ -1958,6 +1964,236 @@ def g1_model_cost_comparison(out="benchmarks/g1_model_cost_comparison.json"):
         "g1_mjx_speedup_over_ragdoll_mjx": round(
             per_model["g1_mjx_scene"]["mjx"][256]
             / per_model["walker_ragdoll"]["mjx"][256], 2),
+    }, out
+
+
+def _mjx_cells_of(rows):
+    """{nworld: simulated seconds per wall second} from a list of MJX size cells."""
+    return {int(r["nworld"]): round(r["simulated_seconds_per_wall_second"], 2)
+            for r in rows if isinstance(r, dict) and "simulated_seconds_per_wall_second" in r}
+
+
+def _mjx_cells(doc):
+    """The same, from either artifact shape: a bench_mjx sweep, or one bench_g1_cost model cell."""
+    if "results" in doc:
+        return _mjx_cells_of(doc["results"])
+    rows = [c for cell in doc["models"].values() if isinstance(cell.get("mjx"), list)
+            for c in cell["mjx"]]
+    return _mjx_cells_of(rows)
+
+
+def g1_mjx_instrument_reconciliation(out="benchmarks/g1_mjx_instrument_reconciliation.json"):
+    """The same GPU, the same two models, three instruments - and which numbers this repo quotes.
+
+    `bench_g1_cost.time_mjx` first reported the G1 scene at 0.99 simulated seconds per wall second,
+    ~30x under what the published `bench_mjx` harness gets for the same model on the same card. The
+    cause was not the contact capacities, not the WSL venv and not the frame skip: the old timer
+    started its clock on the first device execution after a compile, where XLA is still growing its
+    memory pool - a cost that came out the same ~1.88 s per call at 64 worlds and at 256, which is an
+    allocator, not a simulator. The cells below are the three instruments side by side so the retired
+    figure stays auditable, and the physics budget beside them says why a G1 and this ragdoll are not
+    two prices of the same step.
+    """
+    def load(name):
+        with open(os.path.join(ROOT, "benchmarks", name), encoding="utf-8") as handle:
+            return json.load(handle)
+
+    cells = {}
+    for key, name in (("ragdoll_published_327", "mjx_ragdoll_327_control.json"),
+                      ("ragdoll_published_316", "mjx_ragdoll_316_published.json"),
+                      ("ragdoll_published_316_frameskip1", "mjx_ragdoll_316_frameskip1.json"),
+                      ("g1_published_316", "mjx_g1_published_harness.json"),
+                      ("g1_published_316_repeat", "mjx_g1_published_316_repeat.json")):
+        cells[key] = _mjx_cells(load(name))
+    for key, name in (("ragdoll_time_mjx", "mjx_cost_ragdoll.json"),
+                      ("g1_time_mjx", "mjx_cost_g1.json"),
+                      ("ragdoll_time_mjx_no_warmup", "mjx_cost_ragdoll_no_warmup.json"),
+                      ("g1_time_mjx_no_warmup", "mjx_cost_g1_no_warmup.json")):
+        cells[key] = _mjx_cells(load(name))
+    per_call = {k: load(n)["models"][m].get("mjx")
+                for k, n, m in (("ragdoll_time_mjx", "mjx_cost_ragdoll.json", "walker_ragdoll"),
+                                ("g1_time_mjx", "mjx_cost_g1.json", "g1_mjx_scene"))}
+
+    def at(key, nworld):
+        return cells[key].get(nworld)
+
+    budget = {}
+    def slots(doc, nworld=256):
+        for r in (doc.get("results") or []):
+            if r.get("nworld") == nworld and "mjx_static_contact_slots" in r:
+                return int(r["mjx_static_contact_slots"])
+        return None
+
+    slot_cells = {"ragdoll": slots(load("mjx_ragdoll_316_published.json")),
+                  "g1_mjx_scene": slots(load("mjx_g1_published_harness.json"))}
+    try:
+        import mujoco
+        for label, xml in (("ragdoll", os.path.join(ROOT, "walker_ragdoll.xml")),
+                           ("g1_mjx_scene", os.path.join(ROOT, "external", "mujoco_menagerie",
+                                                         "unitree_g1", "scene_mjx.xml"))):
+            if not os.path.exists(xml):
+                budget[label] = None
+                continue
+            m = mujoco.MjModel.from_xml_path(xml)
+            stages = 4 if "RK4" in mujoco.mjtIntegrator(m.opt.integrator).name else 1
+            budget[label] = {"integrator": mujoco.mjtIntegrator(m.opt.integrator).name,
+                             "timestep": float(m.opt.timestep),
+                             "solver_iterations": int(m.opt.iterations),
+                             "ls_iterations": int(m.opt.ls_iterations),
+                             "declared_pairs": int(m.npair),
+                             "mjx_static_contact_slots": slot_cells[label],
+                             "stage_evaluations_per_simulated_second":
+                                 round(stages / float(m.opt.timestep), 1)}
+    except Exception:  # noqa: BLE001 - the budget is context for the cells, not a gate input
+        budget = {}
+
+    ceiling = MJX_PAIRS_NATIVE_REFERENCE["parallel_vec_env_steps_per_s_n32"] * 0.01
+    best_g1 = max(at("g1_published_316", 256), at("g1_published_316_repeat", 256))
+    return {
+        "protocol": ("simulated seconds advanced per wall-clock second, batched MJX on the RTX 4070 "
+                     "under WSL2, 6 s steady-state per cell, nconmax=512 njmax=4096; "
+                     "`*_published_*` rows come from bench_mjx (one action of frame_skip mj_steps per "
+                     "compiled call), `*_time_mjx*` rows from bench_g1_cost (one mj_step per call), "
+                     "and `*_no_warmup` is the retired instrument that timed the first calls after a "
+                     "compile. 327 and 316 name the WSL venv: mujoco 3.2.7/jax 0.10.2 (the venv of "
+                     "mjx_gpu_wsl.json) and mujoco 3.16.0/jax 0.11.2"),
+        "cells_sim_s_per_wall_s": cells,
+        "warm_up_penalty_ragdoll_n256": round(at("ragdoll_time_mjx", 256)
+                                              / at("ragdoll_time_mjx_no_warmup", 256), 1),
+        # The signature of an allocator rather than a simulator: a cold timer barely scales with the
+        # batch, because the per-call cost is the pool growing, not the worlds being stepped.
+        "no_warmup_batch_scaling_ragdoll": round(at("ragdoll_time_mjx_no_warmup", 256)
+                                                 / at("ragdoll_time_mjx_no_warmup", 64), 1),
+        "warm_batch_scaling_ragdoll": round(at("ragdoll_time_mjx", 256)
+                                            / at("ragdoll_time_mjx", 64), 1),
+        "warm_up_penalty_g1_n256": round(at("g1_time_mjx", 256)
+                                         / at("g1_time_mjx_no_warmup", 256), 1),
+        "per_call_ms_after_warmup": {k: {c["nworld"]: c["per_call_ms"] for c in v}
+                                     for k, v in per_call.items()},
+        "frame_skip_1_over_5_ragdoll_316_n256": round(at("ragdoll_published_316_frameskip1", 256)
+                                                      / at("ragdoll_published_316", 256), 3),
+        "time_mjx_over_published_g1_n256": round(at("g1_time_mjx", 256) / at("g1_published_316", 256),
+                                                 3),
+        "venv_327_over_316_ragdoll_n256": round(at("ragdoll_published_327", 256)
+                                                / at("ragdoll_published_316", 256), 3),
+        "g1_draws_agree_within": round(abs(at("g1_published_316_repeat", 256)
+                                           - at("g1_published_316", 256))
+                                       / at("g1_published_316", 256), 3),
+        "g1_over_ragdoll_published_316_n256": round(at("g1_published_316", 256)
+                                                    / at("ragdoll_published_316", 256), 2),
+        "native_ragdoll_ceiling_sim_s_per_wall_s": round(ceiling, 2),
+        "best_g1_cell_over_native_ceiling": round(best_g1 / ceiling, 2),
+        "g1_first_draw_over_native_ceiling": round(at("g1_published_316", 256) / ceiling, 2),
+        "g1_first_draw_real_time_fraction_per_world": round(at("g1_published_316", 256) / 256, 2),
+        "model_physics_budget": budget,
+        "retired_cells": ("benchmarks/g1_mjx_cost.json carries the no-warmup numbers this builder "
+                          "rebuts; benchmarks/g1_model_cost_comparison.json's MJX cells come from it"),
+    }, out
+
+
+def contact_world_train_clocks(out="benchmarks/contact_world_train_clocks.json"):
+    """The 1M SAC wall clock of each contact world, and what the device was doing inside each window.
+
+    Three launchers hold evidence for this claim, and each taught one thing. chain34 ran the ABBA but
+    sampled the device only at the edges of the night, so its b2 arm - 7,261 s for what the other arms
+    did in under 1,900 - is visible as an outlier with no way to exclude the quiet ones; its a2 arm was
+    refused by the trainer's own pre-flight guard, which is the instrument protecting itself. chain35
+    added per-minute sampling and lost every exit code, because `Start-Process -PassThru` without
+    `-Wait` reports an empty `ExitCode`. chain37 runs each arm with `-Wait` and samples from a separate
+    process for the whole night, so a clock can be audited against the window it was collected in.
+    """
+    from datetime import datetime
+
+    def stamp(text):
+        return datetime.strptime(text, "%Y-%m-%d %H:%M:%S")
+
+    def lines(path):
+        full = os.path.join(ROOT, path)
+        if not os.path.exists(full):
+            return []
+        with open(full, encoding="utf-8", errors="replace") as handle:
+            return [l.strip() for l in handle if l.strip()]
+
+    arms = {}
+    for line in lines("chain34_evidence.log"):
+        m = re.match(r"^([\d\-: ]{19}) DONE (\S+) world=(\S+) seconds=(\d+) exit=(\d+)"
+                     r"(?:.*?(\d+) MiB)?", line)
+        if not m:
+            continue
+        post = int(m.group(6)) if m.group(6) else None
+        arms[m.group(2)] = {"chain": "chain34", "world": m.group(3), "seconds": int(m.group(4)),
+                            "exit": int(m.group(5)), "device_used_mib_after": post,
+                            "device_sampling": "window edges only",
+                            "credible": int(m.group(5)) == 0 and (post is None or post < 2000)}
+    for line in lines("chain35_evidence.log"):
+        m = re.match(r"^([\d\-: ]{19}) ARM (\S+) attempt=(\d+) seconds=(\S+) exit=(\S*)"
+                     r"(?: peak_used_mib=(\d+))?", line)
+        if not m or m.group(4) == "-1":
+            continue
+        peak = int(m.group(6)) if m.group(6) else None
+        arms[m.group(2) + "#attempt" + m.group(3)] = {
+            "chain": "chain35", "world": "explicit_full" if "pairs" in m.group(2) else "published",
+            "seconds": int(m.group(4)), "exit": m.group(5) or None, "device_used_mib_peak": peak,
+            "device_sampling": "60 s inside the window",
+            "credible": m.group(5) == "0" and peak is not None and peak <= 1200}
+
+    starts = {}
+    for line in lines("chain37_evidence.log"):
+        m = re.match(r"^([\d\-: ]{19}) START (\S+) world=(\S+) attempt=(\d+)", line)
+        if m:
+            starts[(m.group(2), m.group(4))] = (stamp(m.group(1)), m.group(3))
+        m = re.match(r"^([\d\-: ]{19}) ARM (\S+) attempt=(\d+) seconds=(\S+) exit=(\S*)", line)
+        if not m or m.group(4) == "-1":
+            continue
+        key = (m.group(2), m.group(3))
+        window = starts.get(key)
+        inside = []
+        if window:
+            for line in lines("chain37_gpu_samples.log"):
+                s = re.match(r"^([\d\-: ]{19}) mid .*?, (\d+) MiB.*ctx=(\d+) py=(\d+)", line)
+                if s and window[0] <= stamp(s.group(1)) <= stamp(m.group(1)):
+                    inside.append({"used_mib": int(s.group(2)), "contexts": int(s.group(3)),
+                                   "python": int(s.group(4))})
+        arms[m.group(2) + "#attempt" + m.group(3)] = {
+            "chain": "chain37", "world": window[1] if window else None, "seconds": int(m.group(4)),
+            "exit": m.group(5) or None, "window": [window[0].isoformat(sep=" "), m.group(1)],
+            "samples": len(inside),
+            "device_used_mib_peak": max([c["used_mib"] for c in inside], default=None),
+            "device_contexts_peak": max([c["contexts"] for c in inside], default=None),
+            "python_workers_min": min([c["python"] for c in inside], default=None),
+            "device_sampling": "60 s inside the window",
+            "credible": m.group(5) == "0" and bool(inside)
+                        and max(c["used_mib"] for c in inside) <= 2000}
+
+    by_chain = {}
+    for name, arm in arms.items():
+        if not arm["credible"]:
+            continue
+        by_chain.setdefault(arm["chain"], {})[arm["world"]] = arm["seconds"]
+    comparisons = {}
+    for chain, worlds in by_chain.items():
+        if "published" in worlds and "explicit_full" in worlds:
+            comparisons[chain] = {"published_seconds": worlds["published"],
+                                  "explicit_full_seconds": worlds["explicit_full"],
+                                  "explicit_full_over_published":
+                                      round(worlds["explicit_full"] / worlds["published"], 3),
+                                  "difference_pct": round(
+                                      100 * (worlds["explicit_full"] / worlds["published"] - 1), 1)}
+    # The same configuration measured in two windows: this is the noise floor the A/B has to clear, and
+    # it is four times the effect the native stepping rate predicts.
+    pub = [w["published_seconds"] for w in comparisons.values()]
+    spread = round(max(pub) / min(pub), 3) if len(pub) > 1 else None
+    return {
+        "protocol": ("SAC 1M, seed 7, num_envs 32 (the parallel CPU backend), utd_ratio 4, task_phase "
+                     "target, reset_mode mixed, target_forward_velocity 1.2, device cuda, one arm per "
+                     "contact world, each launcher recording its own wall clock and its own device "
+                     "samples"),
+        "arms": arms,
+        "comparisons": comparisons,
+        "published_clock_spread_across_chains": spread,
+        "prediction_being_tested": ("bench_env.py's native stepping rate put the declared-pair world at "
+                                    "1.079x the published one, which inside a ratio-4 SAC clock - where "
+                                    "collection is 15.9% of the window - is a 1.2% saving"),
     }, out
 
 
@@ -2015,6 +2251,10 @@ BENCHMARKS = [
     contact_worlds_native_gate,
     # The boxing project's robot, priced per simulated second on both paths.
     g1_model_cost_comparison,
+    # ... and the two MJX harnesses that disagree by 193x on it, with the cells that say why.
+    g1_mjx_instrument_reconciliation,
+    # The contact worlds trained end to end, with each launcher's own device record around the clock.
+    contact_world_train_clocks,
     # The two rendered contact worlds, compared per seed: what the clips actually show.
     target_clips_contact_contrast,
     # PPO against SAC at the same config: what each costs per environment step, and what that buys

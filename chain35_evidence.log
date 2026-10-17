@@ -1,0 +1,19 @@
+2026-10-17 01:39:47 claimed machine.lock
+2026-10-17 01:39:47 START paired_316 01:39:47 pre 0 %, 542 MiB, 49, 210 MHz, 0x0000000000000001 ctx=5
+2026-10-17 01:43:46 DONE paired_316 seconds=239 exit=1 log=C:\Users\Acer\AppData\Local\Temp\chain35_paired_316.log 01:43:46 post 0 %, 492 MiB, 50, 210 MHz, 0x0000000000000001 ctx=5
+2026-10-17 01:43:46 START published_harness_316 01:43:46 pre 0 %, 492 MiB, 50, 210 MHz, 0x0000000000000001 ctx=5
+2026-10-17 01:59:23 claimed machine.lock
+2026-10-17 01:59:23 START ragdoll_316 01:59:23 pre 0 %, 491 MiB, 48, 210 MHz, 0x0000000000000001 ctx=5
+2026-10-17 02:03:16 DONE ragdoll_316 seconds=233 exit=0 log=C:\Users\Acer\AppData\Local\Temp\chain35_ragdoll_316.log 02:03:16 post 0 %, 491 MiB, 51, 495 MHz, 0x0000000000000001 ctx=5
+2026-10-17 02:03:16 START g1_316 02:03:16 pre 0 %, 491 MiB, 51, 465 MHz, 0x0000000000000001 ctx=5
+2026-10-17 02:06:08 DONE g1_316 seconds=172 exit=0 log=C:\Users\Acer\AppData\Local\Temp\chain35_g1_316.log 02:06:08 post 0 %, 491 MiB, 52, 1905 MHz, 0x0000000000000001 ctx=5
+2026-10-17 02:06:09 START ragdoll_327_control 02:06:09 pre 0 %, 491 MiB, 52, 390 MHz, 0x0000000000000001 ctx=5
+2026-10-17 02:11:35 DONE ragdoll_327_control seconds=327 exit=0 log=C:\Users\Acer\AppData\Local\Temp\chain35_ragdoll_327_control.log 02:11:35 post 0 %, 446 MiB, 51, 210 MHz, 0x0000000000000001 ctx=5
+2026-10-17 02:11:36 START g1_327 02:11:36 pre 0 %, 446 MiB, 51, 210 MHz, 0x0000000000000001 ctx=5
+2026-10-17 02:12:10 DONE g1_327 seconds=34 exit=1 log=C:\Users\Acer\AppData\Local\Temp\chain35_g1_327.log 02:12:10 post 0 %, 447 MiB, 50, 210 MHz, 0x0000000000000001 ctx=5
+2026-10-17 02:12:10 START g1_published_harness 02:12:10 pre 0 %, 447 MiB, 50, 210 MHz, 0x0000000000000001 ctx=5
+2026-10-17 02:17:48 DONE g1_published_harness seconds=338 exit=0 log=C:\Users\Acer\AppData\Local\Temp\chain35_g1_published_harness.log 02:17:48 post 0 %, 447 MiB, 51, 240 MHz, 0x0000000000000001 ctx=5
+2026-10-17 02:17:48 START cw_abba2_pairs_1m_b1 world=explicit_full attempt=1 02:17:48 pre 0 %, 447 MiB, 51, 225 MHz, 0x0000000000000001 ctx=5
+2026-10-17 02:44:52 ARM cw_abba2_pairs_1m_b1 attempt=1 seconds=1624 exit= peak_used_mib=649 peak_ctx=6 02:44:52 post 0 %, 456 MiB, 49, 210 MHz, 0x0000000000000001 ctx=5
+2026-10-17 02:44:52 retrying cw_abba2_pairs_1m_b1 after a failed attempt
+2026-10-17 02:47:52 START cw_abba2_pairs_1m_b1 world=explicit_full attempt=2 02:47:52 pre 0 %, 456 MiB, 49, 210 MHz, 0x0000000000000001 ctx=5

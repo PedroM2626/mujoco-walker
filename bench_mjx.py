@@ -57,6 +57,7 @@ import argparse
 import json
 import os
 import platform
+import re
 import subprocess
 import sys
 import time
@@ -81,20 +82,27 @@ CPU_REFERENCE = {
 SIZE_ELEMENT = '<size nconmax="{nconmax}" njmax="{njmax}"/>'
 
 
-def xml_with_sizes(nconmax=512, njmax=4096, integrator=None):
-    """walker_ragdoll.xml with an injected <size> element (the file is never touched).
+def xml_with_sizes(nconmax=512, njmax=4096, integrator=None, xml=None):
+    """Compile-ready XML text with the contact/constraint capacities MJX requires (no file is touched).
 
     MJX needs concrete constraint/contact capacities.  ``MjModel.nconmax`` is a
     read-only property in the Python binding, so the only way to set it is to
-    compile the model from XML text that already contains the element.
+    compile the model from XML text that already contains the element.  Both of this
+    repo's models compile with ``nconmax = njmax = -1`` from their own files, so a
+    caller that skips this function and hands ``mjx.put_model`` the bare model is not
+    measuring the same simulator state as the table below - which is how one hand
+    -rolled MJX timer came out ~40x under the numbers committed here.
+
+    ``xml`` points at any model file, so a foreign robot is priced by this instrument
+    rather than by a second copy of it.
 
     ``integrator`` rewrites the option for headroom studies only - the committed
     environment is RK4 and every headline number uses it.
     """
-    with open(XML_PATH, "r", encoding="utf-8") as f:
+    path = xml or XML_PATH
+    with open(path, "r", encoding="utf-8") as f:
         text = f.read()
-    if "<size" in text:
-        raise RuntimeError("walker_ragdoll.xml already has a <size> element; re-check")
+    sizes = SIZE_ELEMENT.format(nconmax=nconmax, njmax=njmax)
     if integrator:
         # MuJoCo's XML parser is picky about the exact spelling of each keyword
         # ("Euler" parses, "euler"/"EULER" do not), so map from the enum-style
@@ -103,18 +111,37 @@ def xml_with_sizes(nconmax=512, njmax=4096, integrator=None):
                     "IMPLICITFAST": "implicitfast", "RK4": "RK4"}.get(integrator.upper())
         if spelling is None:
             raise ValueError(f"unknown integrator {integrator!r}")
-        text = text.replace('integrator="RK4"', f'integrator="{spelling}"', 1)
-        if f'integrator="{spelling}"' not in text:
-            raise RuntimeError("integrator rewrite did not apply - "
-                               "does walker_ragdoll.xml still declare integrator=\"RK4\"?")
-    i = text.index("<option")
-    return text[:i] + "  " + SIZE_ELEMENT.format(nconmax=nconmax, njmax=njmax) + "\n  " + text[i:]
+        text, hits = re.subn(r'integrator="[^"]*"', f'integrator="{spelling}"', text, count=1)
+        if not hits:
+            raise RuntimeError(f"{os.path.basename(path)} declares no integrator to rewrite")
+    if "<size" in text:
+        # A model that ships its own capacities gets them rewritten in place: MuJoCo keeps
+        # the last <size> in the document, so appending a second one would leave whichever
+        # wins dependent on where it sits.
+        text, hits = re.subn(r"<size\b[^>]*/>", sizes, text, count=1)
+        if not hits:
+            raise RuntimeError(f"{os.path.basename(path)} has a <size> element this rewrite cannot reach")
+        return text
+    if "<option" in text:
+        i = text.index("<option")
+    else:
+        # Foreign scenes often carry their <option> in an include, so the only guaranteed
+        # anchor is just inside the root element.
+        i = text.index(">", text.index("<mujoco")) + 1
+    return text[:i] + "  " + sizes + "\n  " + text[i:]
 
 
 # --------------------------------------------------------------------------- #
 # MuJoCo-C (the committed path), measured in this same process
 # --------------------------------------------------------------------------- #
-def cpu_physics_reference(seconds, frame_skip):
+def _sha256(path):
+    import hashlib
+
+    with open(path, "rb") as handle:
+        return hashlib.sha256(handle.read()).hexdigest()
+
+
+def cpu_physics_reference(seconds, frame_skip, xml=None):
     """MuJoCo-C cost of the physics inside one env step, in two states.
 
     MuJoCo-C is sparse: it only pays for *active* contacts, and a ragdoll driven by
@@ -125,7 +152,7 @@ def cpu_physics_reference(seconds, frame_skip):
     """
     import mujoco
 
-    model = mujoco.MjModel.from_xml_path(XML_PATH)
+    model = mujoco.MjModel.from_xml_path(xml or XML_PATH)
     data = mujoco.MjData(model)
     rng = np.random.default_rng(0)
 
@@ -175,14 +202,25 @@ def cpu_physics_reference(seconds, frame_skip):
 # --------------------------------------------------------------------------- #
 # MJX
 # --------------------------------------------------------------------------- #
-def build_mjx(nconmax, njmax, x64, integrator=None):
+def build_mjx(nconmax, njmax, x64, integrator=None, xml=None):
     import jax
     import mujoco
     import mujoco.mjx as mjx
 
     if x64:
         jax.config.update("jax_enable_x64", True)
-    model = mujoco.MjModel.from_xml_string(xml_with_sizes(nconmax, njmax, integrator))
+    path = os.path.abspath(xml or XML_PATH)
+    text = xml_with_sizes(nconmax, njmax, integrator, xml)
+    if "<include" in text:
+        # A scene that includes its robot cannot be compiled from a string: the include and the
+        # meshdir resolve against the file's own directory, which from_xml_string has no way to
+        # know. The rewritten text goes beside the original so the same instrument reads it.
+        sibling = os.path.join(os.path.dirname(path), "_mjx_sized_" + os.path.basename(path))
+        with open(sibling, "w", encoding="utf-8") as handle:
+            handle.write(text)
+        model = mujoco.MjModel.from_xml_path(sibling)
+    else:
+        model = mujoco.MjModel.from_xml_string(text)
     mjx_model = mjx.put_model(model)
     return model, mjx_model, mjx
 
@@ -255,18 +293,27 @@ def mjx_single_step_rate(mjx_model, mjx, seconds):
 
 
 def bench_mjx_batch(nworld, actions, seconds, frame_skip, nconmax, njmax, x64,
-                   compile_deadline, unroll, integrator=None, postconstraint=True):
+                   compile_deadline, unroll, integrator=None, postconstraint=True, xml=None):
     import jax
     import mujoco
 
     rng = np.random.default_rng(0)
-    model, mjx_model, mjx = build_mjx(nconmax, njmax, x64, integrator)
+    model, mjx_model, mjx = build_mjx(nconmax, njmax, x64, integrator, xml)
+    path = os.path.abspath(xml or XML_PATH)
 
+    # dt/action in the record is the *compiled* model's own timestep, not this repo's 0.002:
+    # pricing a model that slices 0.004 under a 0.002 label is the exact unit error this
+    # comparison exists to avoid.
+    dt_per_action = frame_skip * float(model.opt.timestep)
     rec = {
         "nworld": nworld,
+        "xml": os.path.basename(path),
+        "xml_sha256": _sha256(path),
         "frame_skip": frame_skip,
-        "dt_per_action": frame_skip * model.opt.timestep,
+        "dt_per_action": dt_per_action,
         "mjx_static_contact_slots": int(mjx.make_data(mjx_model).ncon),
+        "mjx_nconmax": int(model.nconmax),
+        "mjx_njmax": int(model.njmax),
         "dtype": "float64" if x64 else "float32",
         "compile_mode": "unrolled" if unroll else "fori_loop",
         "integrator": mujoco.mjtIntegrator(model.opt.integrator).name,
@@ -322,6 +369,11 @@ def bench_mjx_batch(nworld, actions, seconds, frame_skip, nconmax, njmax, x64,
         "us_per_env_step": 1e6 / aps / nworld,
         "us_per_vector_step": 1e6 / aps,
         "vector_steps_per_s": aps,
+        # The two units that survive a change of model: aggregate physics steps, and aggregate
+        # simulated seconds advanced per wall-clock second. steps/s alone compares a 0.002 model
+        # with a 0.004 one as if the clocks were the same.
+        "mj_steps_per_s": aps * nworld * frame_skip,
+        "simulated_seconds_per_wall_second": aps * nworld * frame_skip * float(model.opt.timestep),
         "measured_s": elapsed,
         "status": rec.get("status", "ok"),
     })
@@ -339,12 +391,12 @@ def jnp_array(x):
 # --------------------------------------------------------------------------- #
 def run_single(args):
     if args.mode == "cpu-ref":
-        return cpu_physics_reference(args.seconds, args.frame_skip)
+        return cpu_physics_reference(args.seconds, args.frame_skip, args.xml)
     return bench_mjx_batch(
         nworld=args.single, actions=args.actions, seconds=args.seconds,
         frame_skip=args.frame_skip, nconmax=args.nconmax, njmax=args.njmax,
         x64=args.x64, compile_deadline=args.compile_deadline, unroll=args.unroll,
-        integrator=args.integrator, postconstraint=not args.no_postconstraint,
+        integrator=args.integrator, postconstraint=not args.no_postconstraint, xml=args.xml,
     )
 
 
@@ -352,7 +404,7 @@ def run_sweep(args):
     results = []
     if args.mode != "mjx":
         raise SystemExit(f"--mode {args.mode} is handled before the sweep")
-    results.append(cpu_physics_reference(args.seconds, args.frame_skip))
+    results.append(cpu_physics_reference(args.seconds, args.frame_skip, args.xml))
     for n in args.sizes:
         print(f"[mjx-bench] nworld={n} launching subprocess "
               f"(compile deadline {args.compile_deadline:.0f}s)", flush=True)
@@ -374,6 +426,9 @@ def run_sweep(args):
             cmd += ["--integrator", args.integrator]
         if args.no_postconstraint:
             cmd.append("--no-postconstraint")
+        if args.xml:
+            # absolute: the child runs with cwd=HERE, which is not where a shell's cwd was.
+            cmd += ["--xml", os.path.abspath(args.xml)]
         t0 = time.perf_counter()
         try:
             subprocess.run(cmd, check=True, timeout=args.compile_deadline + args.seconds + 240,
@@ -442,6 +497,9 @@ def main():
     p.add_argument("--seconds", type=float, default=3.0, help="steady-state wall clock per measurement")
     p.add_argument("--actions", type=int, default=0, help="unused; timing is wall-clock bounded")
     p.add_argument("--frame-skip", type=int, default=5, help="mj_steps per policy action")
+    p.add_argument("--xml", default=None,
+                   help="price this model file instead of walker_ragdoll.xml; set --frame-skip to "
+                        "its own control step / timestep (the G1 MJX scene: 0.02 s / 0.004 s = 5)")
     p.add_argument("--nconmax", type=int, default=512)
     p.add_argument("--njmax", type=int, default=4096)
     p.add_argument("--x64", action="store_true", help="enable float64 MJX (slower)")
@@ -467,7 +525,7 @@ def main():
         return
 
     if args.mode == "cpu-ref":
-        rec = cpu_physics_reference(args.seconds, args.frame_skip)
+        rec = cpu_physics_reference(args.seconds, args.frame_skip, args.xml)
         print(json.dumps(rec, indent=2))
         if args.out:
             with open(args.out, "w", encoding="utf-8") as f:
@@ -495,10 +553,11 @@ def main():
         doc = {
             "machine": f"{platform.system()} {platform.release()}, {platform.processor()}",
             "backend": "MJX on JAX CPU (jaxlib has no CUDA wheel for native Windows)",
-            "protocol": f"WalkerRagdoll model, frame_skip={args.frame_skip}, "
-                        f"dt/action={args.frame_skip*0.002:.3f}s, ctrl U(-0.5,0.5), "
-                        f"{args.seconds}s steady-state per size, "
-                        f"nconmax={args.nconmax} njmax={args.njmax}",
+            "protocol": (f"{os.path.basename(args.xml) if args.xml else 'WalkerRagdoll model'},"
+                         f" frame_skip={args.frame_skip}, "
+                         f"dt/action={args.frame_skip*0.002:.3f}s, ctrl U(-0.5,0.5), "
+                         f"{args.seconds}s steady-state per size, "
+                         f"nconmax={args.nconmax} njmax={args.njmax}"),
             "dtype": "float64" if args.x64 else "float32",
             "results": results,
             "cpu_reference": CPU_REFERENCE,

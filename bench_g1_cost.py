@@ -127,6 +127,10 @@ def main():
     ap.add_argument("--native", action="store_true")
     ap.add_argument("--mjx", action="store_true")
     ap.add_argument("--sizes", default="64,256")
+    ap.add_argument("--nconmax", type=int, default=512,
+                    help="MJX contact capacity handed to the published instrument")
+    ap.add_argument("--njmax", type=int, default=4096,
+                    help="MJX constraint capacity handed to the published instrument")
     ap.add_argument("--seconds", type=float, default=4.0)
     ap.add_argument("--models", default="walker_ragdoll,g1_native,g1_mjx_scene",
                     help="which of the loaded models to time; the older MJX venv cannot put a "
@@ -163,9 +167,13 @@ def main():
         if args.native:
             cell["native"] = time_native(model, args.seconds)
         if args.mjx:
-            import mujoco.mjx as mjx
+            from bench_mjx import build_mjx
             try:
-                mjx_model = mjx.put_model(model)
+                # The published instrument rather than a second copy of it: build_mjx is what hands
+                # MJX concrete <size> capacities, and put_model on a file whose model compiles with
+                # nconmax=njmax=-1 measures a different simulator state - which is how this harness
+                # landed ~40x under benchmarks/mjx_gpu_wsl.json for the very same ragdoll.
+                _, mjx_model, mjx = build_mjx(args.nconmax, args.njmax, False, xml=xml)
             except NotImplementedError as exc:
                 # Not a failure to paper over: Menagerie's native G1 description collides cylinders
                 # against meshes, and MJX implements no such pair - which is exactly why the project
@@ -175,6 +183,8 @@ def main():
             else:
                 cell["mjx"] = [time_mjx(model, mjx_model, mjx, int(s), args.seconds)
                                for s in args.sizes.split(",")]
+                cell["mjx_instrument"] = (f"bench_mjx.build_mjx nconmax={args.nconmax} "
+                                          f"njmax={args.njmax}, one mj_step per vmap'd call")
         result["models"][name] = cell
         nat = cell.get("native", {})
         print(f"{name:16s} nv={cell['nv']:3d} nu={cell['nu']:3d} pairs={cell['declared_pairs']:4d} "

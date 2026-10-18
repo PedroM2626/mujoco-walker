@@ -17,6 +17,7 @@ import torch
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts"))
 
 import gymnasium as gym  # noqa: E402
 import train_bc_ragdoll as bc  # noqa: E402
@@ -24,7 +25,7 @@ from evaluate_merging import _policy_input  # noqa: E402
 
 
 def write_demos(directory, episodes, band_fraction=0.5, obs_dim=49, act_dim=17, seed=0):
-    """A small synthetic stand-in for collect_mpc_demos.py's output, same schema."""
+    """A small synthetic stand-in for scripts/collect_mpc_demos.py's output, same schema."""
     rng = np.random.default_rng(seed)
     obs, act, band, dist, meta_eps = [], [], [], [], []
     steps_each = [40 for _ in episodes]

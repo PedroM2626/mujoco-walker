@@ -2,7 +2,7 @@
 
 `train_walker.make_env` passes `TRAINING_REWARD_KWARGS` into every sub-environment, and every
 Phase-1 trainer builds its environments through it - SAC/TD3/PPO call it directly, and
-`train_dreamer.py`, `train_redq.py` and `train_ars.py` import it. Until 2026-10-04 nothing wrote
+`scripts/train_dreamer.py`, `scripts/train_redq.py` and `scripts/train_ars.py` import it. Until 2026-10-04 nothing wrote
 that fact down, so `reward_kwargs_for` had to guess for a checkpoint that did not record its
 reward, and it guessed "Dreamer/REDQ/ARS trained against the environment defaults". That was
 false, and the cost was that every published return for those three algorithms was computed
@@ -14,6 +14,7 @@ legacy fallback in `reward_kwargs_for` correct rather than convenient; (2) every
 it anyway, so no future evaluator has to reason at all.
 """
 
+import sys
 import os
 import shutil
 import tempfile
@@ -26,6 +27,7 @@ import torch
 import torch.nn as nn
 
 from envs.reward_shaping import TRAINING_REWARD_KWARGS, reward_kwargs_for
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts"))
 from train_walker import make_env
 from train_ars import save_ars_checkpoint
 from train_dreamer import save_dreamer_checkpoint
@@ -104,7 +106,7 @@ class TestTrainersRecordTheShaping(unittest.TestCase):
 
     def _assert_records(self, path):
         # weights_only=False because a resume checkpoint carries RNG and obs-rms state that the
-        # restricted unpickler rejects (the same reason eval_phase1.py loads this way). This file
+        # restricted unpickler rejects (the same reason scripts/eval_phase1.py loads this way). This file
         # was written by the line above it in the same test, so it is not an untrusted input.
         state = torch.load(path, map_location="cpu", weights_only=False)
         self.assertEqual(state["reward_kwargs"], dict(TRAINING_REWARD_KWARGS))

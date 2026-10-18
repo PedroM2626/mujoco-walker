@@ -26,6 +26,7 @@ import torch
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts"))
 
 import train_dreamer as td  # noqa: E402
 
@@ -118,7 +119,7 @@ class TestRecurrentCollectionState(unittest.TestCase):
 
     Same claim as the class above, so same file: an extraction into a function is only free if it
     still computes the same tensors. Here the detail that can silently change is which lanes the
-    reset clears - and `bench_dreamer_update.py --mode loop-split` times this function to attribute
+    reset clears - and `scripts/bench_dreamer_update.py --mode loop-split` times this function to attribute
     a collection iteration, so the bench has to be pointing at shipped code.
     """
 
@@ -306,7 +307,7 @@ class TestUpdateGraphResolution(unittest.TestCase):
 
 
 class TestBenchArmsNameTheirMode(unittest.TestCase):
-    """`bench_dreamer_update.py` cannot be allowed to measure the default by accident.
+    """`scripts/bench_dreamer_update.py` cannot be allowed to measure the default by accident.
 
     Capture became the CUDA default, so an arm that passes nothing now runs captured. The A/B, the
     profile and the reproducibility run all publish eager-vs-captured claims, and every one of them
@@ -327,7 +328,7 @@ class TestBenchArmsNameTheirMode(unittest.TestCase):
                             "the two arms would run the same code and report a speedup of nothing")
 
     def test_the_profile_and_reproducibility_arms_stay_on_the_path_they_publish(self):
-        src = open(os.path.join(ROOT, "bench_dreamer_update.py"), encoding="utf-8").read()
+        src = open(os.path.join(ROOT, "scripts", "bench_dreamer_update.py"), encoding="utf-8").read()
         self.assertIn("--no-update-graph", src[src.index("def run_profile"):],
                       "the dispatch-count profile would silently start measuring the graph")
         self.assertIn('run_trainer("bdr_a", args, EAGER)', src[src.index("def reproducibility"):],

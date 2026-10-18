@@ -1,6 +1,6 @@
 """Every committed benchmark artifact must be exactly what its logs say - regenerated, not trusted.
 
-`summarize_benchmarks.py` parses the evaluator logs in this repository into `benchmarks/*.json`, and
+`scripts/summarize_benchmarks.py` parses the evaluator logs in this repository into `benchmarks/*.json`, and
 the README quotes those JSON files (gated cell by cell in `test_readme_evidence.py`). This test closes
 the other half of that chain: it runs every builder and compares its data against the committed file,
 so a hand-edited artifact, an edited log, or a builder whose derivation changed all fail here rather
@@ -11,11 +11,13 @@ named exceptions, and a clone that lacks them silently loses the ability to repr
 README quotes.
 """
 
+import sys
 import fnmatch
 import json
 import os
 import unittest
 
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts"))
 import summarize_benchmarks as sb
 
 ROOT = sb.ROOT
@@ -67,7 +69,7 @@ class TestArtifactsRegenerate(unittest.TestCase):
                 drift.append(target)
         self.assertEqual([], unreadable, "a builder could not read its log")
         self.assertEqual([], drift, "these artifacts no longer match what their logs produce; "
-                                    "run python summarize_benchmarks.py and review the diff")
+                                    "run python scripts/summarize_benchmarks.py and review the diff")
 
     def test_the_published_protocol_line_matches_the_command_that_ran(self):
         """The protocol string is derived from the log; check it still says what the log says."""

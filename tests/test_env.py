@@ -9,6 +9,7 @@ import gymnasium as gym
 import torch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts"))
 
 import envs.walker_ragdoll_env
 from train_walker import SACAgent, PPOAgent, get_obs_rms, load_actor_initialization, make_env, set_obs_rms, wrap_normalize_observation, wrap_transform_observation

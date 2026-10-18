@@ -46,7 +46,7 @@ class TestTrainingIntegration(unittest.TestCase):
         result = subprocess.run(
             [
                 sys.executable,
-                "train_walker.py",
+                "scripts/train_walker.py",
                 # Pinned to CPU: these tests spawn real trainers and must not contend for the
                 # GPU, which on this laptop is also where the long runs live. Under a running
                 # training job a CUDA-using test subprocess failed once with
@@ -75,7 +75,7 @@ class TestTrainingIntegration(unittest.TestCase):
         first = subprocess.run(
             [
                 sys.executable,
-                "train_walker.py",
+                "scripts/train_walker.py",
                 "--device", "cpu",
                 "--run-id", self.run_id,
                 "--seed", "42",
@@ -94,7 +94,7 @@ class TestTrainingIntegration(unittest.TestCase):
         second = subprocess.run(
             [
                 sys.executable,
-                "train_walker.py",
+                "scripts/train_walker.py",
                 "--device", "cpu",
                 "--run-id", self.run_id,
                 "--seed", "42",
@@ -129,7 +129,7 @@ class TestTrainingIntegration(unittest.TestCase):
         result = subprocess.run(
             [
                 sys.executable,
-                "train_walker.py",
+                "scripts/train_walker.py",
                 "--device", "cpu",
                 "--algo", "ppo",
                 "--run-id", self.run_id,
@@ -171,7 +171,7 @@ class TestTrainingIntegration(unittest.TestCase):
         result = subprocess.run(
             [
                 sys.executable,
-                "train_walker.py",
+                "scripts/train_walker.py",
                 "--device", "cpu",
                 "--algo", "td3",
                 "--run-id", self.run_id,
@@ -222,7 +222,7 @@ class TestRedqBatchedEnsembleRuns(unittest.TestCase):
 
     def _train(self, impl, extra=()):
         return subprocess.run(
-            [sys.executable, "train_redq.py", "--run-id", self.run_id, "--seed", "42",
+            [sys.executable, "scripts/train_redq.py", "--run-id", self.run_id, "--seed", "42",
              "--device", "cpu", "--vec-backend", "sync", "--num-envs", "2",
              "--total-timesteps", "512", "--learning-starts", "128", "--batch-size", "32",
              "--buffer-size", "512", "--ensemble-size", "3", "--num-min-critics", "2",
@@ -290,7 +290,7 @@ class TestSacUtdRatio(unittest.TestCase):
 
         for name, envs, ratio in (("n2_r1", 2, 1), ("n2_r3", 2, 3), ("n6_r3", 6, 3)):
             cls.draws = []
-            argv = ["train_walker.py", "--algo", "sac", "--device", "cpu", "--run-id", cls.RUN_ID,
+            argv = ["scripts/train_walker.py", "--algo", "sac", "--device", "cpu", "--run-id", cls.RUN_ID,
                     "--seed", "7", "--total-timesteps", str(cls.TOTAL),
                     "--learning-starts", str(cls.LEARNING_STARTS), "--batch-size", "64",
                     "--buffer-size", "4096", "--num-envs", str(envs), "--utd-ratio", str(ratio)]
@@ -347,7 +347,7 @@ class TestSacUtdRatio(unittest.TestCase):
         loss logging is the opposite case: its cadence is the tensorboard series the training-rate
         summaries read, so it stays outside the loop and is untouched by the ratio.
         """
-        lines = open(os.path.join(self.ROOT, "train_walker.py"), encoding="utf-8").read().splitlines()
+        lines = open(os.path.join(self.ROOT, "scripts", "train_walker.py"), encoding="utf-8").read().splitlines()
         indent = lambda text: len(text) - len(text.lstrip())
         loops = [i for i, text in enumerate(lines) if "for _utd in range(max(1, args.utd_ratio))" in text]
         self.assertEqual(len(loops), 2, "SAC and TD3 should each own exactly one UTD loop")
@@ -379,7 +379,7 @@ class TestSacUtdRatio(unittest.TestCase):
         self.assertEqual(train_walker.ENV_VARS["UTD_RATIO"], "1",
                          "the shipped schedule is one update per collection iteration; every "
                          "committed run was trained under it")
-        source = open(os.path.join(self.ROOT, "train_walker.py"), encoding="utf-8").read()
+        source = open(os.path.join(self.ROOT, "scripts", "train_walker.py"), encoding="utf-8").read()
         flag = source.index('"--utd-ratio"')
         self.assertIn('ENV_VARS["UTD_RATIO"]', source[flag:flag + 400],
                       "the flag does not take its default from ENV_VARS, so it would not follow the "

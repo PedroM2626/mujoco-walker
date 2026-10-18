@@ -23,6 +23,7 @@ import numpy as np
 import torch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts"))
 
 # A test that spawns a real trainer must not write into the repository's MLflow archive.
 os.environ.setdefault("MLFLOW_TRACKING_URI", "sqlite:///" + os.path.join(
@@ -177,7 +178,7 @@ class TestShapingConfig(unittest.TestCase):
         with self.assertRaises(SystemExit) as ctx:
             tw.shaping_config(NamespaceLike(value_potential="nope/potential.npz", shaping_weight=1.0,
                                             shaping_gamma=None, gamma=0.99))
-        self.assertIn("fit_planner_potential.py", str(ctx.exception))
+        self.assertIn("scripts/fit_planner_potential.py", str(ctx.exception))
 
 
 class TestScoringIsUnaffected(unittest.TestCase):
@@ -258,7 +259,7 @@ class TestTrainerProvenance(unittest.TestCase):
                     shutil.rmtree(os.path.join(runs, d), ignore_errors=True)
 
     def command(self, tmp, path, extra=()):
-        return [sys.executable, "train_walker.py", "--device", "cpu", "--run-id", self.run_id,
+        return [sys.executable, "scripts/train_walker.py", "--device", "cpu", "--run-id", self.run_id,
                 "--seed", "42", "--total-timesteps", "1024", "--num-envs", "2",
                 "--learning-starts", "128", "--batch-size", "64", "--buffer-size", "1024",
                 # The target phase is what the potential was fitted on: 49 observations instead of 46.

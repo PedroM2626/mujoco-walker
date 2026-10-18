@@ -12,7 +12,7 @@ decision, and it keeps the artifact path it came from.
 The Dreamer 1M attempt of 2026-10-02 got to 84,456 steps and died with `RuntimeError: CUDA error:
 unspecified launch failure` - inside a window in which two other processes were also using the
 CUDA device (a Phase-3 re-score and a checkpoint sweep). It left no checkpoint, because
-`train_dreamer.py` wrote one at the default 200k interval and 84k steps had not reached it. The
+`scripts/train_dreamer.py` wrote one at the default 200k interval and 84k steps had not reached it. The
 queue was relaunched detached with `--checkpoint-interval 100000`; the shipped default has since
 gone to 50000 on measured cost (README, "What was done about it"), and `utils/gpu_window.py` refuses
 a long run into a contended window.
@@ -34,7 +34,7 @@ first sample lands at `learning_starts` before any update has run. Every Dreamer
 therefore opens with a sample that reads like the collection rate - 235, 423, 683, 782, 826 - and
 decays from there to what the run costs, 9.3 to 23.7 env-steps/s before the CUDA graph and 218 after.
 The old runs were also the ones that died early, so the decay never appeared on screen and the top of
-the curve was the last thing anyone saw. `python summarize_training_rate.py`
+the curve was the last thing anyone saw. `python scripts/summarize_training_rate.py`
 (`benchmarks/training_rate_history.json`) recomputes each run's rate from the metric's own timestamps
 instead of reading its values, which is immune to both traps.
 
@@ -66,7 +66,7 @@ SAC 5M arm), not a ranking of the two algorithms at any budget.
 
 ## A score without its device is half a measurement
 
-`eval_phase1.py` wrote the protocol, the env revision and the reward source into its artifact but not
+`scripts/eval_phase1.py` wrote the protocol, the env revision and the reward source into its artifact but not
 the device it ran on, so nothing downstream could tell that five published rows had been scored on
 cpu while the rows they were compared against were scored on cuda. One of them carried a conclusion:
 "more training did not buy a better policy" compared 6486.27 at 269,404 steps against 5215.46 at
@@ -82,12 +82,12 @@ actor (23589.07 cpu against 17363.56 cuda, `benchmarks/phase1_evidence_eval_cpu_
 The explanation this repository published first - that only policies with a sampled latent move -
 was wrong for exactly that reason; the mechanism is a chaotic thousand-step rollout amplifying
 float32 rounding, which is why ARS (one linear map in float64 numpy) and the zero-action reference
-are the two entries that do not move at all. `eval_phase1.py` and `bench_posture.py` now both record
+are the two entries that do not move at all. `scripts/eval_phase1.py` and `scripts/bench_posture.py` now both record
 `device` and `torch_threads`.
 
 ## A roster key is not a label
 
-`bench_posture.py` held one entry keyed `sac_40m` pointing at `sac_ckpt_9000000.pt`. The table
+`scripts/bench_posture.py` held one entry keyed `sac_40m` pointing at `sac_ckpt_9000000.pt`. The table
 printed, the row read plausibly, and the README described a 9M policy as the 40M one for a day - the
 row that the whole standing-band argument ranked first. Both checkpoints are now separate rows
 (14.73% and 10.39% of steps inside the band), every row records the path it was scored from, and a
@@ -117,7 +117,7 @@ is now Python 3.11.9 with mlflow 3.16.1, and the logging path was checked end-to
 `start_mlflow_run` -> `log_mlflow_metrics` -> `end_mlflow_run` against a throwaway sqlite backend
 produced a FINISHED run carrying both metrics and the `seed` param. The swap is numerically
 invisible: the same 200-step rollout from seed 7 gives reward -2506.5429333387096 in the 3.8 and
-3.11 environments, and `evaluate_merging.py --num-episodes 2 --seed 11` reproduces all four strategy
+3.11 environments, and `scripts/evaluate_merging.py --num-episodes 2 --seed 11` reproduces all four strategy
 means to the last printed digit. The old environment is kept as `.venv-py38-backup/` (two `mv`
 commands to go back), and `start_mlflow_run` still prints the version and the remedy when it hits
 the wall, so a freshly-cloned 3.8 venv fails loudly instead of silently.
@@ -252,16 +252,16 @@ Everything under `checkpoints/` is local and ignored, so none of it ever affecte
 The working directory here was 31 GB, of which 12.8 GB was `checkpoints/walker_recovery_v1`: twenty
 hourly checkpoints from the same 20M-step run. Two carry the published Phase-3 numbers
 (`sac_ckpt_20000000.pt`, the recovery expert) and the transfer-learning starting point
-(`sac_ckpt_1000000.pt`, `merge_models.py --base-ckpt`); the other eighteen were deleted on
+(`sac_ckpt_1000000.pt`, `scripts/merge_models.py --base-ckpt`); the other eighteen were deleted on
 2026-10-01, freeing 11.4 GB (`checkpoints/`: 12,853 MB -> 1,454 MB), and the Phase-3 evaluation
 reproduces its four strategy means exactly afterwards (36496.42 / 31237.52 / -8015.85 / -30245.87 at
 two episodes, seed 11).
 
 **"No script names them" is not the same statement as "nothing can use them", and the difference
 matters.** Any checkpoint in a run directory is addressable by step number:
-`play.py --run-id <id> --checkpoint-step <step>`, `--checkpoint <path>`,
-`merge_models.py --base-ckpt/--rec-ckpt`, and
-`train_walker.py --init-from-run-id <id> --init-from-checkpoint-step <step>`
+`scripts/play.py --run-id <id> --checkpoint-step <step>`, `--checkpoint <path>`,
+`scripts/merge_models.py --base-ckpt/--rec-ckpt`, and
+`scripts/train_walker.py --init-from-run-id <id> --init-from-checkpoint-step <step>`
 (`resolve_checkpoint_any`, which is how the recovery run was seeded from `walker_target_v1` in the
 first place). Those eighteen were therefore valid inputs for a linear-mode-connectivity or
 task-vector sweep *along the recovery trajectory* - interpolate 2M against 19M, or ask when the
@@ -335,7 +335,7 @@ to schedule it is before the first one finishes, while the interpretation is sti
 
 `--num-envs` is named for parallelism and reads like a pure throughput setting. In this SAC loop it is
 also the learning dose: there is one critic update per collection iteration
-(`train_walker.py:1902-1964`) and a collection iteration is `num_envs` environment steps, so the
+(`scripts/train_walker.py:1902-1964`) and a collection iteration is `num_envs` environment steps, so the
 optimisation applied to each environment step is 1/`num_envs`. The screens in the physics-preset
 section run at 8 envs and the flagship 40M run at 32 - same step budget, four times the gradient
 steps. The rates say the same thing from the other side: 1,798.4 s per 1M at 8 envs against 467.4 s
@@ -382,7 +382,7 @@ at all.
 The README said the agent "walks", and the evidence was two numbers: `mean_x_velocity` per episode, and
 `reached_target_pct` per checkpoint. The user watched the rendered clips and said the thing they saw was
 an agent trying to stand up. Both readings cannot be about the same trajectory, so the trace was split per
-step at whether the torso was inside the standing band (`bench_approach_mechanism.py`, which replays the
+step at whether the torso was inside the standing band (`scripts/bench_approach_mechanism.py`, which replays the
 same 280 published episodes and refuses to write unless each reproduces its committed telemetry). In the
 published world, the 35 episodes the distance rule counts as reaches close 46.61 m at in-band steps and
 43.43 m below the band; 30 of their 35 closest approaches come after the episode's first fall; and the
@@ -437,7 +437,7 @@ the term goes live in target, the claim fails loudly instead of rotting quietly.
 ## The planner arrives and does not walk: what a simulator in the loop is actually worth
 
 The residual-learning proposal assumed the missing piece was a controller good enough to correct. Measured
-against one, that assumption splits. `bench_mpc.py` runs a receding-horizon cross-entropy planner on the
+against one, that assumption splits. `scripts/bench_mpc.py` runs a receding-horizon cross-entropy planner on the
 same 20 seeded target episodes, given the true dynamics and the same shaped reward the learned policies
 optimise, and scores it with the same per-step trace. At a small search budget it reaches 3 of 20 and
 arrives standing in 3 of 20 - the published ceiling. With more search (48 samples × 3 iterations, 1.0 s
@@ -579,7 +579,7 @@ is allowed only as context, never as the second half of a ratio. Related:
 `boxer-rl` runs two contact-dense Unitree G1 humanoids as batched MJX worlds and trains in a fraction of
 this project's wall clock. Its XML declares every collision it cares about with `<pair>` instead of
 leaving it to the contype/conaffinity filter, so the obvious reading was that the declaration is the
-lever, and `bench_mjx_pairs.py` was written to pull it. Both halves of it moved nothing:
+lever, and `scripts/bench_mjx_pairs.py` was written to pull it. Both halves of it moved nothing:
 
 - Declaring the same contacts explicitly - all **126** pairs the automatic filter admits, geom by geom,
   with every `contype`/`conaffinity` zeroed - leaves MJX's static contact buffer at **138** slots, exactly
@@ -606,14 +606,14 @@ other project's bottleneck with it.
 
 **How to apply:** when a speedup is borrowed, first name the mechanism that produces it in the source
 project, then measure whether that mechanism is a cost here at all - `mjx_single_step_rate` and the native
-`bench_env.py` ceiling already said native won before any pair was declared. Second, order the two gates:
+`scripts/bench_env.py` ceiling already said native won before any pair was declared. Second, order the two gates:
 equivalence before throughput. A throughput win on an unverified variant is not a win, it is a different
 task measured faster, and the number will look respectable. Third, set the port threshold as a number
 before running, because after running there is always a framing under which 2.045x looks like progress.
 
 **The follow-up measurement, and the correction it carried:** the ratios above are MJX-on-GPU, and this
 project trains on MuJoCo-C in worker processes, so the fair question was what the same three worlds cost
-there. `bench_env.py --contact-world` answers it in one back-to-back run, on the mode the trainer builds:
+there. `scripts/bench_env.py --contact-world` answers it in one back-to-back run, on the mode the trainer builds:
 declaring the same pairs is **1.079x** and the gait reduction **1.302x**. Two things follow. The null was
 specific to MJX - on the native path, declaring pairs does buy something (**1.13x** on raw `mj_step`),
 because the narrowphase skips the filter rather than the buffer being sized by it. And a stepping ratio is

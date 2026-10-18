@@ -15,25 +15,25 @@ The repository is structured around several evolutionary phases of experimentati
 
 ### 🟢 Phase 1: Advanced Online RL Algorithms (Root Directory)
 We implemented highly efficient online RL paradigms to train the robot from scratch:
-- **DreamerV3 (`train_dreamer.py`):** An implementation of the World Models paradigm. The agent builds a latent hallucination of the MuJoCo physics engine to plan its walking steps internally before acting.
-- **REDQ (`train_redq.py`):** *Randomized Ensembled Double Q-Learning*. Uses an aggressive ensemble of 10 Q-Networks and a high Update-To-Data (UTD) ratio to achieve massive sample efficiency on the Walker.
-- **ARS (`train_ars.py`):** *Augmented Random Search*. A highly parallelized gradient-free evolutionary algorithm that searches for optimal linear policies in the parameter space.
+- **DreamerV3 (`scripts/train_dreamer.py`):** An implementation of the World Models paradigm. The agent builds a latent hallucination of the MuJoCo physics engine to plan its walking steps internally before acting.
+- **REDQ (`scripts/train_redq.py`):** *Randomized Ensembled Double Q-Learning*. Uses an aggressive ensemble of 10 Q-Networks and a high Update-To-Data (UTD) ratio to achieve massive sample efficiency on the Walker.
+- **ARS (`scripts/train_ars.py`):** *Augmented Random Search*. A highly parallelized gradient-free evolutionary algorithm that searches for optimal linear policies in the parameter space.
 
 **Status: implementations that now have recorded, explicitly short evidence runs.** Until
 2026-10-01 none of the three had ever been run in-repo: no checkpoints, no numbers, no test
-coverage. Two defects were found and fixed while checking them — `train_redq.py` updated its
+coverage. Two defects were found and fixed while checking them — `scripts/train_redq.py` updated its
 actor on every one of the 20 UTD iterations instead of every `policy_frequency` gradient
-steps, and `train_dreamer.py` recorded only `obs[0]`/`actions[0]` while stepping 4
+steps, and `scripts/train_dreamer.py` recorded only `obs[0]`/`actions[0]` while stepping 4
 environments, throwing away three quarters of the transitions it simulated.
 
 Short runs (minutes, not the 1M-step budget) are recorded in `benchmarks/phase1_evidence.json`
-and reproducible with `python summarize_phase1.py`:
+and reproducible with `python scripts/summarize_phase1.py`:
 
 | Trainer | Budget | Episodes | Mean return | Max return |
 |:---|---:|---:|---:|---:|
-| `train_ars.py` | 60,384 steps | 101 eval cycles | no trend; range 1521-6378 across epochs | 11116.19 |
-| `train_redq.py` | 6,000 steps | 184 | 2951.29 | 10800.01 |
-| `train_dreamer.py` | 8,000 steps | 351 | 2041.18 | 7205.90 |
+| `scripts/train_ars.py` | 60,384 steps | 101 eval cycles | no trend; range 1521-6378 across epochs | 11116.19 |
+| `scripts/train_redq.py` | 6,000 steps | 184 | 2951.29 | 10800.01 |
+| `scripts/train_dreamer.py` | 8,000 steps | 351 | 2041.18 | 7205.90 |
 
 These say "the algorithm runs and collects reward on the ragdoll", nothing more. Do not
 quote them as results: the budgets are 0.6% of the intended 1M steps. ARS shows no learning
@@ -50,7 +50,7 @@ measured rather than inferred.** That directory holds 41 actor checkpoints of on
 40M-step run at `num_envs=32` (its own metadata says `env_version=
 standup_balance_walk_curriculum_v4`, `target_forward_velocity=10.0`); 10 of them, spaced 1M to
 40M, scored over 20 seeded target-phase episodes each
-(`benchmarks/target_learning_curve.json`, `python eval_phase1.py --model ...`):
+(`benchmarks/target_learning_curve.json`, `python scripts/eval_phase1.py --model ...`):
 
 | SAC checkpoint | episodes inside the 0.45 m radius | median closest approach | median mean `x_velocity` |
 |---:|---:|---:|---:|
@@ -64,7 +64,7 @@ The other five rows are in the JSON and say the same. Targets spawn 2-5 m away, 
 closest approach of ~3 m with a median forward speed of ~0 m/s means the policy is not
 approaching: **2 of 200 episodes** ended within the radius, and the best approach in any of them
 was 0.31 m. Re-running the identical protocol against the v4 environment those checkpoints were
-actually trained in (`python eval_phase1.py --env-commit 8d37846 ...`, written to
+actually trained in (`python scripts/eval_phase1.py --env-commit 8d37846 ...`, written to
 `benchmarks/target_learning_curve_envv4.json`, 80 episodes) gives 0/80
 inside the radius and +0.006 m/s at 40M - so this is not an artefact of the env having changed
 under them. **Is a million steps enough to walk to the target? No - and no budget measured in this
@@ -82,17 +82,17 @@ that the recovery task vector dominates the merges.
 The scorer used to be a different reward from the one the agent optimised. That is now fixed, and
 fixing it changed the shape of the diagnosis, so both halves are recorded.
 
-**The protocol defect and its fix.** `train_walker.py` shaped the reward with its own kwargs
+**The protocol defect and its fix.** `scripts/train_walker.py` shaped the reward with its own kwargs
 (`standing_reward=0.0`, `target_direction_reward_weight=200`, `target_progress_reward_weight=300`,
 `stability_reward_weight=20`, `stillness_penalty_weight=5`, `lateral_drift_penalty_weight=3`) while
 the evaluators called `gym.make(...)` with the **environment defaults** (`standing_reward=50.0`,
 direction 80, progress 200, stability 30, stillness 2, drift 2). Same trajectory, two quantities:
 the defaults hand the 40M policy **+4.91/step of `standing`** that training paid zero for, and cut
 its walking term from 5.44 to 2.18 per step. Measured in `benchmarks/reward_term_breakdown.json`
-(the v8 recording) and reproduced by `python bench_reward_terms.py`.
+(the v8 recording) and reproduced by `python scripts/bench_reward_terms.py`.
 
 The fix is one shared dict, `envs/reward_shaping.py::TRAINING_REWARD_KWARGS`, imported by the
-trainer and by `eval_phase1.py` / `evaluate_merging.py`; checkpoints carry their effective
+trainer and by `scripts/eval_phase1.py` / `scripts/evaluate_merging.py`; checkpoints carry their effective
 `reward_kwargs` (and their `target_forward_velocity`) so a scorer reads the reward off the artifact
 instead of guessing, and `reward_kwargs_for()` falls back to the trainer shaping for every
 checkpoint that predates recording it. `--reward-weights env-default` reproduces the old protocol,
@@ -100,15 +100,15 @@ and every scored row prints and stores which reward it used.
 
 **That fallback was wrong for three of the four algorithms, and it had already shipped numbers.**
 Its first version split the legacy checkpoints by trainer - SAC/TD3/PPO went through
-`train_walker.py` so they got the shaping, and ARS/REDQ/Dreamer "never used shaping at all" so they
+`scripts/train_walker.py` so they got the shaping, and ARS/REDQ/Dreamer "never used shaping at all" so they
 got the environment defaults. The second half is false. `make_env` has passed
 `**TRAINING_REWARD_KWARGS` to every sub-environment since **8d37846 (2026-05-20)**, four and a half
-months before any v9 checkpoint existed, and `train_dreamer.py`, `train_redq.py` and `train_ars.py` all
+months before any v9 checkpoint existed, and `scripts/train_dreamer.py`, `scripts/train_redq.py` and `scripts/train_ars.py` all
 build their environments through it; **ad22c94** (2026-10-02) only moved literals that were already
 identical into the shared constant. So every Dreamer, REDQ and ARS return published before
 2026-10-04 was computed against a reward those runs never optimised - the defect the paragraph above
 describes, on exactly the three algorithms the fix did not cover, and the README repeated it as a
-reason ("scored with the environment defaults because `train_ars.py` never used the trainer
+reason ("scored with the environment defaults because `scripts/train_ars.py` never used the trainer
 shaping"). All three trainers now record `reward_kwargs` in every checkpoint they write, the
 fallback resolves to the shaping for the ones that do not, and `tests/test_reward_shaping.py` pins
 both halves of the invariant: that `make_env` really does apply every kwarg - which is what makes
@@ -133,7 +133,7 @@ not move. ARS at 1M moved 8679.40 → **8814.81** with its fall count, closest a
 and x-velocity unchanged at 0.35 / 3.015 m / -0.0216 m/s.
 
 **A second defect fell out of checking the first: the retired tables did not record the device.**
-`eval_phase1.py` wrote `protocol`, `env_version` and `env_commit` into its artifact but not the
+`scripts/eval_phase1.py` wrote `protocol`, `env_version` and `env_commit` into its artifact but not the
 device it ran on, and the device changes the answer - see "⚠️ The return depends on the device" in
 the Phase-1 section below. Five rows turn out to have been scored on **cpu** while the rows they were
 compared against were scored on cuda: the 269k step of the budget comparison below, and all four rows
@@ -144,7 +144,7 @@ REDQ, Dreamer and ARS smoke checkpoints, and `benchmarks/phase1_evidence_eval_cp
 **23589.07** for the 40M SAC row - the one row the retired fallback already resolved to the shaping.
 The retired 269k Dreamer row reproduces the same way:
 `benchmarks/phase1_dreamer_v9_269k_cpu_reproduction.json` returns 6486.27 with median 6176.57 and
-0.10 falls on cpu. `eval_phase1.py` now records `device` and
+0.10 falls on cpu. `scripts/eval_phase1.py` now records `device` and
 `torch_threads` alongside the protocol, so a row that cannot be compared says so.
 
 A third and smaller one: `--reward-weights training` replaced the whole kwarg set, which silently
@@ -178,7 +178,7 @@ v9 sets that penalty's default to 0 and grades the height bonus from the floor u
 (`height x (1 + upright)/2`, 0 prone, 1.0 standing), which keeps the ordering and the get-up
 signal while making the return answer "what did you achieve" instead of "how fallen are you". The
 risk of removing a fall cost is that collapsing toward the target becomes the best-paying
-behaviour, so `bench_reward_terms.py` now probes it explicitly, 10 seeded episodes per behaviour
+behaviour, so `scripts/bench_reward_terms.py` now probes it explicitly, 10 seeded episodes per behaviour
 (`benchmarks/reward_term_breakdown_v9.json`, per step, training weights):
 
 | behaviour | v8 (punished posture) | v9 (posture as bonus) | mean `standing_gate` |
@@ -199,7 +199,7 @@ the target pays anything at all, which is a much stronger statement than "3% of 
 settled into.
 
 v9 is a new MDP, so `ENV_VERSION` moved and the trainer's existing guard refuses old checkpoints
-unless `--allow-mismatched-env-version` says otherwise; `eval_phase1.py --env-commit <rev>` scores
+unless `--allow-mismatched-env-version` says otherwise; `scripts/eval_phase1.py --env-commit <rev>` scores
 them in their native revision instead. The reward goldens in `benchmarks/walker_ragdoll_golden.json`
 were regenerated for v9 (`obs_sum` is bit-identical to the v8 recording - the observation math did
 not move; `reward_sum` did, e.g. target 300-step 598.46 to 5576.32).
@@ -211,7 +211,7 @@ falls per episode, **0 of 20 inside the radius**, mean closest approach 3.015 m,
 -0.0216 m/s. Same verdict as v8's ARS at the same budget, which is the comparison that makes the v9
 change safe to have made: the reward shape moved the returns, not the behaviour. This row was
 published once already as 8679.40 under the environment defaults, on the false premise that
-`train_ars.py` never used the shaping; the three behaviour columns are identical in both versions,
+`scripts/train_ars.py` never used the shaping; the three behaviour columns are identical in both versions,
 because the reward weights do not touch the trajectory.
 
 The second Phase-1 run to reach its full budget on v9 is **Dreamer at 1,000,000 steps**
@@ -248,7 +248,7 @@ measured 1.18 h before it ran, and the run itself came out 8% slower), and the t
 
 **And the rung below walking is the one nobody clears.** The environment is a curriculum -
 `standup_balance_walk_curriculum_v9` - so "does it walk?" presupposes "does it stand?", and the env
-defines standing as torso height inside `healthy_z_range = (1.0, 2.0)` m. `python bench_posture.py
+defines standing as torso height inside `healthy_z_range = (1.0, 2.0)` m. `python scripts/bench_posture.py
 --episodes 50` (`benchmarks/phase1_posture_probe.json`) measures the height instead of inferring it
 from the return, on 50 seeded episodes per row (the ARS score above used 20, so its return here is
 not the same number), on the device the published harness
@@ -307,7 +307,7 @@ posture proxy that a policy can beat without standing, which is the whole reason
 
 ⚠️ **The return depends on the device the evaluator runs on. The posture *verdict* survives that;
 the posture *numbers* do not always.** Same
-checkpoints, same seeds, cuda against cpu (`python bench_posture.py --compare-devices`,
+checkpoints, same seeds, cuda against cpu (`python scripts/bench_posture.py --compare-devices`,
 `benchmarks/phase1_eval_device_sensitivity.json`): the 1M Dreamer scores **5824.49 on cuda and
 4737.23 on cpu**, 20.6% apart on the same ten episodes, and the 269k one 6368.15 against 6620.16.
 The two entries that do *not* move are ARS at 9024.24 on both devices and the zero-action reference
@@ -327,7 +327,7 @@ it off the return - but the posture *figures* are device-dependent too wherever 
 the 269k checkpoint reads 0.86% of steps in the band on cuda against 0.42% on cpu, 3 episodes against
 1. Both readings are "nowhere near standing", so the conclusion holds; a posture number quoted to two
 decimals without its device does not. That is why this script pins the device
-and the torch CPU thread count into its artifact, why `eval_phase1.py` now records both as well, and
+and the torch CPU thread count into its artifact, why `scripts/eval_phase1.py` now records both as well, and
 why a Phase-1 return quoted without them is
 only half a measurement. (The thread pin is not decoration either: with torch's default threading the
 identical command gave 0.634 m and 0.616 m peak torso height on two runs of the same checkpoint.)
@@ -354,7 +354,7 @@ in 5 h 11 min 37 s at 2,145 env-steps/s sustained. Its ten checkpoint budgets ar
 curriculum arm's ten checkpoints **per seeded episode**, not as two means, in
 `benchmarks/target_learning_curve_from_scratch_paired.json`.
 
-Re-scoring the curriculum arm was not ceremony. Its committed curve predates `eval_phase1.py`
+Re-scoring the curriculum arm was not ceremony. Its committed curve predates `scripts/eval_phase1.py`
 recording the device, and the same checkpoint scored cpu against cuda is not the same measurement -
 but here all 200 telemetry rows came back identical to that artifact
 (`curriculum_rescore_matches_published`), so this arm is device-insensitive and the pairing holds
@@ -378,7 +378,7 @@ this curve; it does not straighten it.
 `reached_target_pct` counts an episode whose closest approach ever entered the 0.45 m radius. The
 environment's own success term is stricter - it also requires torso height above 1.0 m and upright
 above 0.7 *at that step* - so a fall forward can land inside the radius and be paid nothing. Replaying
-the scored episodes into video (`bench_reach_definitions.py` re-scores them under both rules and
+the scored episodes into video (`scripts/bench_reach_definitions.py` re-scores them under both rules and
 refuses to write unless the distance-only column reproduces the committed artifact episode for episode)
 showed exactly that: the clip that "reached" at 0.299 m got there at a step with the torso at 0.405 m,
 and it ends 1.23 m from the marker, motionless, 7.5 s later. Under the strict rule, the best arm in the
@@ -392,7 +392,7 @@ long it takes.
 
 **An upright arrival says the body was standing at that moment; the step trace says it still was not
 walking.** Splitting every step of the same published episodes at whether the torso was in the band then
-- `bench_approach_mechanism.py`, which replays all 560 scored episodes of the 28 quoted checkpoints and
+- `scripts/bench_approach_mechanism.py`, which replays all 560 scored episodes of the 28 quoted checkpoints and
 refuses to write unless each one reproduces its committed telemetry - the 35 episodes the distance rule
 counts as reaches in the published world close **46.61 m at in-band steps against 43.43 m with the torso
 below the band** (51.8% of the ground), and **30 of those 35 closest approaches come after the episode's
@@ -426,7 +426,7 @@ band for 1.17 s at a stretch. What it did not buy is the thing the paragraph abo
 and none of them reaches two seconds.
 
 **A planner with simulator access reaches the marker more often than any learned arm, and still does not
-walk.** `bench_mpc.py` scores a receding-horizon cross-entropy planner on the same 20 seeded episodes,
+walk.** `scripts/bench_mpc.py` scores a receding-horizon cross-entropy planner on the same 20 seeded episodes,
 against the same environment and the same shaped reward the learned policies optimise, and measures it
 with the same per-step trace. At a small search budget (24 samples × 2 CEM iterations, 0.6 s horizon) it
 reaches in **3 of 20** and arrives standing in **3 of 20** - the published ceiling. Drawn a second time it
@@ -445,13 +445,13 @@ arrival; what neither a planner with the true dynamics nor a policy with 5M step
 closing ground *on its feet* - and across every cell measured here, learned or planned, nothing holds the
 standing band for two continuous seconds.
 
-**Cloning the planner fails, and it is the cloning that fails.** `collect_mpc_demos.py` recorded the
+**Cloning the planner fails, and it is the cloning that fails.** `scripts/collect_mpc_demos.py` recorded the
 teacher's own trajectories on seeds 101-128 - disjoint from the 11-30 every published row is scored on, so
 a student cannot memorise its exam - and there the teacher reaches in **12 of 28** and arrives standing in
-**6 of 28**, with 12.4% of its steps inside the band. `train_bc_ragdoll.py` then trained two students on
+**6 of 28**, with 12.4% of its steps inside the band. `scripts/train_bc_ragdoll.py` then trained two students on
 `SACAgent`, the same network the SAC rows use, one imitating every recorded step and one imitating only
 the in-band steps (3,477 of 28,000 transitions). Both score **0 of 20** on the published protocol, at mean
-return 2,941.05 and 841.61. `bench_bc_teacher.py` says why, on one episode-level split where every
+return 2,941.05 and 841.61. `scripts/bench_bc_teacher.py` says why, on one episode-level split where every
 predictor is scored on the same held-out rows: predicting a constant zero action gives validation MSE
 **0.3753**, the per-dimension mean 0.3751, ridge 0.3758, nearest-neighbour 0.750 at k=1 falling to 0.3867
 at k=32, and the trained students 0.3730 and 0.3920 - nothing recovers any state-dependence from the
@@ -476,7 +476,7 @@ survives the observation, and it is what the next paragraph tests.
 full 28-episode preference set, ridge predicts the teacher's lookahead value with R² **0.7722** - up from
 0.4738 on the 8-episode probe that motivated the route - while the three target components of the
 observation alone give **-0.0013**, so the signal is state and not goal geometry.
-`train_offline_critic.py` fits a twin critic by TD on those same transitions and ascends the actor through
+`scripts/train_offline_critic.py` fits a twin critic by TD on those same transitions and ascends the actor through
 it, with and without a TD3+BC in-distribution term. Both students reach in **0 of 20** and arrive standing
 in 0 of 20, at mean return 1,013.50 and 1,013.32, spending **0.22%** of their steps inside the standing
 band where the teacher spends 12.64% - and their executed actions are further from the teacher's (MSE
@@ -489,12 +489,12 @@ offline against that critic, not usable as a gait. What that does not settle is 
 nudges the reward - and that version was run, in the next paragraph.
 
 **The planner's value, put inside SAC as a shaping term, buys posture and costs arrival.** That is the
-route, taken: `fit_planner_potential.py` freezes a state function Phi(s) on the recorded lookahead value
+route, taken: `scripts/fit_planner_potential.py` freezes a state function Phi(s) on the recorded lookahead value
 (held-out R² **0.7991**, against 0.7729 for the probe's ridge re-fitted on the same split and the 0.7722
-it published on raw inputs), and `train_walker.py --value-potential` adds `alpha * (gamma * Phi(s') -
+it published on raw inputs), and `scripts/train_walker.py --value-potential` adds `alpha * (gamma * Phi(s') -
 Phi(s))` to the reward the replay buffer sees - a state-only potential with Phi scored zero at a terminal
 state, which telescopes and leaves the optimal policy of the MDP alone. The environment a run is graded
-in never sees the term: `RecordEpisodeStatistics` sits outside the wrapper and `eval_phase1.py` builds
+in never sees the term: `RecordEpisodeStatistics` sits outside the wrapper and `scripts/eval_phase1.py` builds
 its own env, so the column below is the published reward. The weight was fixed before the arm ran, on the
 control's own trajectory: at weight 1 the term averages **79.67** against that trajectory's mean task
 reward of **30.29** - a ratio of **2.63** - and **37.31%** of the states it visits lie outside the value
@@ -524,7 +524,7 @@ not at all; handing that simulator's judgement to the learner as a shaping term 
 posture up, and leaves the gait where it was. Making the stand last longer than 1.5 s is the open problem.
 
 The standing rung splits the other way, and only the instrument that measures the torso can say so.
-On `bench_posture.py` at the settings the published posture table uses (50 seeded episodes, seed 11,
+On `scripts/bench_posture.py` at the settings the published posture table uses (50 seeded episodes, seed 11,
 `cuda`, torch threads pinned to 1) the curriculum row reproduced its committed number exactly -
 14.73%, 23/50 episodes ever in band, mean peak 0.864 m - which is what licenses the three rows under
 it.
@@ -558,8 +558,8 @@ sizes the networks, the replay and sequence buffers, the observation normalizer,
 tensors and, for Dreamer, the static buffers inside the captured CUDA graph. A run that promoted itself
 from `balance` to `target` would invalidate all five. So this repository composes skills *after*
 training instead: Phase 3 merges separately trained
-policies (task arithmetic in `merge_models.py`, an MoE gate over the 46-wide observations in
-`train_moe_gate.py`), and `train_walker.py --init-from-run-id` starts a new run from another run's
+policies (task arithmetic in `scripts/merge_models.py`, an MoE gate over the 46-wide observations in
+`scripts/train_moe_gate.py`), and `scripts/train_walker.py --init-from-run-id` starts a new run from another run's
 actor, zero-filling the three new input columns (`load_state_dict_with_expanded_input`) and padding
 `obs_rms` (`adapt_obs_rms`). That is a phase curriculum across runs, which the 46→49 widening permits;
 it is not one run, and the difference is that the replay buffer and the normalizer statistics do not
@@ -586,7 +586,7 @@ inside `walker_target_v1` the nominal walking speed recorded in the checkpoints 
 13,629,184-step file (2026-05-17 22:29:58) and 10.0 m/s at 14,000,000 (2026-05-18 11:32:58)**: a
 night's gap, then a restart with a different task parameter. A phase, in this project, is something a
 person changes between runs or at a restart; nothing in the environment promotes it by itself.
-`python summarize_curriculum_provenance.py` rebuilds all of it, from the checkpoint metadata alone,
+`python scripts/summarize_curriculum_provenance.py` rebuilds all of it, from the checkpoint metadata alone,
 into `benchmarks/curriculum_provenance.json`.
 
 What the dates do and do not establish is worth stating precisely. They establish order: the recovery
@@ -601,7 +601,7 @@ The scale of that table matters: REDQ and Dreamer wrap the environment in `Norma
 so the `Mean return` column is a normalised sum, not the reward the raw environment reports.
 On the raw scale the same checkpoints are indistinguishable from an inert robot. Measured in env
 v8 over one seeded 300-step rollout each (`benchmarks/phase1_inert_reference_v8.json`,
-`python bench_inert_reference.py --tag v8 --env-commit 2d59b7b`): commanding zero **-3775.76**,
+`python scripts/bench_inert_reference.py --tag v8 --env-commit 2d59b7b`): commanding zero **-3775.76**,
 uniform random -4146.46, REDQ -4248.46, Dreamer -3588.23, ARS -4105.24 - and **none of the five
 moves more than 0.4 m**.
 
@@ -611,7 +611,7 @@ Two things are worth saying about that sentence. It used to read -3826.77 / -383
 `benchmarks/phase1_evidence.json` by the artifact above. Getting them reproducible also exposed a
 second defect: the Dreamer actor samples its stochastic state, so scoring the same checkpoint twice
 gave a different number three times (-3425.86, -3637.40, -3278.44) until the policy RNG was seeded -
-`eval_phase1.py` now seeds per model, the same fix `openai_walker/evaluate_all.py` needed.
+`scripts/eval_phase1.py` now seeds per model, the same fix `openai_walker/evaluate_all.py` needed.
 
 And in env v9, where posture is a bonus instead of a punishment, all five land in one band -
 commanding zero +602.63, random +237.06, REDQ +781.97, ARS +729.58, Dreamer +1691.21 - with the
@@ -628,7 +628,7 @@ a return does not.
 ### 🟡 Phase 2: MuJoCo MPC & Imitation Learning (Root Directory)
 To achieve mathematically perfect locomotion, we tapped into the official DeepMind C++ MuJoCo MPC (Model Predictive Control) planner:
 - We extracted **15,000 flawless transitions** of the MPC planner optimizing the walker's physics implicitly (`dataset.csv`).
-- **Behavioral Cloning (`train_walker.py`):** Trained a PyTorch neural network to supervise-clone the MPC's optimal torque decisions, effectively caching the heavy MPC computation into a fast neural policy.
+- **Behavioral Cloning (`scripts/train_walker.py`):** Trained a PyTorch neural network to supervise-clone the MPC's optimal torque decisions, effectively caching the heavy MPC computation into a fast neural policy.
 
 ⚠️ **Not reproducible as committed, and the blocker was two layers deeper than it looked.**
 `dataset.csv` is nowhere in the tree or in git history. The obvious cause is real:
@@ -654,7 +654,7 @@ by hand - `Initialize` → `Allocate` → `Reset` → `SetState` → `PlanIterat
 `ActionFromPolicy` - which cannot be built or tested on this machine. Installing *Desktop
 development with C++* makes `build.bat` runnable; the versioned, measured alternative remains
 Phase 4's `openai_walker/dataset_openai.csv` (100k SAC-teacher transitions), which every table
-in this file that quotes a number actually measured against. `verify.py` prints the same steps
+in this file that quotes a number actually measured against. `scripts/verify.py` prints the same steps
 and exits 2 until the artifacts exist.
 
 ### 🟠 Phase 3: Transfer Learning, Model Merging & Mixture of Experts (Root Directory)
@@ -676,13 +676,13 @@ To merge two different neural networks, they must share the same *Linear Mode Co
    operations on their matrices are meaningful.
 
 **Merging Techniques Evaluated:**
-- **Task Arithmetic (`merge_models.py`):** Subtracts the target-phase weights from the recovery
+- **Task Arithmetic (`scripts/merge_models.py`):** Subtracts the target-phase weights from the recovery
   weights to isolate a task vector ($\tau = \theta_{rec} - \theta_{walk}$, in that order - note that
   on the corrected chronology this is the *negative* of the base-to-derived displacement), then adds
   it to a policy.
-- **Weight Averaging (`merge_models.py`):** Directly interpolates the parameter matrices of the two policies ($\theta_{avg} = 0.5 \cdot \theta_{rec} + 0.5 \cdot \theta_{walk}$).
-- **Mixture of Experts / MoE Gate (`train_moe_gate.py`):** A routing network (`moe_gate.pt`) trained to dynamically switch the robot's control between the Walking Policy and the Recovery Policy based on its current pitch/velocity (e.g., if it detects a fall, it activates the recovery expert).
-- **Evaluation (`evaluate_merging.py` & `play.py`):** Scripts to visually inspect how well the merged/MoE models transition between walking and standing up.
+- **Weight Averaging (`scripts/merge_models.py`):** Directly interpolates the parameter matrices of the two policies ($\theta_{avg} = 0.5 \cdot \theta_{rec} + 0.5 \cdot \theta_{walk}$).
+- **Mixture of Experts / MoE Gate (`scripts/train_moe_gate.py`):** A routing network (`moe_gate.pt`) trained to dynamically switch the robot's control between the Walking Policy and the Recovery Policy based on its current pitch/velocity (e.g., if it detects a fall, it activates the recovery expert).
+- **Evaluation (`scripts/evaluate_merging.py` & `scripts/play.py`):** Scripts to visually inspect how well the merged/MoE models transition between walking and standing up.
 
 #### 📊 Empirical Results (Phase 3 Benchmark)
 
@@ -691,7 +691,7 @@ resets (`--seed 11`, episode *i* uses `11+i`), each expert fed through the `obs_
 into its own checkpoint, and survival read from the environment's health condition instead
 of from `terminated` (which these runs never set). A 20-episode run at seed 7 gave the same
 ordering. Evidence: `benchmarks/phase3_merging_100ep.json`, recomputed with
-`python summarize_benchmarks.py`.
+`python scripts/summarize_benchmarks.py`.
 
 | Merging Strategy | Mean Reward | Median | Std | Falls / episode | Ended standing |
 |:---|---:|---:|---:|---:|---:|
@@ -701,7 +701,7 @@ ordering. Evidence: `benchmarks/phase3_merging_100ep.json`, recomputed with
 | **Weight Averaging (50/50)** | -18313.84 | -13297.76 | 10650.28 | 0.17 | 0% |
 
 ⚠️ **That table is the retired protocol** (env v8, scored with the environment's default reward
-weights). Re-run identically - `evaluate_merging.py --num-episodes 100 --seed 11`, 400 episodes,
+weights). Re-run identically - `scripts/evaluate_merging.py --num-episodes 100 --seed 11`, 400 episodes,
 same checkpoints and same seeded resets - but scored with the reward the experts actually
 optimised, in env v9 (`benchmarks/phase3_merging_100ep_v9_trainreward.json`):
 
@@ -733,7 +733,7 @@ Read this table before citing it:
 
 1. **How much the mean is carried by outliers depends entirely on which reward you score with,
    so both are recorded** (`mean_without_best`, `std_over_abs_mean` and the tail shares are fields
-   of both JSON files, recomputed from the logs by `python summarize_benchmarks.py`):
+   of both JSON files, recomputed from the logs by `python scripts/summarize_benchmarks.py`):
 
    | strategy | protocol | mean | median | std/\|mean\| | drop best 1 | drop best 5 | share below -10k |
    |:---|:---|---:|---:|---:|---:|---:|---:|
@@ -758,7 +758,7 @@ Read this table before citing it:
    reproduced rather than asserted.** The retired table (`git show 32da152:README.md`) read
    -11191.88 / -11692.61 / -11763.92 / -16958.91 for supervisor / weight averaging / MoE /
    task arithmetic, which ranked Weight Averaging second ("highly robust, counter to
-   intuition"). The cause was in `evaluate_merging.py`: it called
+   intuition"). The cause was in `scripts/evaluate_merging.py`: it called
    `single_agent.get_action(obs_49)` on raw observations and never applied the `obs_rms`
    pickled inside each checkpoint. Re-running the *corrected* script with `--raw-obs` - which
    now exists solely to reproduce that input path - at the same 100 episodes and seed 11:
@@ -801,9 +801,9 @@ Read this table before citing it:
 5. MoE tracks the supervisor with fewer falls (0.92 against 1.31); Task Arithmetic stays
    clearly degraded in every arm.
 
-To regenerate: `python evaluate_merging.py --num-episodes 100 --seed 11` (add `--raw-obs` for
-the reproduction arm), then `python summarize_benchmarks.py`. The old artifacts were
-unreachable from `play.py`; it now takes `--checkpoint` for the root-level merged models and
+To regenerate: `python scripts/evaluate_merging.py --num-episodes 100 --seed 11` (add `--raw-obs` for
+the reproduction arm), then `python scripts/summarize_benchmarks.py`. The old artifacts were
+unreachable from `scripts/play.py`; it now takes `--checkpoint` for the root-level merged models and
 `--moe --gate/--recovery/--target` for the router, which the README had claimed for a script
 containing no MoE code.
 
@@ -848,10 +848,10 @@ Evidence: `openai_walker/final_results_50ep_seed2026.txt`, the per-episode retur
 was scored twice more under this protocol and kept in
 `openai_walker/final_episodes_50ep_seed2026_gail_{retrain,june_control}.json`, summarised together
 with both runs' training-side episodes into `benchmarks/phase4_gail_retrain.json`. Regenerate with
-`python summarize_benchmarks.py`.
+`python scripts/summarize_benchmarks.py`.
 
 Because episode *i* is the same initial state for every model, neighbouring rows can be
-compared as a **paired** sample instead of two means with error bars: `python paired_stats.py`
+compared as a **paired** sample instead of two means with error bars: `python scripts/paired_stats.py`
 reads those per-episode arrays and reports the paired difference, a bootstrap interval,
 paired-t and Wilcoxon p-values, and how many of the 50 episodes each side wins. Four distinct
 pairs are tested: two are ties, one (Extra Trees against BCQ) is won on rank but not on mean,
@@ -889,7 +889,7 @@ What this measurement changes, stated plainly:
    models episode-by-episode (same `seed+i` reset for every model) instead of mean-against-mean:
    BC − Teacher = **+12.49**, 95% bootstrap interval [-231.49, +265.05], paired-t p=0.92,
    Wilcoxon p=0.28, dz=0.014. BCQ − BC+SAC (Regularized) = **-51.69**, interval
-   [-419.11, +316.80], p=0.79 on both tests. Reproduce with `python paired_stats.py
+   [-419.11, +316.80], p=0.79 on both tests. Reproduce with `python scripts/paired_stats.py
    --episodes 50 --seed 2026`; written to `benchmarks/phase4_paired_50ep_seed2026.json`.
 4. **Extra Trees belongs in the table, not in a footnote**, and it beats BCQ only on the rank
    test: paired, Extra Trees − BCQ = +359.62 with interval [-49.05, +742.47] and paired-t
@@ -914,7 +914,7 @@ What this measurement changes, stated plainly:
 7. **Every retired single-episode draw is now placed inside the distribution the same weights
    produce today**, so "the n=1 table was a poor estimator" can be said per model instead of as
    one sentence for thirteen numbers (`benchmarks/phase4_n1_vs_50ep.json`, regenerated by
-   `python summarize_benchmarks.py`). None of them is a measurement error: all thirteen land
+   `python scripts/summarize_benchmarks.py`). None of them is a measurement error: all thirteen land
    between the min and the max their own 50 seeded resets span. What varies is how far from
    their own mean each one sat. BC's 1728.81 is **-2.77 sigma** and 48 of 50 episodes beat it;
    BCQ's 3897.63 is **+1.09 sigma**, reached or exceeded in 10 of 50, with a max of 4049.40 - a
@@ -1058,15 +1058,15 @@ environment (`.venv-phase4` here).
 
 ## ⚡ Simulation Throughput
 
-`bench_env.py` measures the environment and splits the cost between MuJoCo physics and the
+`scripts/bench_env.py` measures the environment and splits the cost between MuJoCo physics and the
 Python around it, so speedups can be A/B'd rather than asserted:
 
 ```bash
-python bench_env.py --seconds 4                     # physics, single env, sync and parallel vec
-python bench_env.py --mode parallel --n 32          # one backend only
-python bench_env.py --reps 3 --seconds 4            # median of 3 reps, with the spread printed
-python bench_env.py --sweep --n 32                  # envs-per-worker curve
-python bench_env.py --json benchmarks/my_run.json   # machine-readable
+python scripts/bench_env.py --seconds 4                     # physics, single env, sync and parallel vec
+python scripts/bench_env.py --mode parallel --n 32          # one backend only
+python scripts/bench_env.py --reps 3 --seconds 4            # median of 3 reps, with the spread printed
+python scripts/bench_env.py --sweep --n 32                  # envs-per-worker curve
+python scripts/bench_env.py --json benchmarks/my_run.json   # machine-readable
 ```
 
 Measured on an i9-14900HX (24 cores), mujoco 3.2.3, task_phase=recovery. Numbers are
@@ -1088,7 +1088,7 @@ thermal state, and repeat runs of the identical command have ranged ~2x apart (t
 n=32 configuration measured 1,408, 1,536 and 2,720 env-steps/s in three runs the same
 minute-scale window apart). The absolute column is therefore indicative; the **ratios** are
 what to trust, because each was measured back-to-back in one process against the same
-baseline. Re-measure on your own hardware with `python bench_env.py --seconds 4` before
+baseline. Re-measure on your own hardware with `python scripts/bench_env.py --seconds 4` before
 quoting a multiplier.
 
 What the rewrite actually bought is a constant number of microseconds, not a percentage: the
@@ -1096,13 +1096,13 @@ Python around MuJoCo in one `env.step` fell from ~46% of wall clock to **7%** (2
 312 µs step, physics 289 µs), which is why the remaining headroom is in parallelism and in
 the integrator rather than in Python.
 
-**Re-measured in one process, three reps each** (`python bench_env.py --mode all --n 32
+**Re-measured in one process, three reps each** (`python scripts/bench_env.py --mode all --n 32
 --seconds 4 --reps 3 --json benchmarks/throughput_replication.json`): the Python side came out at
 **23 µs** again, exactly as published, while the physics side took 665 µs instead of 289 - so
 the same run reports the Python share as 3% rather than 7%. That is the whole lesson about this
 section's percentages: the µs are the measurement and the ratio is whatever the window's
 clocks make of it. The spread between the three reps of the same configuration reached **77%**
-on the physics row and 50% on the sparse-parallel row, so a single `bench_env.py` number on this
+on the physics row and 50% on the sparse-parallel row, so a single `scripts/bench_env.py` number on this
 machine is not quotable at all, and the same-process sync-to-parallel ratio came out 8.0x against
 the table's 6.5x (which was measured against the *pre-rewrite* baseline, so the two are different
 comparisons, not a disagreement).
@@ -1110,11 +1110,11 @@ comparisons, not a disagreement).
 The tool also had a unit bug, found by this replication: `bench_vec_env` and
 `bench_parallel_vec` timed one *vector* step and published the rate as if it were env-steps, so
 the printed number for n=32 was 32x smaller than the table it was meant to be compared with -
-and the README's own instruction here is "re-measure with `bench_env.py` before quoting a
+and the README's own instruction here is "re-measure with `scripts/bench_env.py` before quoting a
 multiplier". `steps_per_s` now multiplies by n, with `vec_steps_per_s` and the per-vector-step
 `us_per_step` kept beside it.
 
-**The envs-per-worker curve, with the same treatment** (`python bench_env.py --sweep --n 32
+**The envs-per-worker curve, with the same treatment** (`python scripts/bench_env.py --sweep --n 32
 --seconds 4 --reps 3 --json benchmarks/vec_backend_scaling_reps3.json`, one pool rebuilt per cell,
 three reps each): one environment per worker is the fastest grouping and every grouping above it
 costs throughput.
@@ -1164,8 +1164,8 @@ unchanged everywhere above; only wall clock moves.
 ### ⏱️ The whole stack, end to end: 1.6x at small budgets, 1.9x at collection-dominated ones
 
 Multiplying the factors above is not a measurement and the product would be wrong: the device
-factor already contains collection, while `bench_env.py`'s steady-state numbers exclude the
-cost of *starting* the worker processes. `bench_stacked.py` runs whole trainers instead, arming
+factor already contains collection, while `scripts/bench_env.py`'s steady-state numbers exclude the
+cost of *starting* the worker processes. `scripts/bench_stacked.py` runs whole trainers instead, arming
 each change on top of the stack that was committed at 5920805 (that revision's env and trainer
 are extracted with `git show` and aliased in as `envs.walker_ragdoll_env`, one directory deep so
 the env still finds its own `walker_ragdoll.xml`). Best of 2 alternating reps, on a laptop that
@@ -1197,7 +1197,7 @@ Where the environment work does pay is the collection-dominated regime. Same har
 
 ⚠️ **That table was a single draw on a contended machine, and the replication says less.** Its own
 artifact records "a Dreamer 1M-step run was training concurrently on the same laptop for the whole
-session". `python bench_stacked.py --ladder n32 --reps 2` re-ran it after that trainer exited
+session". `python scripts/bench_stacked.py --ladder n32 --reps 2` re-ran it after that trainer exited
 (`benchmarks/stacked_sac_n32_reps2.json`), and both the times and the ratios moved:
 
 | 600k steps, 32 envs, idle machine | rep 1 / rep 2 s | median | env-steps/s | vs committed |
@@ -1214,7 +1214,7 @@ one thread while 32 worker processes each keep their own - which is how a shared
 attribute ~200 s of the 290.9 s to booting the workers; against the replication's own steady rate
 the boot cost is ~95 s of the 148.2 s.
 
-As the contended artifact's own note reads it: `bench_env.py` reports 7,328 env-steps/s steady state
+As the contended artifact's own note reads it: `scripts/bench_env.py` reports 7,328 env-steps/s steady state
 for that last line, while over 600k steps the same configuration delivers 2,062, because ~200 s of
 the 290.9 s is 32 child processes importing torch and mujoco; from those two rates it extrapolated a
 1M-step collection at ~2.1x over the committed sync backend. **That extrapolation is not supported
@@ -1237,7 +1237,7 @@ contrast, and the checkpoint-mtime arithmetic).
 **What a training run costs.** The two ladders above are chosen regimes, so the last one replays
 the *actual* configuration of the 40M-step run - `num_envs=32`, `learning_starts=10000`,
 `task_phase=target` - for 400,000 steps on both stacks, back to back in the same window
-(`benchmarks/throughput_stacked_ladder_n32real.json`, `python bench_stacked.py --ladder n32_real`):
+(`benchmarks/throughput_stacked_ladder_n32real.json`, `python scripts/bench_stacked.py --ladder n32_real`):
 
 | 400k steps, 32 envs, target phase | wall clock | min per 1M env steps | 40M extrapolated |
 |:---|---:|---:|---:|
@@ -1299,7 +1299,7 @@ and the pipes, not MuJoCo.
 
 **The `num_envs=8` in those screens is not only a plumbing choice, and saying so costs a flag.** The
 SAC loop runs one critic update per collection iteration, and a collection iteration is `num_envs`
-environment steps (`train_walker.py:2144-2187`), so the optimisation each environment step receives
+environment steps (`scripts/train_walker.py:2144-2187`), so the optimisation each environment step receives
 is 1/`num_envs`: at 8 envs a step is optimised four times as hard as at 32, and `--num-envs` was the
 only knob that could turn that. The two rates in this section are the same fact wearing a stopwatch -
 the `v9` arm of the 5M pair ran at **1,798.4 s per 1M steps** at 8 envs while the 40M run at 32 envs
@@ -1407,7 +1407,7 @@ both worlds re-run at a second seed rather than settled here.
 Even the scorer feels the physics: the 20-episode evaluation of the three arms took 28 s, 21 s and
 14 s respectively.
 
-`eval_phase1.py` refuses to score a preset run against an aliased older revision, and a preset
+`scripts/eval_phase1.py` refuses to score a preset run against an aliased older revision, and a preset
 checkpoint records its own world in `env_version`, so the two can never be mixed by accident.
 
 **`euler` has now been trained at the budget where reaching is observable - twice - and the first answer
@@ -1459,15 +1459,15 @@ laptop (RTX 4070 Laptop 8 GB, 32 threads, `.venv`), one process at a time:
 
 | Trainer | Config | Measured | 1M env steps |
 |:---|:---|:---|:---|
-| `train_ars.py` | linear policy, 10 directions | 1,005,153 steps in 544 s = 1848/s | 9 min |
-| `train_walker.py --algo ppo` | 32 envs, `target` phase, seed 7 | 983,040 steps in 282 s = 3,486.0/s | 4.8 min |
-| `train_walker.py --algo ppo`, 10M | same config, drawn at two seeds | 9,961,472 steps in 1,594 s = 6,249.4/s | 160.0 s |
-| `train_walker.py --algo ppo`, 10M again | the other seed, in a window 2 h later | 9,961,472 steps in 3,636 s = 2,739.7/s | 365.0 s |
-| `train_walker.py --algo sac` | same config, same night | 1,000,000 steps in 594 s = 1,683.5/s | 9.9 min |
-| `train_dreamer.py` | 4 envs, update each collect step | 5,000 steps in 37 s with the update gate closed; 14,000 in 898 s in one A/B window and in 205 s later, same build | ~4-18 h |
-| `train_dreamer.py`, captured update | same config, and the CUDA default now (`--no-update-graph` opts out) | 100 updates in 4.1 s against 17.6 s eager, in the same window | its own projection says 3.6 h; measured later at two budgets: **1.18 h** |
-| `train_redq.py` | 16 envs, `utd_ratio=20`, ensemble 10 | 10,000 steps in 478 s | ~13 h |
-| `train_redq.py`, batched ensemble | same config, `--ensemble-impl batched` (default now) | see the A/B below | ~4 h in that window |
+| `scripts/train_ars.py` | linear policy, 10 directions | 1,005,153 steps in 544 s = 1848/s | 9 min |
+| `scripts/train_walker.py --algo ppo` | 32 envs, `target` phase, seed 7 | 983,040 steps in 282 s = 3,486.0/s | 4.8 min |
+| `scripts/train_walker.py --algo ppo`, 10M | same config, drawn at two seeds | 9,961,472 steps in 1,594 s = 6,249.4/s | 160.0 s |
+| `scripts/train_walker.py --algo ppo`, 10M again | the other seed, in a window 2 h later | 9,961,472 steps in 3,636 s = 2,739.7/s | 365.0 s |
+| `scripts/train_walker.py --algo sac` | same config, same night | 1,000,000 steps in 594 s = 1,683.5/s | 9.9 min |
+| `scripts/train_dreamer.py` | 4 envs, update each collect step | 5,000 steps in 37 s with the update gate closed; 14,000 in 898 s in one A/B window and in 205 s later, same build | ~4-18 h |
+| `scripts/train_dreamer.py`, captured update | same config, and the CUDA default now (`--no-update-graph` opts out) | 100 updates in 4.1 s against 17.6 s eager, in the same window | its own projection says 3.6 h; measured later at two budgets: **1.18 h** |
+| `scripts/train_redq.py` | 16 envs, `utd_ratio=20`, ensemble 10 | 10,000 steps in 478 s | ~13 h |
+| `scripts/train_redq.py`, batched ensemble | same config, `--ensemble-impl batched` (default now) | see the A/B below | ~4 h in that window |
 
 **PPO is the fastest loop here and the worst policy at the same budget, and both halves of that
 sentence are the measurement** (`benchmarks/trainer_pair_ppo_sac.json`, one night, both arms at 32
@@ -1563,16 +1563,16 @@ third time for the actor, and then soft-updates the target copy with 3N tiny ker
 gradient step, not on a frequency. On 256-unit nets that is kernel-launch time, not arithmetic, so
 `--utd-ratio 20` runs at ~32 env-steps/s while one environment steps physics at 1,560/s: the
 MuJoCo inside a REDQ run is about **2% of the wall clock**, and no amount of physics work can make
-that run faster. `BatchedSoftQEnsemble` (`train_walker.py`) holds the same weights as stacked
+that run faster. `BatchedSoftQEnsemble` (`scripts/train_walker.py`) holds the same weights as stacked
 (N, in, out) tensors and evaluates them in one `baddbmm`. Isolated critic step at batch 256,
 N=10: **8.61 ms loop against 0.95 ms batched on the GPU** (26.6 ms against 7.85 ms on CPU), and the
 3N-kernel target update goes 3.38 ms -> 0.15 ms. The arithmetic is equal to 3.73e-7 relative on the
 forward and 5.52e-7 across all 30 weight gradients, and the initialisation consumes the same RNG
 stream so a seeded run starts bit-identically (`tests/test_redq_ensemble.py`). Those milliseconds
-come from `python bench_redq_ensemble.py --isolated-only` on a window that also carried the live 1M
+come from `python scripts/bench_redq_ensemble.py --isolated-only` on a window that also carried the live 1M
 run, so the 9.06x and the 22.53x are the parts worth reusing, not the absolute times.
 
-Inside the real trainer (`python bench_redq_ensemble.py`: UTD 20, N=10, 10k env steps, updates
+Inside the real trainer (`python scripts/bench_redq_ensemble.py`: UTD 20, N=10, 10k env steps, updates
 from 2k, two reps, and a collection floor per implementation measured with the update gate
 closed):
 
@@ -1598,7 +1598,7 @@ from the whole-run times and the subtraction is treated as indicative rather tha
 n=16 floors above, which agree to 12%, carry the load.
 
 Two limits, said plainly. Checkpoints are written in the old `nn.ModuleList` key layout from both
-paths, so `evaluate_merging.py`, the eval scorer and the merge arithmetic are untouched - but
+paths, so `scripts/evaluate_merging.py`, the eval scorer and the merge arithmetic are untouched - but
 Adam's state is per parameter and the two layouts hold 6 versus 3N tensors, so `--resume` now
 *refuses* a checkpoint written by the other implementation instead of quietly rebuilding the
 optimizer (`--init-from-run-id` remains the weights-only route across them). And the same
@@ -1611,7 +1611,7 @@ and `h_t` depends on `h_{t-1}` - there is nothing to stack. What is left is disp
 real trainer under `torch.profiler` counts **14,400 aten calls per update** (1,439,168 over 100
 updates: 43,245 `aten::linear`, 249,460 `aten::t`, 7,814 `rssm_transition` calls) against six
 256-unit MLPs, and self CPU time lands at 1.04x self CUDA time - the GPU is waiting for Python.
-`CapturedDreamerUpdate` (`train_dreamer.py --update-graph`) records that update once and replays it
+`CapturedDreamerUpdate` (`scripts/train_dreamer.py --update-graph`) records that update once and replays it
 as one launch.
 
 | Dreamer, 5,400 steps at n=4 (100 updates) | total s (rep 1 / rep 2) | ms per update | projected 1M |
@@ -1635,7 +1635,7 @@ loop.
 
 **What is left after capture, priced instead of assumed.** This section used to point at the
 imagination rollout and the actor-critic losses as "where the same technique would go next".
-`python bench_dreamer_update.py --mode scaling` measures that claim on isolated `dreamer_update`
+`python scripts/bench_dreamer_update.py --mode scaling` measures that claim on isolated `dreamer_update`
 calls at the shipped sizes (seq 50, batch 16, horizon 15): on the captured path one imagination step
 costs **0.218 ms** and one world-model timestep **0.138 ms**, so of a **12.62 ms** update the
 imagination loop is about 3.3 ms and the world model about 6.9 ms. Only the captured arm is quoted,
@@ -1652,7 +1652,7 @@ pass" below, where the prediction meets a box whose timing noise is the same siz
 **Where a whole iteration goes, now that the update is cheap.** The paragraph above prices the inside
 of an update; this prices the loop around it, because the claim this section inherited - "~96% of
 Dreamer's wall clock is the learner step" - was measured when the update ran eager at 293 ms.
-`python bench_dreamer_update.py --mode loop-split` rebuilds one iteration from the trainer's own
+`python scripts/bench_dreamer_update.py --mode loop-split` rebuilds one iteration from the trainer's own
 pieces (`build_vec_env` with the trainer's flag set, the same wrappers, `WorldModel`/`DreamerActor`,
 `SequenceReplayBuffer`, the extracted `advance_recurrent_state`, `CapturedDreamerUpdate`), times every
 segment with a `synchronize()` at each boundary, and repeats 25 iterations in one process and one
@@ -1677,7 +1677,7 @@ of that 3.34 ms, which is why the collection loop was left alone rather than res
 where the time is.
 
 **Cross-checked against the trainer itself, and the 1M projection replaced.** The split above rebuilds
-the loop; `python bench_dreamer_update.py --mode real-rate` runs the shipped command instead, at two
+the loop; `python scripts/bench_dreamer_update.py --mode real-rate` runs the shipped command instead, at two
 budgets (20,000 and 40,000 env steps), every cell twice, with the four cells rotated - because the
 first process of a batch pays a cold start, and an early unrotated version of this measurement
 reported a *negative* slope. Subtracting the two budgets cancels the per-process fixed cost, and the
@@ -1708,7 +1708,7 @@ size: cheap, paid once, and invisible in the per-iteration rate.
 side at 3.3-4.2 ms, the only way left to cut wall clock without touching the update's arithmetic is to
 collect more environment steps per gradient step: the trainer runs exactly one `dreamer_update` per
 collection step, so `--num-envs` divides the update's share directly. `python
-bench_dreamer_update.py --mode amortize` measures that at two budgets per `n`, in one window
+scripts/bench_dreamer_update.py --mode amortize` measures that at two budgets per `n`, in one window
 (`benchmarks/dreamer_amortize_n.json`):
 
 | `--num-envs` | ms per iteration | env-steps/s | h per 1M env steps | gradient steps per 1k env steps | vs shipped |
@@ -1798,7 +1798,7 @@ those numbers rather than improve them.
 
 **Four of the six checkpoints here record their own reward.** The two that do not - the shipped arm's
 250k checkpoint, which is the first quarter of `dreamer_v3_1m`, and the 16-env seed-7 run - were
-trained before `train_dreamer.py` started saving `reward_kwargs` this evening, so they resolve through
+trained before `scripts/train_dreamer.py` started saving `reward_kwargs` this evening, so they resolve through
 the fallback and their rows say so. The other four report `reward_source = checkpoint`: scoring a run
 trained from here on never has to reason about which trainer an algorithm name implies, which is the
 whole point of the change.
@@ -1817,7 +1817,7 @@ the checkpoint was written in, because Adam's state is laid out differently betw
 unmarked default would have refused every eager run already in `checkpoints/`; that inheritance is
 what makes the flip safe for old runs, and it was checked by resuming a checkpoint written with
 `--no-update-graph` on a CUDA box and watching it stay eager. For the same reason the A/B, profile
-and reproducibility arms in `bench_dreamer_update.py` now name their mode explicitly - an unmarked
+and reproducibility arms in `scripts/bench_dreamer_update.py` now name their mode explicitly - an unmarked
 arm would quietly measure the captured path and report it as eager. New runs carry the ~1e-6
 Adam-kernel difference described below, on a trainer that is already not reproducible across
 processes.
@@ -1835,7 +1835,7 @@ captured RNG that stopped advancing would imagine the same trajectory forever, w
 mode that test exists to catch.
 
 ⚠️ **And Dreamer runs are not reproducible across processes, so "same seed" is not a pairing control
-for an outcome claim.** `python bench_dreamer_update.py --mode reproducibility` runs the identical
+for an outcome claim.** `python scripts/bench_dreamer_update.py --mode reproducibility` runs the identical
 build twice with the same seed and args and compares: **0 of 42 tensors bit-identical, worst
 |Δweight| 7.2e-2 after 100 updates**, and the two runs' 166 episodic returns do not match as a
 sequence (`benchmarks/dreamer_reproducibility.json`). Within one process the update *is* exact - the
@@ -1891,7 +1891,7 @@ with no traceback. Both are written up, with what they cost, in
 
 **"It felt faster before all this work" - the archive says the opposite, by 16.5x.** Worth answering
 with data rather than reassurance, because the intuition has a real source. `python
-summarize_training_rate.py` (`benchmarks/training_rate_history.json`) recomputes a rate for every run
+scripts/summarize_training_rate.py` (`benchmarks/training_rate_history.json`) recomputes a rate for every run
 in `mlruns.db` that logged `sps` twice or more - the artifact lists them all, and the list only grows -
 as (last step − first step) / (last timestamp − first timestamp), which needs no interpretation of
 what the trainer meant by `sps`. The
@@ -1967,7 +1967,7 @@ budget *and* the update count alone.
 MJX (MuJoCo XLA) was evaluated as the obvious "make the env much faster" candidate, with
 `mujoco-mjx==3.2.7` + `jax==0.10.2`, batched `vmap` + `jit`, `frame_skip=5` so an
 "env step" means exactly what it means in `WalkerRagdollEnv.step`, compile time excluded.
-`bench_mjx.py` reproduces this; raw results are in `benchmarks/mjx_cpu_batch.json` and
+`scripts/bench_mjx.py` reproduces this; raw results are in `benchmarks/mjx_cpu_batch.json` and
 `benchmarks/mjx_gpu_wsl.json`.
 
 env-steps/s (one policy action per world, higher is better):
@@ -2005,7 +2005,7 @@ were taken under WSL2 with `XLA_PYTHON_CLIENT_MEM_FRACTION=0.6` on the 8 GB card
 **The obvious counter-configuration was built and gated, and it does not rescue MJX here either.**
 Projects that do win with MJX (boxer-rl, on two contact-dense G1 humanoids) declare their contacts
 explicitly with `<pair>` instead of leaving them to the automatic filter, so the question was whether
-that is the missing lever. It splits into two halves, and `bench_mjx_pairs.py` measures both
+that is the missing lever. It splits into two halves, and `scripts/bench_mjx_pairs.py` measures both
 (`benchmarks/mjx_pairs_verify.json`, `benchmarks/mjx_pairs_bench_gpu.json`, mujoco 3.16 + jax 0.11.2
 under WSL2 — 3.2.7's MJX pair path is broken under new JAX, `jnp.clip(a_min=)` is gone):
 
@@ -2032,7 +2032,7 @@ pays for itself. On a 17-actuator ragdoll the native sparse solver wins even aga
 MJX-GPU, so the earlier conclusion stands with the counter-configuration measured rather than assumed.
 
 **On the path this project actually trains on, the same measurement says the lever is worth a few
-percent, not a factor.** `bench_env.py --contact-world` times all three worlds with MuJoCo-C in 32
+percent, not a factor.** `scripts/bench_env.py --contact-world` times all three worlds with MuJoCo-C in 32
 worker processes, back to back in one run, on the mode the trainer builds by default
 (`ParallelVectorEnv n=32, sparse_info=True`): declaring the same pairs explicitly is **1.079x**, the
 gait reduction **1.302x** (`benchmarks/contact_worlds_native_gate.json`). Those are stepping rates, and
@@ -2065,7 +2065,7 @@ contact_world_train_clocks.json`, built from the committed launcher logs).
 the environment, and the adoption rests on a policy-length replay rather than a spot check: the 4M
 actor's own control sequence, recorded rolling in the published world and replayed into each variant,
 gives **0** contact-set mismatches over **2000** env steps and a max |qpos diff| of exactly **0** - the two
-models are bit-identical under the same physics problem (`bench_mjx_pairs.py --long-verify`,
+models are bit-identical under the same physics problem (`scripts/bench_mjx_pairs.py --long-verify`,
 `benchmarks/contact_equivalence_long.json`). The gait reduction on the same tape disagrees about
 contacts in **1907** of those steps and first diverges at step **3**, which is why it stays a bench
 option and not a training world. Default unchanged: `published` is what every committed run used and
@@ -2079,8 +2079,8 @@ published v9, and the resume guard that exists to catch exactly that had nothing
 builder now stamps the version it was configured with, and a smoke run at `num_envs=32` - the parallel
 backend, the one every published arm uses - is the test that says so.
 
-**The reduced world is now on screen, and the frame carries its own evidence.** `make_target_clips.py`
-renders any of the three contact worlds with the same deterministic actor `eval_phase1.py` loads, and
+**The reduced world is now on screen, and the frame carries its own evidence.** `scripts/make_target_clips.py`
+renders any of the three contact worlds with the same deterministic actor `scripts/eval_phase1.py` loads, and
 writes the phase, the live goal distance, the torso height, the arm-floor contact state and the arrival
 label onto every frame. The videos are in `videos/` (gitignored, evidence to look at rather than
 version); the telemetry they were drawn from is committed in `benchmarks/target_clips_published.json`
@@ -2157,7 +2157,7 @@ model against **77** for that one, and the scene's own XML pins the solver at **
 pipeline that is a bargain on a boxer's world is a bad trade on this one, which is the same mechanism the
 `<pair>` counter-configuration above could not move. One incidental finding stands: MJX cannot take the
 native G1 description at all - `(CYLINDER, MESH) collisions not implemented` - which is exactly why a
-second, primitive-collider file exists upstream (`bench_mjx.py --xml`, `bench_g1_cost.py`,
+second, primitive-collider file exists upstream (`scripts/bench_mjx.py --xml`, `scripts/bench_g1_cost.py`,
 `benchmarks/g1_model_cost_comparison.json`).
 
 So the G1 is not a speed lever here; it is a different robot, and running it would mean building its
@@ -2168,7 +2168,7 @@ the cost is in the learner and the update, not in which humanoid is standing up.
 **The learner was the other half of the JAX question, and it does not win either.** The physics is
 one reason to stay off XLA; the argument for porting anyway was that the learner is a recurrence of
 about ten tiny kernels per step, which is exactly what XLA fusion is good at.
-`python bench_jax_update.py` rebuilds the imagination rollout in JAX (`lax.scan` + `jit`, the
+`python scripts/bench_jax_update.py` rebuilds the imagination rollout in JAX (`lax.scan` + `jit`, the
 sampled `z` feeding the next step as `RSSM.transition` does) on the same RTX 4070 Laptop, under
 WSL2. Forward only: **1.578 ms** for the 15 steps against the **3.27 ms** the captured torch path
 spends on that loop (`benchmarks/dreamer_update_scaling.json`) - 2.1x. But a training step needs
@@ -2249,13 +2249,13 @@ the declared range is narrower than what breaks in practice - which is why this 
 | `--device cuda` | 30 s | 666 env-steps/s |
 
 That is **3.5x end-to-end** at this budget, and 2.4x on the isolated update step (11.28 ms
-→ 4.75 ms per critic+actor pair at batch 512, `bench_device.py`). The
+→ 4.75 ms per critic+actor pair at batch 512, `scripts/bench_device.py`). The
 gain shrinks as `num_envs` grows, because rollout collection becomes the dominant cost —
 which is why the env work above matters more than the device.
 
 ⚠️ **Those two numbers were taken on an idle GPU and they do not reproduce under load.** The
 same 20k-step budget re-measured while a Dreamer run shared this laptop gave 141.6 s on CPU
-and 84.4 s on CUDA = **1.68x**, and `bench_device.py` on that same evening read 27.88 ms (CPU)
+and 84.4 s on CUDA = **1.68x**, and `scripts/bench_device.py` on that same evening read 27.88 ms (CPU)
 against 6.22 ms (CUDA) — 4.48x on the ratio but twice the absolute cost of the idle run, because
 the desktop processes and a training peer both queue in the driver. Quote a device factor with
 the load it was measured under; `benchmarks/throughput_stacked_ladder.json` records both pairs.
@@ -2315,13 +2315,13 @@ Three facts to keep in mind:
 
 The suite is plain `unittest` (no pytest required) and covers the environment contract, the
 golden reward rollouts, the parallel/serial vector-env parity, checkpointing and the race
-harness — **472 tests, 729 s in this window** (`Ran 472 tests in 729.079s ... OK
+harness — **472 tests, 390 s in this window** (`Ran 472 tests in 390.465s ... OK
 (skipped=7)` under `.venv`). Windows of this suite have measured 176.3 s at 102 tests, 269.995 s
 at 121, 261.1 s at 127, 329.964 s at 128, 319.168 s at 130, 184.716 s, 203.108 s and 306.976 s at
 140, 144.678 s at 147, 230.268 s at 157, 171.016 s and 170.304 s at 194, and 174.008 s,
 170.391 s, 175.036 s, 168.775 s, 168.986 s and 166.606 s at 201/205/210, 169.919 s at 214,
 and 163.920 s and 161.829 s at 237, 165.360 s and 164.902 s at 243, 161.647 s and 162.674 s at 250, 162.726 s and 162.167 s at 251, 171.616 s and 163.434 s at 252, 163.769 s and 163.748 s at 255, 226.912 s and 217.651 s at 260, 193.167 s and 191.909 s at 273, 206.150 s at 279, 193.904 s at 284, 201.464 s at 289, 189.864 s and 187.485 s at 294, 190.012 s at 297, 230.180 s at 301, 190.655 s at 311, 211.202 s at 317, 195.419 s at 322, 184.182 s at 326, 180.964 s at 326, 266.112 s and 191.187 s at 339, 185.556 s at 340, 193.319 s at 351, 218.984 s at 369, 238.576 s at 376, 355.206 s at 399, 339.222 s and 373.536 s at 424/426, 320.360 s, 308.791 s, 398.060 s, 401.094 s, 397.254 s and 446.193 s at 428/430/438/455/458/459, 253.676 s, 254.946 s and 250.889 s at
-466/467/472, and 729.079 s at 472 again -
+466/467/472, 729.079 s and 390.465 s at 472 -
 those last windows carry a dose test that runs three short CPU trainings, which are about 27 s of
 them, so that entry is not slower hardware; consecutive runs of one commit agree to 4%, where the
 147 and 157 windows an afternoon earlier were 1.6x apart for ten more tests. The
@@ -2332,9 +2332,9 @@ they measure `Ran 57 tests in 3.187s` - 0.8% of the window that reported them - 
 render smoke draws, measures `Ran 23 tests in 1.414s` - so the difference is this machine's state on
 the day rather than a slower suite. The 466, 467 and 472 windows were measured at 01:33, 01:52 and 04:25
 with nothing else running on this machine and came in at 253.676 s, 254.946 s and 250.889 s: thirteen more
-tests than the 459 window and 1.8x under its clock. The 729.079 s window is the same 472 tests measured
-at 23:04 with 38 idle python processes from the night's chains still resident: same count, 2.9x the
-clock, which is the machine-state claim above measured against itself. The
+tests than the 459 window and 1.8x under its clock. Two windows of the same 472 tests bracket that
+claim: 729.079 s measured at 23:04 with 38 idle chain workers still resident, and 390.465 s measured with
+those processes gone and the device at 0% - same commit's count, 1.87x apart, no code between them. The
 duration belongs to the machine's state, the
 count does not, and a gate checks the count so it cannot go stale quietly):
 
@@ -2389,115 +2389,115 @@ that they ran - see Phase 4, item 6. How each of those states was found, with th
 ## 🔬 Reproducing and measuring
 
 ```bash
-python -m unittest discover -s tests -t .   # 472 tests in .venv, 729 s; see "Running the tests"
-python bench_env.py --seconds 4             # env throughput, physics vs Python split
-python bench_mjx.py --sizes 32,128          # MJX/JAX batched stepping
-python bench_mjx_pairs.py --verify          # is an explicit-<pair> world the same MDP? (MuJoCo-C)
-python bench_mjx_pairs.py --bench --sizes 128,512   # and does it step faster? (needs MJX: WSL2)
-python bench_mjx_pairs.py --long-verify checkpoints/sac_target_from_scratch_40m/sac_ckpt_4000000.pt \n  --env-steps 2000 --device cuda --out benchmarks/contact_equivalence_long.json
+python -m unittest discover -s tests -t .   # 472 tests in .venv, 390 s; see "Running the tests"
+python scripts/bench_env.py --seconds 4             # env throughput, physics vs Python split
+python scripts/bench_mjx.py --sizes 32,128          # MJX/JAX batched stepping
+python scripts/bench_mjx_pairs.py --verify          # is an explicit-<pair> world the same MDP? (MuJoCo-C)
+python scripts/bench_mjx_pairs.py --bench --sizes 128,512   # and does it step faster? (needs MJX: WSL2)
+python scripts/bench_mjx_pairs.py --long-verify checkpoints/sac_target_from_scratch_40m/sac_ckpt_4000000.pt \n  --env-steps 2000 --device cuda --out benchmarks/contact_equivalence_long.json
                                           # replay one actor's own control tape into every contact
                                           # world: the adoption proof, not a 300-step spot check
-python bench_env.py --mode all --n 32 --reps 3 --task-phase target \
+python scripts/bench_env.py --mode all --n 32 --reps 3 --task-phase target \
   --contact-world published explicit_full gait_reduced \
   --json benchmarks/contact_worlds_native.json      # the same three worlds on the native path, back
                                           # to back in one process; the mode the trainer builds is the
                                           # headline, and contact_worlds_native_gate.json does the math
-python make_target_clips.py --model checkpoints/sac_target_from_scratch_40m/sac_ckpt_4000000.pt \
+python scripts/make_target_clips.py --model checkpoints/sac_target_from_scratch_40m/sac_ckpt_4000000.pt \
   --seeds 14,25,11,29 --out-dir videos --publish-clips docs/media/clips
                                           # labelled target clips; --world gait_reduced renders the
                                           # arm-through-the-floor contrast, both write a JSON sidecar
                                           # into benchmarks/, and --publish-clips copies the mp4s into
                                           # the repository with their sha256 recorded in that sidecar
-python make_target_clips.py --gif-from docs/media/clips/published_4000000s_seed25_reached_by_falling.mp4 \
+python scripts/make_target_clips.py --gif-from docs/media/clips/published_4000000s_seed25_reached_by_falling.mp4 \
   docs/media/clips/gait_reduced_4000000s_seed25_reached_upright.mp4 --gif-out \
   docs/media/target_clips_seed25_published_vs_gait_reduced.gif
                                           # the two-up GIF the MJX section embeds (pass one clip for a
                                           # single-panel GIF); the size budget is a test assertion
-python bench_g1_cost.py --native --out benchmarks/g1_native_cost.json
+python scripts/bench_g1_cost.py --native --out benchmarks/g1_native_cost.json
                                           # the ragdoll and Menagerie's G1 priced per simulated second
                                           # on this CPU. For the GPU path the published harness is the
-                                          # instrument: bench_mjx.py --sizes 64,256 [--xml <file>] under
+                                          # instrument: scripts/bench_mjx.py --sizes 64,256 [--xml <file>] under
                                           # WSL2 with external/ fetched. bench_g1_cost --mjx borrows its
                                           # build_mjx and warms up before it starts the clock, which is
                                           # what a 28.5x understatement bought
-python verify.py                            # Phase-2 artifact check (exits 2 when missing)
-python bench_device.py                        # SAC update cost, CPU vs CUDA
-python bench_dreamer_update.py --mode scaling # per-loop-step cost, eager vs captured, 3 batch points
-python bench_dreamer_update.py --mode loop-split  # one iteration, segment by segment, one window
-python bench_dreamer_update.py --mode real-rate   # the shipped command at two budgets, 2 reps/cell
-python bench_dreamer_update.py --mode checkpoint-cost  # bytes and ms per Dreamer save, per interval
-python bench_dreamer_update.py --mode amortize  # rate and gradient steps per --num-envs, one window
-python bench_posture.py --episodes 50           # does it stand? torso height per step, not the return
-python bench_posture.py --compare-devices       # the same rows on cuda and cpu, and what moves
-python bench_physics_presets.py --skip-divergence  # what each physics_preset costs, back to back
-python bench_physics_presets.py --skip-throughput  # how far each one drifts from v9, same actions
-python bench_reach_definitions.py             # arrival by distance vs arrival standing, both rules,
+python scripts/verify.py                            # Phase-2 artifact check (exits 2 when missing)
+python scripts/bench_device.py                        # SAC update cost, CPU vs CUDA
+python scripts/bench_dreamer_update.py --mode scaling # per-loop-step cost, eager vs captured, 3 batch points
+python scripts/bench_dreamer_update.py --mode loop-split  # one iteration, segment by segment, one window
+python scripts/bench_dreamer_update.py --mode real-rate   # the shipped command at two budgets, 2 reps/cell
+python scripts/bench_dreamer_update.py --mode checkpoint-cost  # bytes and ms per Dreamer save, per interval
+python scripts/bench_dreamer_update.py --mode amortize  # rate and gradient steps per --num-envs, one window
+python scripts/bench_posture.py --episodes 50           # does it stand? torso height per step, not the return
+python scripts/bench_posture.py --compare-devices       # the same rows on cuda and cpu, and what moves
+python scripts/bench_physics_presets.py --skip-divergence  # what each physics_preset costs, back to back
+python scripts/bench_physics_presets.py --skip-throughput  # how far each one drifts from v9, same actions
+python scripts/bench_reach_definitions.py             # arrival by distance vs arrival standing, both rules,
                                               # and it refuses to write unless the loose column
                                               # reproduces each committed artifact episode for episode
-python bench_approach_mechanism.py            # the same episodes step by step: metres of approach
+python scripts/bench_approach_mechanism.py            # the same episodes step by step: metres of approach
                                               # closed inside the standing band vs below it, longest
                                               # continuous stand, velocity toward the target while up
-python bench_mpc.py --episodes 20 --samples 24 --iterations 2 --elite 6 --horizon 60 --replan 10 \
+python scripts/bench_mpc.py --episodes 20 --samples 24 --iterations 2 --elite 6 --horizon 60 --replan 10 \
   --out benchmarks/mpc_target_baseline.json   # the sampling-MPC baseline, same episodes and same
                                               # per-step instrument; --samples 48 --iterations 3
                                               # --elite 12 --horizon 100 --replan 20 is the
                                               # bigger-search cell
-python collect_mpc_demos.py --episodes 28 --samples 48 --iterations 3 --elite 12 --horizon 100 \
+python scripts/collect_mpc_demos.py --episodes 28 --samples 48 --iterations 3 --elite 12 --horizon 100 \
   --replan 20                               # the teacher's own trajectories, on seeds disjoint from the
                                               # scored protocol (101+); arrays are gitignored, the
                                               # sidecar .json with their provenance is not
-python train_bc_ragdoll.py --filter raw     # BC student on the SACAgent architecture; --filter band
+python scripts/train_bc_ragdoll.py --filter raw     # BC student on the SACAgent architecture; --filter band
                                               # trains only on the teacher's in-band steps
-python bench_bc_teacher.py --jitter-compare benchmarks/demos/probe_elite.npz \
+python scripts/bench_bc_teacher.py --jitter-compare benchmarks/demos/probe_elite.npz \
                                           # is the teacher's action learnable at all? constant vs ridge
                                           # vs k-NN vs each student, on one episode-level split
-python collect_mpc_demos.py --episodes 28 --samples 48 --iterations 3 --elite 12 --horizon 100 \
+python scripts/collect_mpc_demos.py --episodes 28 --samples 48 --iterations 3 --elite 12 --horizon 100 \
   --replan 20 --demo-seed-base 401 --out benchmarks/demos/mpc_preference_demos.npz
                                           # the same teacher, now also recording its lookahead value per
                                           # step, on seeds 401-428
-python train_offline_critic.py --actor q  # twin critic fitted by TD on those transitions and an actor
+python scripts/train_offline_critic.py --actor q  # twin critic fitted by TD on those transitions and an actor
                                           # ascended through it; --actor q_bc adds TD3+BC's
                                           # in-distribution term. 60 epochs, 3 episodes held out, and
                                           # the checkpoint is the best held-out TD error, not the last
-python eval_phase1.py --num-episodes 20 --seed 11 --reset-mode mixed \
+python scripts/eval_phase1.py --num-episodes 20 --seed 11 --reset-mode mixed \
   --model critic_q=checkpoints/critic_mpc_q/critic_student_best5.pt \
   --model critic_q_bc=checkpoints/critic_mpc_q_bc/critic_student_best5.pt \
   --out benchmarks/critic_mpc_students.json   # both students on the published protocol
-python bench_bc_teacher.py --demos benchmarks/demos/mpc_preference_demos.npz \
+python scripts/bench_bc_teacher.py --demos benchmarks/demos/mpc_preference_demos.npz \
   --students benchmarks/critic_mpc_students.json \
   --out benchmarks/critic_teacher_benchmark.json
                                           # ridge R2 against the recorded value, and each student's
                                           # action distance against a constant zero
-python fit_planner_potential.py           # freeze the value as a state function Phi(s): episode-level
+python scripts/fit_planner_potential.py           # freeze the value as a state function Phi(s): episode-level
                                           # hold-out, checkpoint at the best held-out error; the npz it
                                           # writes is gitignored, its R2 and clamp range are not
-python bench_value_potential.py --episodes 20 \
+python scripts/bench_value_potential.py --episodes 20 \
   --model control=checkpoints/utd_sac_n32_r4_5m/sac_actor_5000000.pt
                                           # what the shaping term is worth on the control's own states:
                                           # its mean size against the mean task reward, and the share of
                                           # visited states whose value had to be clamped
-python train_walker.py --algo sac --run-id vshape_sac_n32_r4_5m --seed 7 --total-timesteps 5000000 \
+python scripts/train_walker.py --algo sac --run-id vshape_sac_n32_r4_5m --seed 7 --total-timesteps 5000000 \
   --num-envs 32 --utd-ratio 4 --task-phase target --reset-mode mixed --target-forward-velocity 1.2 \
   --checkpoint-interval 1000000 --device cuda \
   --value-potential checkpoints/planner_potential/potential_best8.npz --shaping-weight 0.19
                                           # the shaped arm; the same command without the last two
                                           # flags is its parity control, and the weight comes from the
                                           # rule the measurement above states
-python train_walker.py --algo sac --run-id preset_sac_euler_1m --seed 7 --total-timesteps 1000000 \
+python scripts/train_walker.py --algo sac --run-id preset_sac_euler_1m --seed 7 --total-timesteps 1000000 \
   --num-envs 8 --task-phase target --reset-mode mixed --target-forward-velocity 1.2 \
   --checkpoint-interval 500000 --device cuda --physics-preset euler
                                               # one arm of the 1M triple end to end; `v9` is the
                                               # same command with the last flag dropped
-python eval_phase1.py --num-episodes 20 --seed 11 --reset-mode mixed --physics-preset euler \
+python scripts/eval_phase1.py --num-episodes 20 --seed 11 --reset-mode mixed --physics-preset euler \
   --model sac1m_euler=checkpoints/preset_sac_euler_1m/sac_actor_1000000.pt \
   --out benchmarks/physics_presets_sac1m_euler.json   # its score, in the world it trained in
-python train_walker.py --algo sac --run-id utd_sac_n32_r4_5m --seed 7 --total-timesteps 5000000 \
+python scripts/train_walker.py --algo sac --run-id utd_sac_n32_r4_5m --seed 7 --total-timesteps 5000000 \
   --num-envs 32 --utd-ratio 4 --task-phase target --reset-mode mixed \
   --target-forward-velocity 1.2 --checkpoint-interval 1000000 --device cuda
                                               # --utd-ratio is the optimisation dose: G gradient
                                               # updates per collection iteration. 1 is the shipped
                                               # schedule every committed run used
-python train_walker.py --algo sac --run-id stab60_sac_n32_r4_5m --seed 7 --total-timesteps 5000000 \
+python scripts/train_walker.py --algo sac --run-id stab60_sac_n32_r4_5m --seed 7 --total-timesteps 5000000 \
   --num-envs 32 --utd-ratio 4 --task-phase target --reset-mode mixed \
   --target-forward-velocity 1.2 --checkpoint-interval 1000000 --device cuda \
   --no-save-replay-buffer --reward-override stability_reward_weight=60
@@ -2505,7 +2505,7 @@ python train_walker.py --algo sac --run-id stab60_sac_n32_r4_5m --seed 7 --total
                                               # one run; the effective dict is what the checkpoint records,
                                               # and task parameters (radius, distance range, horizon) are
                                               # refused on purpose
-python train_walker.py --algo sac --run-id tcur_sac_n32_r4_5m --seed 7 --total-timesteps 5000000 \
+python scripts/train_walker.py --algo sac --run-id tcur_sac_n32_r4_5m --seed 7 --total-timesteps 5000000 \
   --num-envs 32 --utd-ratio 4 --task-phase target --reset-mode mixed \
   --target-forward-velocity 1.2 --checkpoint-interval 1000000 --device cuda \
   --no-save-replay-buffer --target-curriculum
@@ -2513,17 +2513,17 @@ python train_walker.py --algo sac --run-id tcur_sac_n32_r4_5m --seed 7 --total-t
                                               # successes; the checkpoint stamps _tcur, and
                                               # `eval_phase1 --target-curriculum off` asks the transfer
                                               # question on the published 2-5 m
-python summarize_training_rate.py               # every run's real rate, from its own logged timestamps
-python summarize_curriculum_provenance.py       # the manual curriculum's order, widths and stage change
+python scripts/summarize_training_rate.py               # every run's real rate, from its own logged timestamps
+python scripts/summarize_curriculum_provenance.py       # the manual curriculum's order, widths and stage change
 python -m utils.gpu_window                    # the GPU window a long run would start into
-python bench_jax_update.py                    # JAX imagination rollout, fwd + fwd/rev (needs a
+python scripts/bench_jax_update.py                    # JAX imagination rollout, fwd + fwd/rev (needs a
                                               # CUDA jaxlib: WSL2, see the MJX section). The 0.11.2
                                               # re-run is in a venv there, not over the committed
                                               # 0.10.2 capture:
                                               #   wsl: XLA_PYTHON_CLIENT_MEM_FRACTION=0.3 \
-                                              #     ~/.venvs/jaxlab/bin/python bench_jax_update.py \
+                                              #     ~/.venvs/jaxlab/bin/python scripts/bench_jax_update.py \
                                               #     --out benchmarks/jax_rssm_imagination_wsl_jax0112.json
 ```
 
-`verify.py` currently exits non-zero because `dataset.csv` is not in the repository — see the
+`scripts/verify.py` currently exits non-zero because `dataset.csv` is not in the repository — see the
 Phase-2 caveat. That is the accurate answer, not a defect in the checker.

@@ -28,6 +28,7 @@ import numpy as np
 import torch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts"))
 
 import gymnasium as gym  # noqa: E402
 import envs.walker_ragdoll_env  # noqa: E402,F401  (registers WalkerRagdoll-v0)

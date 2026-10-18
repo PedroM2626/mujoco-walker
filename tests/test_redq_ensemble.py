@@ -2,7 +2,7 @@
 
 The claim this guards is narrow. `BatchedSoftQEnsemble` exists only to stop paying kernel-launch
 time for N separate critics (the timings are measured, not asserted: `python
-bench_redq_ensemble.py --isolated-only` writes them to benchmarks/redq_ensemble_ab.json), so what
+scripts/bench_redq_ensemble.py --isolated-only` writes them to benchmarks/redq_ensemble_ab.json), so what
 must not change is the arithmetic and what must survive is every checkpoint written by either
 implementation.
 """
@@ -15,6 +15,7 @@ import torch
 import torch.nn as nn
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts"))
 
 from train_walker import SoftQNetwork, BatchedSoftQEnsemble  # noqa: E402
 from train_redq import (  # noqa: E402

@@ -11,6 +11,7 @@ import unittest
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts"))
 
 import gymnasium as gym  # noqa: E402
 from envs.parallel_vector_env import ParallelVectorEnv, _sync_vector_env_compatible  # noqa: E402

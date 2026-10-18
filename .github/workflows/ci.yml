@@ -42,7 +42,7 @@ jobs:
         run: python -m unittest discover -s tests -t . -v 2>&1 | tee ragdoll-tests.log
 
       - name: Environment throughput smoke (no assertions, catches crashes)
-        run: python bench_env.py --mode env --seconds 3
+        run: python scripts/bench_env.py --mode env --seconds 3
 
       - name: Report failure reason
         if: failure()

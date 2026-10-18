@@ -194,10 +194,10 @@ class TestTheTrainerAndEvaluatorCarryTheFlag(unittest.TestCase):
 
     def test_both_scripts_expose_the_flag(self):
         for name in ("train_walker.py", "eval_phase1.py"):
-            with open(os.path.join(ROOT, name), encoding="utf-8") as handle:
+            with open(os.path.join(ROOT, "scripts", name), encoding="utf-8") as handle:
                 src = handle.read()
             self.assertIn("--contact-world", src, f"{name} has no --contact-world")
-        with open(os.path.join(ROOT, "eval_phase1.py"), encoding="utf-8") as handle:
+        with open(os.path.join(ROOT, "scripts", "eval_phase1.py"), encoding="utf-8") as handle:
             self.assertIn("CONTACT_WORLD_SUFFIX", handle.read(),
                           "the evaluator no longer builds the version string the checkpoint carries")
 

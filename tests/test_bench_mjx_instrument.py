@@ -15,6 +15,7 @@ import tempfile
 import unittest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts"))
 
 import mujoco  # noqa: E402
 
@@ -113,7 +114,7 @@ class TestTheG1HarnessUsesThisInstrument(unittest.TestCase):
     def test_bench_g1_cost_no_longer_calls_put_model_on_its_own(self):
         # The bug was structural, not numerical: two harnesses, one quantity, two simulator states.
         # A shared call site is the cheapest way to make the split impossible to reintroduce.
-        with open(os.path.join(ROOT, "bench_g1_cost.py"), encoding="utf-8") as handle:
+        with open(os.path.join(ROOT, "scripts", "bench_g1_cost.py"), encoding="utf-8") as handle:
             src = handle.read()
         self.assertIn("from bench_mjx import build_mjx", src)
         self.assertNotIn("mjx.put_model(", src,
@@ -123,7 +124,7 @@ class TestTheG1HarnessUsesThisInstrument(unittest.TestCase):
         # The first --xml run died on `Error opening file 'assets/right_hip_roll_link.STL'`:
         # from_xml_string resolves relative assets against the process's cwd, which is where this
         # repo's ragdoll lives and where Menagerie's robot does not.
-        with open(os.path.join(ROOT, "bench_mjx.py"), encoding="utf-8") as handle:
+        with open(os.path.join(ROOT, "scripts", "bench_mjx.py"), encoding="utf-8") as handle:
             src = handle.read()
         start = src.index("def build_mjx(")
         body = src[start:src.index("def make_batched_data(", start)]

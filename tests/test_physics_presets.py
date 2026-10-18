@@ -7,7 +7,7 @@ two hops that actually matter - pickling into a process-parallel worker, and rea
 script that scores the checkpoint afterwards.
 
 The cost and the drift of the presets are measurements and live in `benchmarks/physics_presets.json`,
-produced by `bench_physics_presets.py`; nothing here re-derives them.
+produced by `scripts/bench_physics_presets.py`; nothing here re-derives them.
 """
 
 import json
@@ -23,6 +23,7 @@ import mujoco
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts"))
 
 import envs.walker_ragdoll_env as env_module
 from envs.walker_ragdoll_env import ENV_VERSION, apply_physics_preset, env_version_of
@@ -177,7 +178,7 @@ class TestEveryTrainerCanActuallyAskForAPreset(unittest.TestCase):
     def test_the_flag_is_declared(self):
         missing = []
         for name in self.TRAINERS:
-            with open(os.path.join(ROOT, name), encoding="utf-8") as handle:
+            with open(os.path.join(ROOT, "scripts", name), encoding="utf-8") as handle:
                 src = handle.read()
             if '--physics-preset' not in src:
                 missing.append(name)
@@ -187,11 +188,11 @@ class TestEveryTrainerCanActuallyAskForAPreset(unittest.TestCase):
         # train_dreamer/train_redq go through build_vec_env, so a missing declaration is invisible;
         # train_ars passes kwargs to make_env by hand, where a missing one is a TypeError instead.
         for name in ("train_dreamer.py", "train_redq.py"):
-            with open(os.path.join(ROOT, name), encoding="utf-8") as handle:
+            with open(os.path.join(ROOT, "scripts", name), encoding="utf-8") as handle:
                 self.assertIn("build_vec_env(", handle.read(),
                               f"{name} no longer builds envs through the shared function; the "
                               "declaration check above may no longer cover it")
-        with open(os.path.join(ROOT, "train_ars.py"), encoding="utf-8") as handle:
+        with open(os.path.join(ROOT, "scripts", "train_ars.py"), encoding="utf-8") as handle:
             self.assertIn("physics_preset=args.physics_preset", handle.read(),
                           "train_ars builds its env by hand and would silently drop the preset")
 
@@ -201,7 +202,7 @@ class TestWallClockProvenanceSurvivesTheLogs(unittest.TestCase):
 
     A run's wall clock is the one number this repository cannot recompute: the checkpoints say what
     was collected, not how long it took, and `mlruns.db` - which is gitignored and holds no SAC run at
-    all, because `train_walker.py` defines the mlflow helpers and never calls them - cannot be queried
+    all, because `scripts/train_walker.py` defines the mlflow helpers and never calls them - cannot be queried
     for it either. So the launcher logs are committed as the primary source
     (`chainNN_evidence.log`) and this test re-derives the spans from them. Without it the recorded
     seconds are a claim that decays the moment nobody can check it.
@@ -473,17 +474,17 @@ class TestWallClockProvenanceSurvivesTheLogs(unittest.TestCase):
 
 
 class TestEvalRefusesToMixWorlds(unittest.TestCase):
-    """Source-level guards for eval_phase1.py, which has to stay loadable against old revisions."""
+    """Source-level guards for scripts/eval_phase1.py, which has to stay loadable against old revisions."""
 
     def setUp(self):
-        with open(os.path.join(ROOT, "eval_phase1.py"), encoding="utf-8") as handle:
+        with open(os.path.join(ROOT, "scripts", "eval_phase1.py"), encoding="utf-8") as handle:
             self.src = handle.read()
 
     def test_the_preset_is_only_passed_when_it_is_not_the_default(self):
         # `--env-commit` aliases an older env revision in as the module, and that revision has no
         # physics_preset parameter: an unconditional kwarg would break every re-score to date.
         self.assertIsNotNone(re.search(r'preset_kwargs = \{\} if physics_preset == "v9"', self.src),
-                             "eval_phase1.py no longer withholds the preset kwarg for v9, which "
+                             "scripts/eval_phase1.py no longer withholds the preset kwarg for v9, which "
                              "breaks --env-commit re-scores")
 
     def test_env_commit_and_a_preset_cannot_be_combined(self):

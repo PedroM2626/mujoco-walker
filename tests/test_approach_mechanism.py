@@ -1,4 +1,4 @@
-"""The step splitter in `bench_approach_mechanism.py` has to distinguish "never stood" from "stood".
+"""The step splitter in `scripts/bench_approach_mechanism.py` has to distinguish "never stood" from "stood".
 
 Every claim in the README's walking-or-falling paragraph is produced by one function,
 `trace_episode`, which attributes each step's change in distance-to-target to the standing band or to
@@ -16,6 +16,7 @@ import numpy as np
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts"))
 
 import envs.walker_ragdoll_env  # noqa: E402,F401  (registers WalkerRagdoll-v0)
 import bench_approach_mechanism as bam  # noqa: E402

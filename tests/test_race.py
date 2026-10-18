@@ -9,6 +9,7 @@ import gymnasium as gym
 import mujoco
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts"))
 
 from train_walker import SACAgent, PPOAgent, TD3Agent
 from play_race_ragdoll import build_race_xml, get_agent_observation
@@ -110,7 +111,7 @@ class TestRaceSystem(unittest.TestCase):
         result = subprocess.run(
             [
                 sys.executable,
-                "play_race_ragdoll.py",
+                "scripts/play_race_ragdoll.py",
                 "--checkpoints", self.sac_path, self.ppo_path, self.td3_path,
                 "--names", "FastSAC", "AccuratePPO", "RobustTD3",
                 "--target-x", "5.0",
@@ -124,7 +125,7 @@ class TestRaceSystem(unittest.TestCase):
         )
         print(result.stdout)
         print(result.stderr)
-        self.assertEqual(result.returncode, 0, f"play_race_ragdoll.py failed with: {result.stderr}")
+        self.assertEqual(result.returncode, 0, f"scripts/play_race_ragdoll.py failed with: {result.stderr}")
         self.assertIn("FINAL RACE RESULTS", result.stdout, "Results table not found in output.")
         self.assertIn("FastSAC", result.stdout, "Custom name FastSAC not found in output.")
         self.assertIn("AccuratePPO", result.stdout, "Custom name AccuratePPO not found in output.")

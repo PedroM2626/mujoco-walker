@@ -19,9 +19,12 @@ import os
 import re
 import sqlite3
 import statistics
+import sys
 import unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# Two gates here read the trainer's own argparse defaults, and the trainer now lives in scripts/.
+sys.path.insert(0, os.path.join(ROOT, "scripts"))
 README = os.path.join(ROOT, "README.md")
 AB = os.path.join(ROOT, "benchmarks", "redq_ensemble_ab.json")
 BASELINE = os.path.join(ROOT, "benchmarks", "throughput_baseline_vs_now.json")
@@ -238,7 +241,7 @@ class TestReadmeRedqEnsembleCells(ReadmeGate, unittest.TestCase):
 
     def test_the_trainer_table_row_points_at_the_same_projection(self):
         """The learner-side summary table gained a batched REDQ row; it quotes the A/B's hours."""
-        m = re.search(r"^\| `train_redq\.py`, batched ensemble \|.*\|$", self.readme, re.M)
+        m = re.search(r"^\| `scripts/train_redq\.py`, batched ensemble \|.*\|$", self.readme, re.M)
         self.assertIsNotNone(m, "the batched REDQ row of the trainer table is gone")
         cells = [c.strip() for c in m.group(0).strip("|").split("|")]
         self.assertEqual(4, len(cells), "the batched REDQ row no longer has four cells")
@@ -271,7 +274,7 @@ class TestReadmeRedqEnsembleCells(ReadmeGate, unittest.TestCase):
 
     def test_isolated_microbench_figures_match_the_artifact(self):
         iso = self.ab.get("isolated")
-        self.assertIsNotNone(iso, "bench_redq_ensemble.py --isolated-only has not been run yet")
+        self.assertIsNotNone(iso, "scripts/bench_redq_ensemble.py --isolated-only has not been run yet")
         gpu, cpu = iso["cuda"], iso["cpu"]
         m = self.sentence(r"\*\*([\d.]+) ms loop against ([\d.]+) ms batched on the GPU\*\* "
                           r"\(([\d.]+) ms against ([\d.]+) ms on CPU\)", "isolated-step")
@@ -397,7 +400,7 @@ class TestReadmeDreamerGraphCells(ReadmeGate, unittest.TestCase):
 
     def test_the_trainer_table_row(self):
         s = self.ab["summary"]["rep 1"]
-        m = re.search(r"^\| `train_dreamer\.py`, captured update \|.*\|$", self.readme, re.M)
+        m = re.search(r"^\| `scripts/train_dreamer\.py`, captured update \|.*\|$", self.readme, re.M)
         self.assertIsNotNone(m, "the captured-update row of the trainer table is gone")
         cells = [c.strip() for c in m.group(0).strip("|").split("|")]
         self.check("trainer-row numbers", nums(cells[2]),
@@ -658,7 +661,7 @@ class TestReadmePpoTenMillionCells(ReadmeGate, unittest.TestCase):
     def test_both_table_rows_are_the_two_windows_of_one_recipe(self):
         d7 = self.draws["draws"]["seed7"]
         d8 = self.draws["draws"]["seed8"]
-        rows = re.findall(r"\| `train_walker\.py --algo ppo`, 10M(?: again)? \|[^|]*\| "
+        rows = re.findall(r"\| `scripts/train_walker\.py --algo ppo`, 10M(?: again)? \|[^|]*\| "
                           r"([\d,]+) steps in ([\d,]+) s = ([\d,.]+)/s \| ([\d,.]+) s \|", self.readme)
         self.assertEqual(len(rows), 2, "the trainer table should carry both PPO 10M windows")
         for got, want in zip(rows, (d7, d8)):
@@ -903,7 +906,7 @@ class TestReadmeDreamerRealRateCells(ReadmeGate, unittest.TestCase):
 
     def test_the_trainer_table_row_carries_the_measured_hours(self):
         """The summary table now quotes both the old projection and this measurement."""
-        m = re.search(r"^\| `train_dreamer\.py`, captured update \|.*\|$", self.readme_full, re.M)
+        m = re.search(r"^\| `scripts/train_dreamer\.py`, captured update \|.*\|$", self.readme_full, re.M)
         self.assertIsNotNone(m, "the captured-update row of the trainer table is gone")
         cell = m.group(0).strip("|").split("|")[-1]
         self.assertIn("3.6", cell, "the row no longer says what the short A/B projected")
@@ -969,7 +972,7 @@ class TestReadmeGpuWindowCells(unittest.TestCase):
         self.assertEqual(gw.DEFAULT_CEILING_MIB, int(m.group(2)))
 
     def test_the_checkpoint_default_matches_the_documented_interval(self):
-        with open(os.path.join(ROOT, "train_dreamer.py"), encoding="utf-8") as handle:
+        with open(os.path.join(ROOT, "scripts", "train_dreamer.py"), encoding="utf-8") as handle:
             src = handle.read()
         self.assertIn('parser.add_argument("--checkpoint-interval", type=int, default=50000)', src,
                       "the README says Dreamer now defaults to a 50k interval; the code decides")
@@ -1092,7 +1095,7 @@ REPLICATION = os.path.join(ROOT, "benchmarks", "throughput_replication.json")
 
 
 class TestReadmeThroughputReplication(unittest.TestCase):
-    """The re-measurement paragraph against the JSON that one `bench_env.py --mode all --reps 3` writes.
+    """The re-measurement paragraph against the JSON that one `scripts/bench_env.py --mode all --reps 3` writes.
 
     These cells exist to pin a *correction*, not a headline: the section used to publish percentages
     of a window-dependent denominator, and the paragraph below re-derives them from the artifact.
@@ -1877,7 +1880,7 @@ class TestReadmeRewardProvenanceCells(ReadmeGate, unittest.TestCase):
 
 
 class TestReadmePostureCells(ReadmeGate, unittest.TestCase):
-    """The standing-band table and the three readings under it, against `bench_posture.py`'s artifact.
+    """The standing-band table and the three readings under it, against `scripts/bench_posture.py`'s artifact.
 
     This is the section that says the honest thing about Phase 1 - that the trained policies reach the
     env's standing band no more often than commanding zero does - so the comparison has to be
@@ -2466,7 +2469,7 @@ class TestReadmeNumEnvsLearningCells(ReadmeGate, unittest.TestCase):
                    places=0)
 
     def test_four_of_the_six_checkpoints_record_their_own_reward(self):
-        # The two that do not were trained before train_dreamer.py started writing reward_kwargs:
+        # The two that do not were trained before scripts/train_dreamer.py started writing reward_kwargs:
         # the shipped arm's 250k file is part of dreamer_v3_1m, and so is the 16-env seed-7 run.
         before = {("4", "7"), ("16", "7")}
         for key, arm in self.art.items():
@@ -2579,10 +2582,10 @@ class TestReadmeTrainingRateCells(ReadmeGate, unittest.TestCase):
     def test_the_mechanism_is_the_line_of_code_it_quotes(self):
         m = re.search(r"`sps` is\s*`([^`]+)`", self.flat)
         self.assertIsNotNone(m, "the sps-definition sentence was reworded")
-        with open(os.path.join(ROOT, "train_dreamer.py"), encoding="utf-8") as handle:
+        with open(os.path.join(ROOT, "scripts", "train_dreamer.py"), encoding="utf-8") as handle:
             source = handle.read()
         self.assertIn(m.group(1), source,
-                      "the README quotes a line of train_dreamer.py that is no longer in it")
+                      "the README quotes a line of scripts/train_dreamer.py that is no longer in it")
         self.assertIn(m.group(1), self.art["sps_definition"],
                       "the artifact's recorded definition and the README's quote have diverged")
         # The shape of the claim: a cumulative average whose first sample precedes any update must
@@ -2605,7 +2608,7 @@ class TestReadmeTrainingRateCells(ReadmeGate, unittest.TestCase):
         are in the archive and the source.
         """
         dreamer = [r for r in self.art["runs"] if r["algo"] == "dreamer"]
-        with open(os.path.join(ROOT, "train_dreamer.py"), encoding="utf-8") as handle:
+        with open(os.path.join(ROOT, "scripts", "train_dreamer.py"), encoding="utf-8") as handle:
             source = handle.read()
         default = re.search(r'"--learning-starts", type=int, default=(\d+)', source)
         self.assertIsNotNone(default, "the --learning-starts default moved or was reworded")
@@ -3186,14 +3189,14 @@ class TestReadmePhysicsPresetCells(ReadmeGate, unittest.TestCase):
         # The default that licenses "no committed run moves". Read from the source rather than by
         # importing the trainer: this whole file is a text-and-JSON gate and stays runnable while a
         # training job owns the machine.
-        source = open(os.path.join(ROOT, "train_walker.py"), encoding="utf-8").read()
+        source = open(os.path.join(ROOT, "scripts", "train_walker.py"), encoding="utf-8").read()
         self.assertIn('"UTD_RATIO": "1",', source,
                       "the shipped default is no longer one update per collection iteration")
         lines = source.splitlines()
         utd_lines = {i + 1 for i, text in enumerate(lines)
                      if "for _utd in range(max(1, args.utd_ratio))" in text}
         self.assertEqual(len(utd_lines), 2, "SAC and TD3 should each own one UTD loop")
-        cited = re.findall(r"\(`?train_walker\.py:(\d+)-(\d+)`?\)", self.block)
+        cited = re.findall(r"\(`?scripts/train_walker\.py:(\d+)-(\d+)`?\)", self.block)
         self.assertTrue(cited, "the paragraph no longer cites the loop it is describing")
         for lo, hi in ((int(lo), int(hi)) for lo, hi in cited):
             if any(lo <= n <= hi for n in utd_lines):
@@ -3313,7 +3316,7 @@ class TestReadmePhysicsPresetCells(ReadmeGate, unittest.TestCase):
                          "comparable across them and the paragraph has to be rewritten")
 
     def test_the_preset_refuses_to_be_scored_in_another_world(self):
-        with open(os.path.join(ROOT, "eval_phase1.py"), encoding="utf-8") as handle:
+        with open(os.path.join(ROOT, "scripts", "eval_phase1.py"), encoding="utf-8") as handle:
             src = handle.read()
         self.assertIn("aliases an older env revision that has no --physics-preset", src,
                       "the refusal that the block describes is gone")
@@ -4831,10 +4834,10 @@ class TestReadmeContactNativeCells(ReadmeGate, unittest.TestCase):
                    round(phys["explicit_full"] / phys["published"], 2), places=2)
 
     def test_the_flag_the_paragraph_names_exists_in_the_bench(self):
-        with open(os.path.join(ROOT, "bench_env.py"), encoding="utf-8") as handle:
+        with open(os.path.join(ROOT, "scripts", "bench_env.py"), encoding="utf-8") as handle:
             src = handle.read()
         self.assertIn("--contact-world", src,
-                      "the README names a bench flag that is not in bench_env.py")
+                      "the README names a bench flag that is not in scripts/bench_env.py")
         self.assertIn("bench_mjx_pairs", src,
                       "the native timing no longer shares its pair definition with the MJX bench")
 
@@ -4863,7 +4866,7 @@ class TestReadmeContactNativeCells(ReadmeGate, unittest.TestCase):
                          "checkpoints/sac_target_from_scratch_40m/sac_ckpt_4000000.pt",
                          "the replay tape is no longer the 4M actor the paragraph names")
         self.assertIn("--long-verify",
-                      open(os.path.join(ROOT, "bench_mjx_pairs.py"), encoding="utf-8").read(),
+                      open(os.path.join(ROOT, "scripts", "bench_mjx_pairs.py"), encoding="utf-8").read(),
                       "the README names a mode that is not in the bench")
 
     def test_the_stamp_the_paragraph_promises_is_reachable_from_both_scripts(self):
@@ -4977,7 +4980,7 @@ class TestReadmeTargetClipCells(ReadmeGate, unittest.TestCase):
             self.assertLessEqual(round(size_mb, 2), self.GIF_BUDGET_MB,
                                  f"{rel} is {size_mb:.2f} MB, over its {self.GIF_BUDGET_MB} MB "
                                  "budget - re-encode it smaller rather than growing the history")
-        with open(os.path.join(ROOT, "make_target_clips.py"), encoding="utf-8") as handle:
+        with open(os.path.join(ROOT, "scripts", "make_target_clips.py"), encoding="utf-8") as handle:
             tool = handle.read()
         self.assertIn("--gif-from", tool,
                       "the embedded GIFs are no longer produced by a committed tool")
@@ -5276,7 +5279,7 @@ class TestReadmeTrainerPairCells(ReadmeGate, unittest.TestCase):
     """
 
     PAIR = os.path.join(ROOT, "benchmarks", "trainer_pair_ppo_sac.json")
-    START = "| `train_walker.py --algo ppo` |"
+    START = "| `scripts/train_walker.py --algo ppo` |"
     END = "The Dreamer row was the whole story of the eager build"
 
     def setUp(self):
@@ -5291,14 +5294,14 @@ class TestReadmeTrainerPairCells(ReadmeGate, unittest.TestCase):
 
     def test_the_two_table_rows_are_the_measured_rates(self):
         arms = self.art["arms"]
-        m = re.search(r"\| `train_walker\.py --algo ppo` \|[^|]*\| ([\d,.]+) steps in (\d+) s = "
+        m = re.search(r"\| `scripts/train_walker\.py --algo ppo` \|[^|]*\| ([\d,.]+) steps in (\d+) s = "
                       r"([\d,.]+)/s \| ([\d.]+) min \|", self.block)
         self.assertIsNotNone(m, "the PPO row of the trainer table is gone or reformatted")
         self.check("PPO row", [m.group(1), m.group(2), m.group(3), m.group(4)],
                    [arms["ppo_v9"]["collected_steps"], arms["ppo_v9"]["seconds"],
                     arms["ppo_v9"]["env_steps_per_second"],
                     arms["ppo_v9"]["seconds_per_1m_env_steps"] / 60], places=1)
-        m = re.search(r"\| `train_walker\.py --algo sac` \|[^|]*\| ([\d,.]+) steps in (\d+) s = "
+        m = re.search(r"\| `scripts/train_walker\.py --algo sac` \|[^|]*\| ([\d,.]+) steps in (\d+) s = "
                       r"([\d,.]+)/s \| ([\d.]+) min \|", self.block)
         self.assertIsNotNone(m, "the SAC row of the trainer table is gone or reformatted")
         self.check("SAC row", [m.group(1), m.group(2), m.group(3), m.group(4)],
@@ -5461,7 +5464,7 @@ class TestReadmeCurriculumProvenanceCells(ReadmeGate, unittest.TestCase):
         widths = self.art["order"]["widths"]
         self.assertEqual(widths["walker_target_v1"] - widths["walker_recovery_v1"], 3,
                          "the prose says three new target columns; the widths say otherwise")
-        with open(os.path.join(ROOT, "train_walker.py"), encoding="utf-8") as handle:
+        with open(os.path.join(ROOT, "scripts", "train_walker.py"), encoding="utf-8") as handle:
             source = handle.read()
         self.assertIn("target_value.data.zero_()", source,
                       "load_state_dict_with_expanded_input no longer zero-fills the new columns")

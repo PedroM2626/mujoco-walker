@@ -16,13 +16,14 @@ import torch
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts"))
 
 import envs.walker_ragdoll_env  # noqa: E402,F401
 import train_offline_critic as toc  # noqa: E402
 
 
 def write_preference_demos(directory, episodes=5, steps=30, obs_dim=49, act_dim=17, seed=0):
-    """A preference dataset with the same schema collect_mpc_demos.py writes."""
+    """A preference dataset with the same schema scripts/collect_mpc_demos.py writes."""
     rng = np.random.default_rng(seed)
     obs, act, rew, val, band = [], [], [], [], []
     meta_eps = []
@@ -134,7 +135,7 @@ class TestTrainingRuns(unittest.TestCase):
         # test drives.
         with tempfile.TemporaryDirectory() as tmp:
             npz = write_preference_demos(tmp, episodes=3)
-            argv = ["train_offline_critic.py", "--demos", npz, "--holdout", "0",
+            argv = ["scripts/train_offline_critic.py", "--demos", npz, "--holdout", "0",
                     "--run-id", "critic_test_run"]
             original = sys.argv
             sys.argv = argv

@@ -6,7 +6,7 @@ really does collide only where it says, and that the friction written into each 
 five-component vector the automatic path would have used. Whether any of it is *faster* is a measurement
 and lives in `benchmarks/mjx_pairs_*.json`; nothing here re-derives a number that the README quotes.
 
-The one thing these tests exist to protect is the equivalence proof itself: `bench_mjx_pairs.py` claims
+The one thing these tests exist to protect is the equivalence proof itself: `scripts/bench_mjx_pairs.py` claims
 its `explicit_full` cell is the published MDP, and that claim is only sound while the variant is built
 the way it was built. If the XML rewrite silently stopped covering the floor geom, or if a `<pair>`
 friction attribute were parsed with the 3-number convention, the throughput comparison published beside
@@ -22,6 +22,7 @@ import numpy as np
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts"))
 
 from bench_mjx_pairs import (CONTACT_WORLDS, GAIT_FLOOR_GEOMS, GAIT_SELF_GEOMS, XML_PATH,
                              build_variant_xml, candidate_pairs, gait_pairs, geom_name,

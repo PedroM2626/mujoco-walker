@@ -15,7 +15,7 @@ planner's judgement make this task easier to learn?" instead of "did we quietly 
 consequences are enforced here rather than assumed:
 
   * the shaping is applied to the reward the *trainer* reads. `RecordEpisodeStatistics` sits inside this
-    wrapper, so `episode["r"]` - and every return scored by `eval_phase1.py`, which builds its own env -
+    wrapper, so `episode["r"]` - and every return scored by `scripts/eval_phase1.py`, which builds its own env -
     stays the published reward. A shaped arm is comparable to an unshaped one because both are graded on
     the same function;
   * the potential is frozen. Nothing here fits weights while the agent learns; the file is produced by

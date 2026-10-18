@@ -34,7 +34,7 @@ FOOT_BODIES = {"left_foot", "right_foot"}
 # `fast` and `euler` are different MDPs, so a run in one is not comparable to a run in the other
 # and the env version says so: `env_version` becomes the base string plus the preset, and the
 # trainers record that, so a checkpoint can never be scored in a world it was not trained in
-# without eval_phase1.py noticing.
+# without scripts/eval_phase1.py noticing.
 PHYSICS_PRESETS = ("v9", "euler", "fast")
 
 
@@ -43,7 +43,7 @@ def apply_physics_preset(model, preset):
 
     Both are numeric fields of an already-compiled `MjModel`, so nothing is re-parsed and the
     geometry, bodies, actuators and sensor layout stay identical to `walker_ragdoll.xml`. This is a
-    module function rather than a method because `bench_env.py` times a bare `MjModel` that has no
+    module function rather than a method because `scripts/bench_env.py` times a bare `MjModel` that has no
     env around it, and the two must not be allowed to drift into different worlds.
 
     Dropping self-collision is done by clearing `contype` on every body geom while leaving its
@@ -95,7 +95,7 @@ def resolve_contact_world(world):
     return bench_mjx_pairs.write_variant_xml(model, world, CONTACT_WORLD_CACHE)
 
 # The reward shaping the trainers apply lives in envs/reward_shaping.py, not here: it is a
-# property of the trainer, and `eval_phase1.py --env-commit` aliases an older revision of this
+# property of the trainer, and `scripts/eval_phase1.py --env-commit` aliases an older revision of this
 # module in as `envs.walker_ragdoll_env`, which would silently replace the dict with that
 # revision's version (or fail, for revisions that predate it).
 

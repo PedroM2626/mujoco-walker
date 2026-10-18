@@ -2,7 +2,7 @@
 
 This lives outside `walker_ragdoll_env.py` on purpose: it is a property of the *trainer*, not of
 the environment revision. Evaluators need to import it while an older environment revision is
-aliased in as `envs.walker_ragdoll_env` (`eval_phase1.py --env-commit`), and a dict defined in
+aliased in as `envs.walker_ragdoll_env` (`scripts/eval_phase1.py --env-commit`), and a dict defined in
 that module would then be the old revision's dict - or missing entirely.
 
 Why it matters: the shaping overrides the environment defaults, so an evaluator that calls
@@ -34,7 +34,7 @@ def reward_kwargs_for(checkpoint):
     """The reward kwargs a checkpoint should be scored with, and where that decision came from.
 
     New checkpoints carry their own `reward_kwargs`. For the ones that do not, the fallback used to
-    be "SAC/TD3/PPO were trained by `train_walker.py` so they get the shaping, and Dreamer/REDQ/ARS
+    be "SAC/TD3/PPO were trained by `scripts/train_walker.py` so they get the shaping, and Dreamer/REDQ/ARS
     trained against the environment defaults" - and that split was wrong. `train_walker.make_env`
     has applied these kwargs to *every* sub-environment since 8d37846 (2026-05-20), and
     `train_dreamer.py`, `train_redq.py` and `train_ars.py` all build their environments through it,

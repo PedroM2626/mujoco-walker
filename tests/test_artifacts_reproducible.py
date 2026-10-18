@@ -11,6 +11,7 @@ named exceptions, and a clone that lacks them silently loses the ability to repr
 README quotes.
 """
 
+import fnmatch
 import json
 import os
 import unittest
@@ -19,11 +20,11 @@ import summarize_benchmarks as sb
 
 ROOT = sb.ROOT
 EVIDENCE_LOGS = [
-    "eval_phase3_20ep.log", "eval_phase3_100ep.log", "eval_phase3_100ep_v9.log",
-    "eval_phase3_100ep_rawobs.log", os.path.join("openai_walker", "eval_phase4_20ep.log"),
+    "logs/eval_phase3_20ep.log", "logs/eval_phase3_100ep.log", "logs/eval_phase3_100ep_v9.log",
+    "logs/eval_phase3_100ep_rawobs.log", os.path.join("openai_walker", "eval_phase4_20ep.log"),
     os.path.join("openai_walker", "eval_phase4_50ep.log"),
     os.path.join("openai_walker", "eval_extratrees_50ep.log"),
-    "ars_evidence.log", "redq_evidence.log", "dreamer_smoke.log",
+    "logs/ars_evidence.log", "logs/redq_evidence.log", "logs/dreamer_smoke.log",
 ]
 
 
@@ -40,9 +41,13 @@ class TestArtifactsRegenerate(unittest.TestCase):
             negated = {line[1:].strip() for line in handle if line.startswith("!")}
         for path in EVIDENCE_LOGS:
             self.assertTrue(os.path.exists(os.path.join(ROOT, path)), f"{path} is missing")
-            self.assertIn(path.replace(os.sep, "/"), negated,
-                          f"{path} is not excepted from the *.log rule, so a clone cannot "
-                          "rebuild the artifacts this test checks")
+            # The rule may except one log by name or a family by pattern; either keeps a clone able
+            # to rebuild these artifacts, which is what this test exists to guarantee.
+            self.assertTrue(any(neg == path.replace(os.sep, "/")
+                                or fnmatch.fnmatch(path.replace(os.sep, "/"), neg)
+                                for neg in negated),
+                            f"{path} is not excepted from the *.log rule, so a clone cannot "
+                            "rebuild the artifacts this test checks")
 
     def test_every_builder_reproduces_its_committed_artifact(self):
         drift, unreadable = [], []
@@ -66,7 +71,7 @@ class TestArtifactsRegenerate(unittest.TestCase):
 
     def test_the_published_protocol_line_matches_the_command_that_ran(self):
         """The protocol string is derived from the log; check it still says what the log says."""
-        data, _target = sb.phase3("eval_phase3_100ep.log", seed=11,
+        data, _target = sb.phase3("logs/eval_phase3_100ep.log", seed=11,
                                   out="benchmarks/phase3_merging_100ep.json")
         with open(os.path.join(ROOT, "benchmarks", "phase3_merging_100ep.json"),
                   encoding="utf-8") as handle:

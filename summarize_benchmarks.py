@@ -28,7 +28,7 @@ def _stats(values):
     }
 
 
-def phase3(path="eval_phase3_20ep.log", seed=7, flags="", desc=None,
+def phase3(path="logs/eval_phase3_20ep.log", seed=7, flags="", desc=None,
            out="benchmarks/phase3_merging_20ep.json"):
     text = open(os.path.join(ROOT, path), encoding="utf-8", errors="replace").read()
     blocks = re.split(r"--- Evaluating (.+?) ---", text)[1:]
@@ -1443,7 +1443,7 @@ def mpc_target_rows(out="benchmarks/mpc_target_rows.json"):
 
 
 
-SHAPING_TRAINING_LOG = "chain31_evidence.log"
+SHAPING_TRAINING_LOG = "logs/chain31_evidence.log"
 DONE_RE = re.compile(r"^(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d) DONE (.+?) exit=(\d+) seconds=(\d+)$")
 
 
@@ -1597,8 +1597,8 @@ def fresh_shape_weight(cells):
     return weights.pop()
 
 
-PPO_IDLE_GAP_LOG = "chain32_evidence.log"
-PPO_GPU_SAMPLE_LOG = "chain32_gpu_samples.log"
+PPO_IDLE_GAP_LOG = "logs/chain32_evidence.log"
+PPO_GPU_SAMPLE_LOG = "logs/chain32_gpu_samples.log"
 GPU_SAMPLE_RE = re.compile(
     r"^(\d\d:\d\d:\d\d) (\S+)\s+(\d+) %, (\d+) MiB, (\d+), (\d+) MHz, (0x[0-9a-f]+)")
 PPO_DONE_RE = re.compile(r"^(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d) DONE\s+(.+?) \(exit (\d*)\)\s*seconds=(\d+)$")
@@ -1695,9 +1695,9 @@ def ppo_cold_window_pair(out="benchmarks/ppo_cold_window_pair.json"):
     comes out slow again while no throttle reason beyond idle ever appears and the temperature stays
     below the limit, then throttling was not the explanation whatever the seeds did.
     """
-    cells = {"seed8_cold": ppo_cold_run("chain32_evidence.log", "chain32_gpu_samples.log",
+    cells = {"seed8_cold": ppo_cold_run("logs/chain32_evidence.log", "logs/chain32_gpu_samples.log",
                                         "benchmarks/ppo_10m_seed8_idle_gap.json", "seed 8"),
-             "seed7_cold": ppo_cold_run("chain33_evidence.log", "chain33_gpu_samples.log",
+             "seed7_cold": ppo_cold_run("logs/chain33_evidence.log", "logs/chain33_gpu_samples.log",
                                         "benchmarks/ppo_10m_seed7_idle_gap.json", "seed 7")}
     draws = json.load(open(os.path.join(ROOT, "benchmarks", "ppo_10m_draws.json"),
                            encoding="utf-8"))["draws"]
@@ -2115,7 +2115,7 @@ def contact_world_train_clocks(out="benchmarks/contact_world_train_clocks.json")
             return [l.strip() for l in handle if l.strip()]
 
     arms = {}
-    for line in lines("chain34_evidence.log"):
+    for line in lines("logs/chain34_evidence.log"):
         m = re.match(r"^([\d\-: ]{19}) DONE (\S+) world=(\S+) seconds=(\d+) exit=(\d+)"
                      r"(?:.*?(\d+) MiB)?", line)
         if not m:
@@ -2125,7 +2125,7 @@ def contact_world_train_clocks(out="benchmarks/contact_world_train_clocks.json")
                             "exit": int(m.group(5)), "device_used_mib_after": post,
                             "device_sampling": "window edges only",
                             "credible": int(m.group(5)) == 0 and (post is None or post < 2000)}
-    for line in lines("chain35_evidence.log"):
+    for line in lines("logs/chain35_evidence.log"):
         m = re.match(r"^([\d\-: ]{19}) ARM (\S+) attempt=(\d+) seconds=(\S+) exit=(\S*)"
                      r"(?: peak_used_mib=(\d+))?", line)
         if not m or m.group(4) == "-1":
@@ -2138,7 +2138,7 @@ def contact_world_train_clocks(out="benchmarks/contact_world_train_clocks.json")
             "credible": m.group(5) == "0" and peak is not None and peak <= 1200}
 
     starts = {}
-    for line in lines("chain37_evidence.log"):
+    for line in lines("logs/chain37_evidence.log"):
         m = re.match(r"^([\d\-: ]{19}) START (\S+) world=(\S+) attempt=(\d+)", line)
         if m:
             starts[(m.group(2), m.group(4))] = (stamp(m.group(1)), m.group(3))
@@ -2149,7 +2149,7 @@ def contact_world_train_clocks(out="benchmarks/contact_world_train_clocks.json")
         window = starts.get(key)
         inside = []
         if window:
-            for line in lines("chain37_gpu_samples.log"):
+            for line in lines("logs/chain37_gpu_samples.log"):
                 s = re.match(r"^([\d\-: ]{19}) mid .*?, (\d+) MiB.*ctx=(\d+) py=(\d+)", line)
                 if s and window[0] <= stamp(s.group(1)) <= stamp(m.group(1)):
                     inside.append({"used_mib": int(s.group(2)), "contexts": int(s.group(3)),
@@ -2199,17 +2199,17 @@ def contact_world_train_clocks(out="benchmarks/contact_world_train_clocks.json")
 
 BENCHMARKS = [
     phase3,
-    lambda: phase3("eval_phase3_100ep.log", seed=11,
+    lambda: phase3("logs/eval_phase3_100ep.log", seed=11,
                    out="benchmarks/phase3_merging_100ep.json"),
     # Same harness re-run after the reward-protocol fix: scored with the reward the experts were
     # trained against, in env v9. Kept beside the retired file so the two protocols can be
     # compared episode-by-episode instead of argued about.
-    lambda: phase3("eval_phase3_100ep_v9.log", seed=11,
+    lambda: phase3("logs/eval_phase3_100ep_v9.log", seed=11,
                    desc="(env v9, scored with the training shaping: the reward the experts "
                         "actually optimise. See benchmarks/reward_term_breakdown_v9.json for "
                         "what the two protocols differ by per step)",
                    out="benchmarks/phase3_merging_100ep_v9_trainreward.json"),
-    lambda: phase3("eval_phase3_100ep_rawobs.log", seed=11, flags=" --raw-obs",
+    lambda: phase3("logs/eval_phase3_100ep_rawobs.log", seed=11, flags=" --raw-obs",
                    desc="(obs_rms deliberately ignored: this arm reproduces the pre-fix "
                         "harness, so it is a measurement of the bug, not a score)",
                    out="benchmarks/phase3_merging_100ep_rawobs.json"),

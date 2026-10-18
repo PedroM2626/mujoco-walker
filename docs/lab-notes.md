@@ -275,7 +275,7 @@ start.
 ## Asking the process table whether the machine is free is not a lock
 
 Two chains trained on this laptop at the same time on 2026-10-06, and two arms had to be thrown out.
-The launcher logs are the record: `chain22_evidence.log` has pid 37556 writing
+The launcher logs are the record: `logs/chain22_evidence.log` has pid 37556 writing
 `12:52:36 machine clear, proceeding / START SAC 1M in v9`, and `chain23.log` has pid 54604 writing
 `12:52:36 machine clear, proceeding / START second draw SAC 5M in v9`. Same second, because both were
 launched at 12:51:35 and both pre-flight checks are the same loop - "sample the process table for a

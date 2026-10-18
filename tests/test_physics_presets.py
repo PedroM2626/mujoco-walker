@@ -212,7 +212,7 @@ class TestWallClockProvenanceSurvivesTheLogs(unittest.TestCase):
 
     def spans(self, chain):
         """Every (label -> [(start, end, exit)]) pair in one launcher log, retries included."""
-        path = os.path.join(ROOT, f"chain{chain}_evidence.log")
+        path = os.path.join(ROOT, "logs", f"chain{chain}_evidence.log")
         self.assertTrue(os.path.exists(path), f"{path} is gone; the durations it backs are "
                                               "unverifiable claims now")
         starts, done = {}, []

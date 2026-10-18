@@ -63,14 +63,14 @@ data = {
     "note": NOTE,
     "date": "2026-10-01",
     "runs": {
-        "train_ars": summary("ars_evidence.log"),
-        "train_redq": summary("redq_evidence.log"),
-        "train_dreamer": summary("dreamer_smoke.log"),
+        "train_ars": summary("logs/ars_evidence.log"),
+        "train_redq": summary("logs/redq_evidence.log"),
+        "train_dreamer": summary("logs/dreamer_smoke.log"),
     },
 }
 
 # ARS reports its own periodic policy evaluations, which are the more meaningful signal
-text = open(os.path.join(ROOT, "ars_evidence.log"), encoding="utf-8", errors="replace").read()
+text = open(os.path.join(ROOT, "logs", "ars_evidence.log"), encoding="utf-8", errors="replace").read()
 evals = [(int(e), float(r)) for e, r in re.findall(r"epoch=(\d+), eval_return=(-?[\d.]+)", text)]
 if evals:
     data["runs"]["train_ars"]["eval_returns"] = {

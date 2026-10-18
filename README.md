@@ -2315,13 +2315,13 @@ Three facts to keep in mind:
 
 The suite is plain `unittest` (no pytest required) and covers the environment contract, the
 golden reward rollouts, the parallel/serial vector-env parity, checkpointing and the race
-harness — **472 tests, 251 s in this window** (`Ran 472 tests in 250.889s ... OK
+harness — **472 tests, 729 s in this window** (`Ran 472 tests in 729.079s ... OK
 (skipped=7)` under `.venv`). Windows of this suite have measured 176.3 s at 102 tests, 269.995 s
 at 121, 261.1 s at 127, 329.964 s at 128, 319.168 s at 130, 184.716 s, 203.108 s and 306.976 s at
 140, 144.678 s at 147, 230.268 s at 157, 171.016 s and 170.304 s at 194, and 174.008 s,
 170.391 s, 175.036 s, 168.775 s, 168.986 s and 166.606 s at 201/205/210, 169.919 s at 214,
-and 163.920 s and 161.829 s at 237, 165.360 s and 164.902 s at 243, 161.647 s and 162.674 s at 250, 162.726 s and 162.167 s at 251, 171.616 s and 163.434 s at 252, 163.769 s and 163.748 s at 255, 226.912 s and 217.651 s at 260, 193.167 s and 191.909 s at 273, 206.150 s at 279, 193.904 s at 284, 201.464 s at 289, 189.864 s and 187.485 s at 294, 190.012 s at 297, 230.180 s at 301, 190.655 s at 311, 211.202 s at 317, 195.419 s at 322, 184.182 s at 326, 180.964 s at 326, 266.112 s and 191.187 s at 339, 185.556 s at 340, 193.319 s at 351, 218.984 s at 369, 238.576 s at 376, 355.206 s at 399, 339.222 s and 373.536 s at 424/426, 320.360 s, 308.791 s, 398.060 s, 401.094 s, 397.254 s and 446.193 s at 428/430/438/455/458/459, and 253.676 s, 254.946 s and 250.889 s at
-466/467/472 -
+and 163.920 s and 161.829 s at 237, 165.360 s and 164.902 s at 243, 161.647 s and 162.674 s at 250, 162.726 s and 162.167 s at 251, 171.616 s and 163.434 s at 252, 163.769 s and 163.748 s at 255, 226.912 s and 217.651 s at 260, 193.167 s and 191.909 s at 273, 206.150 s at 279, 193.904 s at 284, 201.464 s at 289, 189.864 s and 187.485 s at 294, 190.012 s at 297, 230.180 s at 301, 190.655 s at 311, 211.202 s at 317, 195.419 s at 322, 184.182 s at 326, 180.964 s at 326, 266.112 s and 191.187 s at 339, 185.556 s at 340, 193.319 s at 351, 218.984 s at 369, 238.576 s at 376, 355.206 s at 399, 339.222 s and 373.536 s at 424/426, 320.360 s, 308.791 s, 398.060 s, 401.094 s, 397.254 s and 446.193 s at 428/430/438/455/458/459, 253.676 s, 254.946 s and 250.889 s at
+466/467/472, and 729.079 s at 472 again -
 those last windows carry a dose test that runs three short CPU trainings, which are about 27 s of
 them, so that entry is not slower hardware; consecutive runs of one commit agree to 4%, where the
 147 and 157 windows an afternoon earlier were 1.6x apart for ten more tests. The
@@ -2332,7 +2332,9 @@ they measure `Ran 57 tests in 3.187s` - 0.8% of the window that reported them - 
 render smoke draws, measures `Ran 23 tests in 1.414s` - so the difference is this machine's state on
 the day rather than a slower suite. The 466, 467 and 472 windows were measured at 01:33, 01:52 and 04:25
 with nothing else running on this machine and came in at 253.676 s, 254.946 s and 250.889 s: thirteen more
-tests than the 459 window and 1.8x under its clock. The
+tests than the 459 window and 1.8x under its clock. The 729.079 s window is the same 472 tests measured
+at 23:04 with 38 idle python processes from the night's chains still resident: same count, 2.9x the
+clock, which is the machine-state claim above measured against itself. The
 duration belongs to the machine's state, the
 count does not, and a gate checks the count so it cannot go stale quietly):
 
@@ -2387,7 +2389,7 @@ that they ran - see Phase 4, item 6. How each of those states was found, with th
 ## 🔬 Reproducing and measuring
 
 ```bash
-python -m unittest discover -s tests -t .   # 472 tests in .venv, 251 s; see "Running the tests"
+python -m unittest discover -s tests -t .   # 472 tests in .venv, 729 s; see "Running the tests"
 python bench_env.py --seconds 4             # env throughput, physics vs Python split
 python bench_mjx.py --sizes 32,128          # MJX/JAX batched stepping
 python bench_mjx_pairs.py --verify          # is an explicit-<pair> world the same MDP? (MuJoCo-C)

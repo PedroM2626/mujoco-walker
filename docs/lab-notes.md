@@ -721,3 +721,45 @@ value first - a test that only checks the default passes on a completely broken 
 what had been happening. And when an option is wired into one backend, smoke the other: the first attempt
 fixed the sync path and left the parallel one - the backend every published run uses - still wrong.
 Related: [[a-checkpoints-lineage-is-part-of-what-it-proves]], [[add-a-mode-ship-a-parity-control]].
+
+## An argmin is not imitable; the samples behind it might be
+
+The planner-as-teacher line closed twice on the same object and a third time on a different one. Cloning the
+CEM's executed action gave two students that reach 0 of 20, and no predictor of that action beats a constant
+on held-out rows, because the action is the argmin of a stochastic search: consecutive recorded actions
+differ by MSE 0.7567 against the action's own energy of 0.3806. Cloning only the in-band steps did not help.
+Training an actor offline against the planner's *value* gave 0 of 20 with a diverging TD curve, and handing
+the fitted value to SAC as a potential lowered arrival while adding ~30% to the clock.
+
+But every one of those experiments threw away the object the search actually computes: at each replan the CEM
+evaluates `samples x iterations` candidate first-actions and assigns each the return of rolling it out from
+the current state. Those pairs are noisy *samples of Q(s,a)* - the mean is what a regressor fits, and the
+argmin (which flips between near-tied candidates) is just the least stable statistic of them. The evidence
+that this is not wishful: the maximum over those same candidates, the lookahead value, is learnable from the
+49-wide state at ridge R2 0.7722 on held-out episodes. A function whose max is learnable but whose argmin is
+not is a candidate for value-based extraction rather than action cloning.
+
+So `collect_mpc_demos.py --record-candidates` now writes the triples (state, candidate first action,
+predicted return) to a second npz - copies, not compute, since those rollouts are already paid for - and
+`bench_planner_q.py` asks whether Q is learnable inside a state, with the gate fixed before any such dataset
+existed: **within-state R2 >= 0.30** (each plan's mean removed from target and prediction, so a state-only
+predictor scores 0 by construction), **mean per-state Pearson >= 0.50**, and **elite hit rate >= 0.50** (the
+predicted argmax lands in the true top 10% of that plan's candidates). The primary model is deliberately not
+linear: state, action, action squared and every state x action product, because Q enters through the mass
+matrix and contact impulses, which are state-dependent coefficients on the action. A linear-only test would
+fail for a reason that says nothing about learnability. Below any threshold the line closes without a
+training run; above all three, the next step is the argmax policy scored on the 20 published episodes against
+the teacher's own upright-arrival column, and only then a SAC warm start.
+
+**Why pre-register this one so tightly:** the line has already produced four nulls, and the cheapest way to
+produce a fifth is to fit a bigger model until something passes. The gate is on held-out *episodes*, not
+rows, because consecutive plans in one rollout sit on nearly the same state; and the probe ships with a
+self-check that must open the gate on a synthetic signal and keep it shut on pure noise, so a broken metric
+cannot pass for a discovery.
+
+**How to apply:** before spending a collection on a teacher, ask which statistic of the teacher you are
+copying and whether it is stable - a max, a mean over samples, or an argmin are three different learning
+problems, and the last one is the one behaviour cloning defaults to. The cost of the experiment is the
+planner run that already had to happen (28 episodes at 48x3), not a new one. Related:
+[[probe-teacher-predictability-before-training-a-student]],
+[[mpc-walker-residual-learning-direction]], [[algorithm-verdicts-need-multiple-budgets]].

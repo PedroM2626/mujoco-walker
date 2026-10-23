@@ -35,10 +35,20 @@ import bench_approach_mechanism as bam
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
-def collect(args):
+def collect(args, candidate_sink=None):
+    """Roll the planner out on demo seeds and return the demonstration arrays.
+
+    ``candidate_sink`` is opt-in and collector-side only: when a list is passed, every plan appends the
+    state it started from and the (first action, predicted return) pair of each sequence the CEM sampled.
+    The planner already pays for those rollouts, so recording them is copies, not compute - and it turns
+    a dataset of executed argmins (which no predictor beats a constant on) into one of action-values
+    (which is the question bench_planner_q.py pre-registers). Leaving it None keeps the returned schema
+    and the planner's cost exactly as the published collection measured them.
+    """
     planner = mpc.CrossEntropyPlanner(horizon=args.horizon, samples=args.samples,
                                       iterations=args.iterations, elite=args.elite,
                                       replan=args.replan, seed=args.seed, action=args.action)
+    planner.record_candidates = candidate_sink is not None
     env = gym.make("WalkerRagdoll-v0", reset_mode="mixed", task_phase="target",
                    **TRAINING_REWARD_KWARGS)
     unw = env.unwrapped
@@ -57,8 +67,10 @@ def collect(args):
             min_dist_band = float("inf")
             n_steps = n_falls = 0
             was_healthy = unw.is_healthy
-            for _ in range(args.steps):
+            for step_i in range(args.steps):
                 action = np.asarray(planner(obs), dtype=np.float64).reshape(-1)
+                if candidate_sink is not None and planner.just_replanned:
+                    candidate_sink.append((planner.last_obs, planner.last_candidates, ep, step_i))
                 o.append(np.asarray(obs, dtype=np.float32))
                 a.append(action.astype(np.float32))
                 obs, reward, terminated, truncated, info = env.step(action)
@@ -128,9 +140,15 @@ def main():
                     help="passed through to the planner; elite-mean records the smooth target "
                          "(mean of the elite set's first action) instead of the search winner")
     ap.add_argument("--out", default="benchmarks/demos/mpc_demos.npz")
+    ap.add_argument("--record-candidates", action="store_true",
+                    help="also write the CEM's (state, candidate first action, predicted return) triples "
+                         "to --candidates-out; this is the action-value dataset bench_planner_q.py "
+                         "probes, and it costs no extra planner rollouts")
+    ap.add_argument("--candidates-out", default="benchmarks/demos/mpc_candidates.npz")
     args = ap.parse_args()
 
-    arrays, rms, episodes = collect(args)
+    sink = [] if args.record_candidates else None
+    arrays, rms, episodes = collect(args, sink)
     out = os.path.join(ROOT, args.out)
     os.makedirs(os.path.dirname(out), exist_ok=True)
     np.savez_compressed(out, **arrays)
@@ -165,6 +183,27 @@ def main():
     }
     with open(out + ".json", "w", encoding="utf-8") as handle:
         json.dump(meta, handle, indent=2, ensure_ascii=False)
+    if sink:
+        cand = {
+            "obs": np.stack([o for o, _c, _e, _s in sink]).astype(np.float32),
+            "candidates": np.stack([c for _o, c, _e, _s in sink]).astype(np.float32),
+            "plan_episode": np.asarray([e for _o, _c, e, _s in sink], dtype=np.int32),
+            "plan_step": np.asarray([s for _o, _c, _e, s in sink], dtype=np.int32),
+        }
+        cand_out = os.path.join(ROOT, args.candidates_out)
+        os.makedirs(os.path.dirname(cand_out), exist_ok=True)
+        np.savez_compressed(cand_out, **cand)
+        meta["candidates"] = {
+            "path": args.candidates_out,
+            "plans": int(cand["obs"].shape[0]),
+            "candidates_per_plan": int(cand["candidates"].shape[1]),
+            "action_dims": int(cand["candidates"].shape[2]) - 1,
+            "last_column": "sum of env rewards over the candidate's horizon, measured from this state",
+        }
+        with open(out + ".json", "w", encoding="utf-8") as handle:
+            json.dump(meta, handle, indent=2, ensure_ascii=False)
+        print(f"wrote {cand_out} ({meta['candidates']['plans']} plans x "
+              f"{meta['candidates']['candidates_per_plan']} candidates)")
     print(json.dumps(meta["summary"], indent=1))
     print(f"wrote {out} and {out}.json")
 

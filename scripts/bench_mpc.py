@@ -66,6 +66,15 @@ class CrossEntropyPlanner:
         self.plan_ms = []
         self.rollout_steps = 0
         self.last_value = 0.0
+        # Off by default: recording is a collector-side convenience, and bench_mpc's own runs must keep
+        # the exact cost they publish. When on, every plan leaves its candidate first-actions and the
+        # return the search assigned them - a sample of Q(s, a) that the CEM was already computing and
+        # throwing away. The action it executes is the argmin of these samples and is not imitable;
+        # whether their value is, is the question bench_planner_q.py answers.
+        self.record_candidates = False
+        self.last_candidates = None
+        self.last_obs = None
+        self.just_replanned = False
 
     # -- binding to the episode being scored -----------------------------------------------
     def bind(self, env):
@@ -111,6 +120,7 @@ class CrossEntropyPlanner:
 
     def plan(self):
         t0 = time.perf_counter()
+        self.last_candidates = [] if self.record_candidates else None
         unw = self.env.unwrapped
         level_before = unw._curriculum_level
         target_before = np.asarray(unw._target_xy, dtype=np.float64).copy()
@@ -129,6 +139,12 @@ class CrossEntropyPlanner:
             for i in range(self.samples):
                 returns[i] = self._evaluate(draws[i])
             keep = np.argsort(-returns)[:self.elite]
+            if self.last_candidates is not None:
+                # First action of each sampled sequence, with the return that sequence earned from this
+                # state. Later iterations are warm-started around the elite, so they are not i.i.d.
+                # samples - the probe groups by plan and never treats them as independent draws.
+                self.last_candidates.append(
+                    np.column_stack([draws[:, 0, :], returns]).astype(np.float64))
             mean = draws[keep].mean(axis=0)
             std = np.maximum(draws[keep].std(axis=0), self.min_std)
             elite_first = draws[keep][:, 0, :].mean(axis=0)
@@ -144,14 +160,23 @@ class CrossEntropyPlanner:
             raise RuntimeError(
                 "a rollout moved the episode's target: the restore is incomplete, so the plan is "
                 "being scored against a goal that the search itself relocated")
+        if self.last_candidates is not None:
+            self.last_candidates = np.concatenate(self.last_candidates, axis=0)
         self.plan_ms.append((time.perf_counter() - t0) * 1e3)
         return best_seq, best_ret
 
     # -- the policy interface the trace expects ---------------------------------------------
     def __call__(self, obs):
+        self.just_replanned = False
+        if self.record_candidates:
+            # The state these candidates were scored from, kept beside them so the probe can group by
+            # state rather than fit across a shuffled pool. The planner restores the env after every
+            # candidate rollout, so this observation is the one the search started from.
+            self.last_obs = np.asarray(obs, dtype=np.float32).copy()
         if self.step_index % self.replan == 0 or not self.pending:
             seq, value = self.plan()
             self.pending = [a.copy() for a in seq]
+            self.just_replanned = True
             # The plan's lookahead return, kept until the next replan. It is the teacher's own opinion
             # about the state it is standing in, and unlike the executed action it is a scalar the
             # student could regress - which is what makes it worth recording.

@@ -751,6 +751,17 @@ fail for a reason that says nothing about learnability. Below any threshold the 
 training run; above all three, the next step is the argmax policy scored on the 20 published episodes against
 the teacher's own upright-arrival column, and only then a SAC warm start.
 
+**Measured (2026-10-24): the gate stayed shut on every cell, and the line closed.** The collection ran on
+a fresh seed range (501-528; the teacher reached in 11 of 28 and arrived standing in 5) and wrote
+1,400 plans x 144 candidate triples. On the 150 held-out plans the primary model scored within-state R2
+-3.168, mean per-state Pearson 0.0043 and elite hit 0.08 - below the 0.097 a random pick from the same
+candidates earns - with the plan-mean reference at 0.0 as designed and the linear (0.093) and state-only
+(0.047) models no better. A value whose max is learnable and whose within-state ordering is not is not
+an action-value this model class can read, so no argmax extraction and no training run:
+`benchmarks/planner_q_probe.json` carries the cells and the verdict,
+`benchmarks/demos/mpc_candidate_demos.npz.json` the collection's provenance, and the README paragraph is
+gated against both in `tests/test_readme_evidence.py`.
+
 **Why pre-register this one so tightly:** the line has already produced four nulls, and the cheapest way to
 produce a fifth is to fit a bigger model until something passes. The gate is on held-out *episodes*, not
 rows, because consecutive plans in one rollout sit on nearly the same state; and the probe ships with a

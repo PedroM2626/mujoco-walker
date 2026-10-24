@@ -4570,6 +4570,109 @@ class TestReadmeValueShapingCells(ReadmeGate, unittest.TestCase):
         self.assertEqual(len(self.mech["pooled_v9_shaping_rows"]), 5)
 
 
+class TestReadmePlannerQProbeCells(ReadmeGate, unittest.TestCase):
+    """The candidate-value probe, against its own artifact and its own pre-registered gate.
+
+    The verdict decides whether a training run is spent, so it is recomputed from the cells and the
+    thresholds rather than remembered from the JSON: a paragraph may not say the line closed while an
+    artifact opens the gate, or the reverse. The collection is gated by its sidecar for the same reason
+    every other teacher artifact is - a probe whose seeds overlapped the scored protocol would answer a
+    different question from the one the paragraph claims.
+    """
+
+    PROBE = os.path.join(ROOT, "benchmarks", "planner_q_probe.json")
+    SIDECAR = os.path.join(ROOT, "benchmarks", "demos", "mpc_candidate_demos.npz.json")
+    START = "**The last untried object was the one the search actually computes"
+    END = 'So the honest answer to "does an agent walk'
+
+    def setUp(self):
+        with open(README, encoding="utf-8") as handle:
+            readme = handle.read()
+        start = readme.index(self.START)
+        self.block = readme[start:readme.index(self.END, start)]
+        self.probe, self.side = self.read_artifacts(self.PROBE, self.SIDECAR)
+        self.cells = self.probe["cells"]["joint_interactions"]
+        self.bad = []
+        self.what = "planner action-value probe"
+
+    def test_the_three_cells_are_the_measured_ones(self):
+        m = self.sentence(r"seeds (\d+)-(\d+), disjoint from the 11-30 scored protocol",
+                          "the quoted seed range")
+        seeds = set(self.side["demo_seeds"])
+        self.check("first demo seed", m.group(1), min(seeds), places=0)
+        self.check("last demo seed", m.group(2), max(seeds), places=0)
+        self.assertTrue(self.side["eval_seeds_are_disjoint"])
+        self.assertFalse(seeds & set(range(11, 31)),
+                         "the probe's teacher episodes overlap the scored protocol")
+        m = self.sentence(r"reaches in \*\*(\d+) of (\d+)\*\* and arrives standing in "
+                          r"\*\*(\d+) of \d+\*\*, with\s*\*\*([\d.]+)%\*\* of its steps in the band",
+                          "the teacher's own scores on the fresh seeds")
+        self.check("episodes reached", m.group(1), self.side["summary"]["episodes_reached"], places=0)
+        self.check("collection episodes", m.group(2), len(seeds), places=0)
+        self.check("upright arrivals", m.group(3),
+                   self.side["summary"]["episodes_upright_arrival"], places=0)
+        self.check("band share", m.group(4), self.side["summary"]["pct_in_band"], places=2)
+        m = self.sentence(r"([\d,]+) plans x (\d+) candidates, copies of rollouts",
+                          "the plan and candidate counts")
+        self.check("plans", m.group(1), self.side["candidates"]["plans"], places=0)
+        self.check("candidates per plan", m.group(2),
+                   self.side["candidates"]["candidates_per_plan"], places=0)
+        m = self.sentence(r"([\d,]+) training plans with (\d+) held out by episode",
+                          "the train/holdout split")
+        per_episode = 1000 // 20
+        self.check("training plans", m.group(1), (len(seeds) - 3) * per_episode, places=0)
+        self.check("held-out plans", m.group(2), 3 * per_episode, places=0)
+        m = self.sentence(r"within-state R² \*\*(-[\d.]+)\*\* with mean per-state Pearson\s*"
+                          r"\*\*([\d.]+)\*\* and elite hit rate \*\*([\d.]+)\*\*, where a pick at "
+                          r"random from the same (\d+)\s*candidates earns ([\d.]+)",
+                          "the primary model's three cells")
+        self.check("within-state R2", m.group(1), self.cells["within_r2"], places=3)
+        self.check("mean per-state Pearson", m.group(2), self.cells["mean_pearson"], places=4)
+        self.check("elite hit rate", m.group(3), self.cells["elite_hit_rate"], places=2)
+        self.check("candidates per plan, again", m.group(4),
+                   self.side["candidates"]["candidates_per_plan"], places=0)
+        elite = round(self.probe["gate"]["elite_fraction_of_candidates"]
+                      * self.side["candidates"]["candidates_per_plan"])
+        self.check("a random pick's elite chance", m.group(5),
+                   elite / self.side["candidates"]["candidates_per_plan"], places=3)
+        m = self.sentence(r"the plan-mean reference earns within-state R² \*\*([\d.]+)\*\* by "
+                          r"construction", "the level-leak reference")
+        self.check("plan-mean within-state R2", m.group(1),
+                   self.probe["cells"]["plan_mean"]["within_r2"], places=1)
+        m = self.sentence(r"the linear \(elite hit ([\d.]+)\) and state-only \(([\d.]+)\)",
+                          "the other two models' hit rates")
+        self.check("joint linear elite hit", m.group(1),
+                   self.probe["cells"]["joint_linear"]["elite_hit_rate"], places=3)
+        self.check("state-only elite hit", m.group(2),
+                   self.probe["cells"]["state_only"]["elite_hit_rate"], places=3)
+
+    def test_the_verdict_is_recomputed_not_remembered(self):
+        m = self.sentence(r"within-state R² >= ([\d.]+), mean per-state Pearson >= ([\d.]+), "
+                          r"elite hit rate >= ([\d.]+)\.", "the pre-registered thresholds")
+        gate = self.probe["gate"]
+        self.check("within_r2_min", m.group(1), gate["within_r2_min"], places=1)
+        self.check("mean_pearson_min", m.group(2), gate["mean_pearson_min"], places=1)
+        self.check("elite_hit_rate_min", m.group(3), gate["elite_hit_rate_min"], places=1)
+        won = {"within_r2": self.cells["within_r2"] >= gate["within_r2_min"],
+               "mean_pearson": self.cells["mean_pearson"] >= gate["mean_pearson_min"],
+               "elite_hit_rate": self.cells["elite_hit_rate"] >= gate["elite_hit_rate_min"]}
+        self.assertEqual(self.probe["verdict"], "extract" if all(won.values()) else "close",
+                         "the stored verdict disagrees with the cells and the thresholds it quotes")
+        self.assertFalse(any(won.values()),
+                         "a cell now clears its threshold, so the closed line is stale")
+        self.assertIn("spends no training run", re.sub(r"\s+", " ", self.block),
+                      "the closing sentence no longer states the pre-registered consequence")
+
+    def test_the_collection_protocol_is_what_the_sidecar_records(self):
+        self.assertIn("cross-entropy MPC", self.side["protocol"])
+        self.assertIn("samples=48, iterations=3", self.side["protocol"])
+        self.assertIn("1250 training plans, 150 held-out plans", self.probe["protocol"])
+        self.assertEqual(self.side["candidates"]["action_dims"], 17)
+        self.assertEqual(self.side["candidates"]["candidates_per_plan"], 48 * 3)
+        self.assertEqual(self.side["candidates"]["plans"],
+                         sum(e["steps"] for e in self.side["episodes"]) // 20)
+
+
 class TestReadmePpoColdWindowCells(ReadmeGate, unittest.TestCase):
     """The 2x2 that retired the throttling explanation of the PPO clock gap.
 

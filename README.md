@@ -514,6 +514,26 @@ for the same budget, which is the price of evaluating Phi once per step in each 
 The gait did not move: across the 100 traced episodes of this pair the longest continuous stand is
 **1.62 s** and none reaches two seconds.
 
+**The last untried object was the one the search actually computes, and it closes the line.** At every
+replan the CEM evaluates `samples x iterations` candidate first-actions and records each one's predicted
+return - noisy samples of Q(s, a), of which the executed action is the least stable statistic and the
+lookahead value the most learnable. Every route above threw those samples away, so
+`scripts/collect_mpc_demos.py --record-candidates` wrote them down on a fresh 28-episode collection -
+seeds 501-528, disjoint from the 11-30 scored protocol and from the published 101-128 and 401-428
+teacher artifacts, where the teacher reaches in **11 of 28** and arrives standing in **5 of 28**, with
+**11.87%** of its steps in the band - 1,400 plans x 144 candidates, copies of rollouts the search had
+already paid for. `scripts/bench_planner_q.py` then asked the question on 1,250 training plans with 150
+held out by episode, under the gate fixed before any such dataset existed: within-state R² >= 0.30, mean
+per-state Pearson >= 0.50, elite hit rate >= 0.50. No model reached any threshold. The primary state +
+action + action-squared + interaction fit lands at within-state R² **-3.168** with mean per-state
+Pearson **0.0043** and elite hit rate **0.08**, where a pick at random from the same 144 candidates
+earns 0.097 and the plan-mean reference earns within-state R² **0.0** by construction; the linear
+(elite hit 0.093) and state-only (0.047) models tell the same story, and a negative R² means the fits do
+not even carry each plan's own level across episodes. So the within-state ordering of the search's own
+samples carries no action-value the registered model class can read: the planner's judgement survives
+as a scalar over states, not as a ranking over actions. The pre-registered decision rule spends no
+training run on this fifth null - the first one measured on the search's own numbers.
+
 So the honest answer to "does an agent walk to the target?" is: **the target is in the behaviour and the
 gait is not.** These policies head for the marker whenever they are up, arrive standing in about one
 episode in five at best, and get there by rising, advancing for under a second and falling again - not by
@@ -2315,13 +2335,13 @@ Three facts to keep in mind:
 
 The suite is plain `unittest` (no pytest required) and covers the environment contract, the
 golden reward rollouts, the parallel/serial vector-env parity, checkpointing and the race
-harness — **472 tests, 390 s in this window** (`Ran 472 tests in 390.465s ... OK
+harness — **475 tests, 260 s in this window** (`Ran 475 tests in 260.058s ... OK
 (skipped=7)` under `.venv`). Windows of this suite have measured 176.3 s at 102 tests, 269.995 s
 at 121, 261.1 s at 127, 329.964 s at 128, 319.168 s at 130, 184.716 s, 203.108 s and 306.976 s at
 140, 144.678 s at 147, 230.268 s at 157, 171.016 s and 170.304 s at 194, and 174.008 s,
 170.391 s, 175.036 s, 168.775 s, 168.986 s and 166.606 s at 201/205/210, 169.919 s at 214,
 and 163.920 s and 161.829 s at 237, 165.360 s and 164.902 s at 243, 161.647 s and 162.674 s at 250, 162.726 s and 162.167 s at 251, 171.616 s and 163.434 s at 252, 163.769 s and 163.748 s at 255, 226.912 s and 217.651 s at 260, 193.167 s and 191.909 s at 273, 206.150 s at 279, 193.904 s at 284, 201.464 s at 289, 189.864 s and 187.485 s at 294, 190.012 s at 297, 230.180 s at 301, 190.655 s at 311, 211.202 s at 317, 195.419 s at 322, 184.182 s at 326, 180.964 s at 326, 266.112 s and 191.187 s at 339, 185.556 s at 340, 193.319 s at 351, 218.984 s at 369, 238.576 s at 376, 355.206 s at 399, 339.222 s and 373.536 s at 424/426, 320.360 s, 308.791 s, 398.060 s, 401.094 s, 397.254 s and 446.193 s at 428/430/438/455/458/459, 253.676 s, 254.946 s and 250.889 s at
-466/467/472, 729.079 s and 390.465 s at 472 -
+466/467/472, 729.079 s and 390.465 s at 472, and 260.058 s at 475 -
 those last windows carry a dose test that runs three short CPU trainings, which are about 27 s of
 them, so that entry is not slower hardware; consecutive runs of one commit agree to 4%, where the
 147 and 157 windows an afternoon earlier were 1.6x apart for ten more tests. The
@@ -2389,7 +2409,7 @@ that they ran - see Phase 4, item 6. How each of those states was found, with th
 ## 🔬 Reproducing and measuring
 
 ```bash
-python -m unittest discover -s tests -t .   # 472 tests in .venv, 390 s; see "Running the tests"
+python -m unittest discover -s tests -t .   # 475 tests in .venv, 260 s; see "Running the tests"
 python scripts/bench_env.py --seconds 4             # env throughput, physics vs Python split
 python scripts/bench_mjx.py --sizes 32,128          # MJX/JAX batched stepping
 python scripts/bench_mjx_pairs.py --verify          # is an explicit-<pair> world the same MDP? (MuJoCo-C)
@@ -2483,6 +2503,18 @@ python scripts/train_walker.py --algo sac --run-id vshape_sac_n32_r4_5m --seed 7
                                           # the shaped arm; the same command without the last two
                                           # flags is its parity control, and the weight comes from the
                                           # rule the measurement above states
+python scripts/collect_mpc_demos.py --episodes 28 --samples 48 --iterations 3 --elite 12 --horizon 100 \
+  --replan 20 --demo-seed-base 501 --record-candidates \
+  --out benchmarks/demos/mpc_candidate_demos.npz --candidates-out benchmarks/demos/mpc_candidates.npz
+                                          # the same teacher, now also writing the (state, candidate
+                                          # first action, predicted return) triples the search already
+                                          # computed - copies, not compute - as the action-value dataset
+                                          # bench_planner_q.py probes
+python scripts/bench_planner_q.py              # the pre-registered probe on those triples: is Q(s, a)
+                                          # learnable inside a state where the executed argmin is not?
+                                          # The gate was fixed before the dataset existed, and the
+                                          # verdict ("extract" or "close") lands in
+                                          # benchmarks/planner_q_probe.json
 python scripts/train_walker.py --algo sac --run-id preset_sac_euler_1m --seed 7 --total-timesteps 1000000 \
   --num-envs 8 --task-phase target --reset-mode mixed --target-forward-velocity 1.2 \
   --checkpoint-interval 500000 --device cuda --physics-preset euler

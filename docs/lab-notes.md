@@ -774,3 +774,96 @@ problems, and the last one is the one behaviour cloning defaults to. The cost of
 planner run that already had to happen (28 episodes at 48x3), not a new one. Related:
 [[probe-teacher-predictability-before-training-a-student]],
 [[mpc-walker-residual-learning-direction]], [[algorithm-verdicts-need-multiple-budgets]].
+
+## Route 4 (corrected): fixing the MPC teacher's gait objective and knot hold
+
+A follow-up hypothesis proposed "paying forward progress below the standing band" to give the MPC teacher a
+gait worth transferring. Reading `envs/walker_ragdoll_env.py` and `scripts/bench_mpc.py` refutes that
+direction and shows the exact opposite mechanism:
+
+1. **The environment already pays locomotion below the standing band (`0.65 < z <= 1.0 m`):**
+   `stand_height = clip((z - 0.65) / 0.60, 0, 1)` starts at `z = 0.65 m`, whereas the standing band
+   (`BAND_Z = 1.0 m, BAND_UPRIGHT = 0.7`) starts at `z = 1.0 m`. Between `0.65 m` and `1.0 m`,
+   `standing_gate` pays up to `58.3%` of full `target_progress` (weight `300`) and `target_direction`
+   (weight `200`) while the torso is already below the standing band. Paying *more* locomotion below the
+   band rewards lunging and crawling (the exploit `TestPostureIsABonus::test_locomotion_still_requires_posture`
+   exists to prevent); a gait objective must **zero** locomotion outside `(z > 1.0, upright > 0.7)`.
+2. **The two-state fall-termination rule (`settled_fall_termination`):**
+   `scripts/bench_mpc.py` and `scripts/collect_mpc_demos.py` instantiate `WalkerRagdoll-v0` with the
+   default `terminate_when_unhealthy=False`, so the `-500` fall penalty and `if terminated: break` inside
+   `CrossEntropyPlanner._evaluate` were dead code. However, turning `terminate_when_unhealthy=True` on
+   unconditionally inside `_evaluate` creates a one-way latch trap when recovering from the floor: the
+   first frame a rising trajectory touches `z = 1.001 m` arms `_ever_healthy = True`, and if the settling
+   wobble dips to `z = 0.999 m` on the next frame, the candidate rollout terminates early and pays `-500`
+   (and once `_ever_healthy` latches in the outer episode, any subsequent fallen plan terminates at step 1).
+   Enabling `terminate_when_unhealthy` inside `_evaluate` **only when `plan()` starts already settled in
+   standing posture (`z0 > 1.12 m, upright0 > 0.80`)** penalises diving from a stand without booby-trapping
+   recovery from the floor.
+3. **5-step knot hold (`hold=5`) + slew-rate penalty (`slew_weight`) + continuation decay (`cont_decay`):**
+   Sampling independent 100 Hz white noise (`hold=1`) across `100 x 17 = 1,700` dimensions with 48 samples
+   causes `consecutive_action_mse = 0.7567` (nearly twice `action_energy = 0.3806`) and leaves `a_0`
+   (`0.01 s`) accounting for `~1/H = 1%` of the 100-step return variance. Holding each control knot for
+   `hold=5` steps (`replan=5`) with `action="elite-mean"` and quadratic slew cost `||a_t - a_{t-1}||^2`
+   reduces the search dimension by `5x`, cuts action jitter by `6x-11x` (`0.7567 -> 0.0703-0.1252`,
+   `0.38x-0.39x` of action energy), and makes held-out episode actions predictable by ridge over the
+   constant-zero baseline (`10.85%-12.64%` MSE reduction).
+4. **Reconciling `within_state_metrics` in `scripts/bench_planner_q.py`:**
+   Line 136 computed `ss_res = sum((y - p)**2)` without removing `p.mean()`, and `fit_ridge` fitted
+   uncentered returns across states (`std ~ 3833`). Adding `within_r2_centered` and `probe_centered` puts
+   `state_only` at `0.0000` by construction (instead of `-2.095`) and moves `joint_interactions` on the
+   committed `benchmarks/demos/mpc_candidates.npz` from `within_r2 = -0.3507 (pearson 0.0043)` to
+   `within_r2_centered = +0.0130 (pearson +0.1152)` - matching the theoretical `1/100 = 1%` variance share
+   of a 1-step action in a 100-step random rollout, while confirming that the pre-registered `Q(s, a)` gate
+   (`>= 0.30 R2, >= 0.50 pearson, >= 0.50 elite hit`) stays closed even under 5-step knots (`pearson +0.1500`).
+
+Measured on the 4-episode probe (`seeds 11..14`, `benchmarks/mpc_gait_teacher_benchmark.json`), the three
+Gait-MPC arms raise in-band step share from `12.12%-18.20%` to **41.25%-54.17%**, achieve continuous
+standing runs of **2.98 s** (`gait_settled_v11`) and **3.02 s** (`gait_settled_v08`, with 2 of 4 episodes
+exceeding 2.0 s), and raise the share of distance closed while standing from `0.279` to **0.612**
+(`v_ref=1.1 m/s`) and **1.018** (`v_ref=0.8 m/s`, `11.95 m` closed standing vs `-0.21 m` down), with a
+speed-vs-reach trade-off (`3 of 4` upright arrivals in `gait_smooth_v08`, `1 of 4` in `gait_settled_v11`,
+`0 of 4` within the 10 s timeout at `v_ref=0.8 m/s`).
+
+5. **Stage A — Official 20-episode evaluation of the corrected Gait-MPC teacher (`seeds 11..30`):**
+   - `benchmarks/mpc_gait_target_v08.json` (`v_ref=0.8 m/s`, `cont_decay=0.80`, `slew_weight=0.50`):
+     `mean_pct_steps_in_band = 44.24%` (vs `15.7%` and `11.1%` in the published MPC arms),
+     `share_while_standing = 0.560` (`17.08 m` closed standing vs `13.42 m` down, vs `0.216` and `0.279`),
+     `max_longest_band_run_s = 4.06 s`, and **5 of 20 episodes** holding the standing band for `>= 2.0 s`
+     continuously (against `0 of 20` for every previously published MPC and learned arm in the published
+     contact world), with `0 of 20` episodes failing to enter the standing band (`reach = 4/20`,
+     `upright_arrivals = 2/20`).
+   - `benchmarks/mpc_gait_target_v11.json` (`v_ref=1.1 m/s`, `cont_decay=0.90`, `slew_weight=0.35`):
+     `mean_pct_steps_in_band = 38.79%`, `share_while_standing = 0.502` (`17.96 m` standing vs `17.83 m`
+     down), `max_longest_band_run_s = 2.32 s`, **2 of 20 episodes** `>= 2.0 s` in band, `reach = 5/20`, and
+     `upright_arrivals = 4/20` (`80%` of target reaches arrive upright, vs `3/12 = 25%` in the baseline MPC).
+6. **Stage B — 28-episode demonstrations (`seeds 101..128`) and offline students (`benchmarks/gait_bc_teacher_benchmark.json`):**
+   - Collected on `seeds 101..128` (`benchmarks/demos/mpc_gait_demos.npz.json`), the Gait-MPC teacher spends
+     `11,964 / 28,000` transitions (`42.73%`) inside the standing band (nearly `3x` the old teacher's
+     `4,148 / 28,000 = 14.81%`) and achieves **10 upright arrivals** out of 12 reaches (vs `6 of 18` in the
+     old teacher), with `consecutive_action_mse = 0.1031` against `action_energy = 0.2651` (`0.389x`).
+   - On the held-out episode split (`3,000` validation rows from the last 3 episodes), **both linear/k-NN
+     probes and the trained neural BC students beat the trivial constant baselines** (`zero = 0.2627`,
+     `per_dim_mean = 0.2598`): `ridge_alpha100 = 0.2179`, `knn_k32 = 0.2401`, `student_bc_gait_raw = 0.2113`
+     (`-19.6%` below zero), and `student_bc_gait_band = 0.2203` (`beats_the_trivial_baseline = True` for all
+     four, whereas every regressor and student lost to the constant baseline on the old `hold=1, argmin`
+     teacher). Meanwhile, the planner's state value remains learnable (`r2_ridge = 0.4536`, `r2_knn32 = 0.4366`
+     vs `r2_ridge_target_dims_only = 0.1743`), while the 5-step-knot candidate $Q(s, a)$ probe
+     (`benchmarks/gait_planner_q_probe.json`, 5,600 plans $\times$ 48 candidates) scores
+     `within_r2_centered = +0.008, pearson = +0.095` on `joint_linear` — keeping the pre-registered $Q(s, a)$
+     gate closed.
+   - Despite beating the constant baseline in held-out action MSE and raising episode return (`+2098.76` on
+     `bc_gait_raw` vs `+756.25` on the old `bc_raw`), pure closed-loop offline rollouts (`benchmarks/gait_mpc_students.json`)
+     reach `0/20` targets and fail to rise from the 18 fallen resets in `reset_mode="mixed"`
+     (`episodes_never_in_band = 18/20`): once a single-step $0.21\text{ MSE}$ torque error perturbs a dynamic
+     floor stand-up, pure offline imitation has no recovery policy off the demonstration manifold ($O(\epsilon T^2)$
+     covariate shift). Offline TD critic ascent (`critic_gait_q` and `critic_gait_q_bc`) again diverges after
+     epoch 7 (`val_td_mse = 2957 -> 150,910` at epoch 60, `student_val_mse = 1.1987`).
+7. **Stage C — Online SAC with `--strict-band-gate` and warm-start from the Gait-MPC teacher (`benchmarks/gait_sac_online_eval.json`):**
+   - Training online SAC for `200,000` steps (`num_envs=32, utd_ratio=4, stability_reward_weight=60`) with
+     `StrictBandGate` (`--strict-band-gate`, zeroing locomotion rewards outside `z > 1.0 m, upright > 0.7`)
+     from scratch (`sac_strict_band_200k`) and warm-started from `bc_gait_mpc_raw` + the 28k demonstration
+     replay buffer + in-band BC regularisation (`sac_warmstart_gait_100k`, `sac_warmstart_gait_200k`) lifts
+     20-episode mean return from `+2098.76` (offline BC) to **`+4355.17` (`median +5262.39`)** and **`+5649.88`
+     (`median +5113.41`)**, cuts `episodes_never_in_band` from `18/20` to `13/20-14/20` as online rollouts
+     learn to stand up from fallen resets, and reaches `1/20` targets at `100k` steps (`max_longest_band_run_s = 0.74 s`),
+     while `200k` steps (4% of the 5M-step budget) is still too short to converge a full 2-second standing walk.

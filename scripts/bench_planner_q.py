@@ -115,24 +115,36 @@ def predict_ridge(model, features):
     return x @ model["weights"]
 
 
+def center_by_group(values, groups):
+    """Subtract each group's mean from ``values``."""
+    _, inverse = np.unique(groups, return_inverse=True)
+    means = (np.bincount(inverse, weights=values) / np.bincount(inverse))[inverse]
+    return values - means
+
+
 def within_state_metrics(target, prediction, groups):
     """Metrics that can only be earned by varying with the action, inside a state.
 
     The per-group mean is removed from *both* target and prediction before the variance is taken, so a
     predictor that is a function of the state alone scores exactly zero however well it fits the level.
+    ``within_r2`` retains the historical uncentered residual ``sum((y - p)**2)`` for reproducibility of
+    ``benchmarks/planner_q_probe.json``; ``within_r2_centered`` removes ``p.mean()`` as well as
+    ``y.mean()`` so a state-only predictor scores ``0.0`` by construction.
     """
     order = np.argsort(groups, kind="stable")
     target, prediction, groups = target[order], prediction[order], groups[order]
     boundaries = np.flatnonzero(np.diff(groups)) + 1
-    ss_res = ss_within = 0.0
+    ss_res = ss_res_centered = ss_within = 0.0
     rhos, hits, regrets = [], [], []
     for start, stop in zip(np.r_[0, boundaries], np.r_[boundaries, len(groups)]):
         y, p = target[start:stop], prediction[start:stop]
         if y.size < 4:
             continue
         y_centered = y - y.mean()
+        p_centered = p - p.mean()
         ss_within += float(np.sum(y_centered ** 2))
         ss_res += float(np.sum((y - p) ** 2))
+        ss_res_centered += float(np.sum((y_centered - p_centered) ** 2))
         if y.std() > 1e-9 and p.std() > 1e-9:
             rhos.append(float(np.corrcoef(y, p)[0, 1]))
         elite = max(1, int(round(ELITE_FRACTION * y.size)))
@@ -143,6 +155,7 @@ def within_state_metrics(target, prediction, groups):
         regrets.append(float((y.max() - y[pick]) / span) if span > 1e-9 else 0.0)
     return {
         "within_r2": 1.0 - ss_res / ss_within if ss_within > 0 else float("nan"),
+        "within_r2_centered": 1.0 - ss_res_centered / ss_within if ss_within > 0 else float("nan"),
         "mean_pearson": float(np.mean(rhos)) if rhos else float("nan"),
         "elite_hit_rate": float(np.mean(hits)) if hits else float("nan"),
         "mean_regret_fraction": float(np.mean(regrets)) if regrets else float("nan"),
@@ -150,9 +163,10 @@ def within_state_metrics(target, prediction, groups):
     }
 
 
-def gate(metrics):
+def gate(metrics, centered=False):
+    r2_key = "within_r2_centered" if centered else "within_r2"
     return {
-        "within_r2": metrics["within_r2"] >= WITHIN_R2_MIN,
+        "within_r2": metrics[r2_key] >= WITHIN_R2_MIN,
         "mean_pearson": metrics["mean_pearson"] >= PEARSON_MIN,
         "elite_hit_rate": metrics["elite_hit_rate"] >= ELITE_HIT_MIN,
     }
@@ -175,6 +189,25 @@ def probe(data, train_mask, holdout_mask):
     means = (np.bincount(inverse, weights=y_hold) / np.bincount(inverse))[inverse]
     rows["plan_mean"] = {"features": 0, **within_state_metrics(y_hold, means, g_hold)}
     won = gate(rows["joint_interactions"])
+    return rows, won
+
+
+def probe_centered(data, train_mask, holdout_mask, alpha=10.0):
+    """Fit ridge on within-plan centered returns y - y_plan_mean and score with centered within-state R2."""
+    rows = {}
+    for name, mode in (("state_only", "state"), ("joint_linear", "linear"),
+                       ("joint_interactions", "interactions")):
+        x_train, y_train, g_train = flatten(train_mask, data, mode)
+        x_hold, y_hold, g_hold = flatten(holdout_mask, data, mode)
+        y_train_centered = center_by_group(y_train, g_train)
+        model = fit_ridge(x_train, y_train_centered, alpha=alpha)
+        rows[name] = {"features": int(x_train.shape[1]),
+                      **within_state_metrics(y_hold, predict_ridge(model, x_hold), g_hold)}
+    _, y_hold, g_hold = flatten(holdout_mask, data, "state")
+    _, inverse = np.unique(g_hold, return_inverse=True)
+    means = (np.bincount(inverse, weights=y_hold) / np.bincount(inverse))[inverse]
+    rows["plan_mean"] = {"features": 0, **within_state_metrics(y_hold, means, g_hold)}
+    won = gate(rows["joint_interactions"], centered=True)
     return rows, won
 
 

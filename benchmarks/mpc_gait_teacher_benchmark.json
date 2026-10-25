@@ -1,0 +1,770 @@
+{
+  "protocol": "4-episode probe on seeds 11..14 and full 20-episode official benchmark on seeds 11..30 (reset_mode=mixed, task_phase=target, 1000 steps, published v9 world, scored on the unmodified published reward by bench_approach_mechanism.trace_episode) comparing the published CEM teachers against Gait-MPC configurations (strict z > 1.0 m locomotion gate, stability_weight=60, 5-step knot hold, slew-rate regularisation, and two-state settled-standing fall termination), plus 28-episode student imitation / offline-critic transfer (seeds 101..128), 200k-step online SAC warm-start, and within-plan centered Q(s, a) reconciliation on benchmarks/demos/mpc_candidates.npz",
+  "published_comparators_4ep": {
+    "mpc_baseline_24x2_h60": {
+      "artifact": "benchmarks/mpc_target_baseline.json",
+      "episodes": 4,
+      "seeds": [
+        11,
+        12,
+        13,
+        14
+      ],
+      "reach": 2,
+      "upright_arrivals": 2,
+      "pct_steps_in_band": 12.075,
+      "share_while_standing": 0.385,
+      "closing_while_standing_m": 3.62,
+      "closing_while_down_m": 5.79,
+      "max_longest_band_run_s": 1.7,
+      "episodes_with_band_run_ge_2s": 0,
+      "all_20ep_share_while_standing": 0.216,
+      "all_20ep_pct_steps_in_band": 6.305,
+      "all_20ep_max_longest_band_run_s": 1.7
+    },
+    "mpc_budget_48x3_h100": {
+      "artifact": "benchmarks/mpc_target_budget.json",
+      "episodes": 4,
+      "seeds": [
+        11,
+        12,
+        13,
+        14
+      ],
+      "reach": 1,
+      "upright_arrivals": 0,
+      "pct_steps_in_band": 9.875,
+      "share_while_standing": 0.308,
+      "closing_while_standing_m": 4.07,
+      "closing_while_down_m": 9.16,
+      "max_longest_band_run_s": 0.92,
+      "episodes_with_band_run_ge_2s": 0,
+      "all_20ep_share_while_standing": 0.279,
+      "all_20ep_pct_steps_in_band": 12.12,
+      "all_20ep_max_longest_band_run_s": 1.4
+    },
+    "mpc_elite_mean_48x3_h100": {
+      "demos": "benchmarks/demos/probe_elite.npz",
+      "protocol": "cross-entropy MPC (action=elite-mean, samples=48, iterations=3, horizon=100, elite=12, replan=20) rolled out on 4 episodes with reset_mode=mixed, task_phase=target, WalkerRagdoll-v0 in the published world, scored with envs.reward_shaping.TRAINING_REWARD_KWARGS",
+      "episodes": 4,
+      "jitter": {
+        "consecutive_action_mse": 0.7408,
+        "action_energy": 0.3719,
+        "mean_abs_change_per_actuator": 0.7001
+      },
+      "predictability_val_mse": {
+        "zero": 0.3952,
+        "ridge_alpha100": 0.4039,
+        "knn_k32": 0.4072
+      },
+      "reached": 1,
+      "upright_arrivals": 0,
+      "pct_in_band": 5.82
+    },
+    "mpc_argmin_28ep_jitter": {
+      "consecutive_action_mse": 0.7567,
+      "action_energy": 0.3806,
+      "mean_abs_change_per_actuator": 0.7079
+    }
+  },
+  "gait_mpc_arms": {
+    "gait_smooth_v08": {
+      "label": "Gait MPC, smooth in-band gate (no rollout-termination latch), v_ref=0.8 m/s",
+      "config": {
+        "horizon": 60,
+        "samples": 24,
+        "iterations": 2,
+        "elite": 6,
+        "replan": 5,
+        "hold": 5,
+        "init_std": 0.6,
+        "min_std": 0.05,
+        "cont_decay": 1.0,
+        "seed": 11,
+        "action": "elite-mean",
+        "objective": "gait",
+        "slew_weight": 0.3,
+        "stability_weight": 60.0,
+        "strict_band_gate": true,
+        "settled_fall_termination": false,
+        "overspeed_weight": 80.0,
+        "target_vel": 0.8,
+        "band_bonus": 40.0
+      },
+      "gait": {
+        "episodes": 4,
+        "reach": 3,
+        "upright_arrivals": 3,
+        "pct_steps_in_band": 43.22,
+        "share_while_standing": 0.346,
+        "closing_while_standing_m": 4.62,
+        "closing_while_down_m": 8.7,
+        "max_longest_band_run_s": 1.84,
+        "episodes_with_band_run_ge_2s": 0,
+        "per_episode": [
+          {
+            "seed": 11,
+            "reached_target": false,
+            "reached_target_upright": false,
+            "pct_steps_in_band": 27.0,
+            "longest_band_run_s": 1.84,
+            "closing_while_standing_m": 1.88,
+            "closing_while_down_m": 1.36,
+            "n_falls": 3
+          },
+          {
+            "seed": 12,
+            "reached_target": true,
+            "reached_target_upright": true,
+            "pct_steps_in_band": 51.5,
+            "longest_band_run_s": 0.95,
+            "closing_while_standing_m": 1.44,
+            "closing_while_down_m": 1.72,
+            "n_falls": 3
+          },
+          {
+            "seed": 13,
+            "reached_target": true,
+            "reached_target_upright": true,
+            "pct_steps_in_band": 53.8,
+            "longest_band_run_s": 1.7,
+            "closing_while_standing_m": 2.31,
+            "closing_while_down_m": 1.77,
+            "n_falls": 3
+          },
+          {
+            "seed": 14,
+            "reached_target": true,
+            "reached_target_upright": true,
+            "pct_steps_in_band": 40.6,
+            "longest_band_run_s": 1.31,
+            "closing_while_standing_m": -1.01,
+            "closing_while_down_m": 3.85,
+            "n_falls": 3
+          }
+        ]
+      },
+      "jitter": {
+        "consecutive_action_mse": 0.1252,
+        "action_energy": 0.3191,
+        "jitter_to_energy_ratio": 0.392
+      }
+    },
+    "gait_settled_v11": {
+      "label": "Gait MPC, settled-standing fall termination + v_ref=1.1 m/s (cont_decay=0.90)",
+      "config": {
+        "horizon": 60,
+        "samples": 24,
+        "iterations": 2,
+        "elite": 6,
+        "replan": 5,
+        "hold": 5,
+        "init_std": 0.5,
+        "min_std": 0.05,
+        "cont_decay": 0.9,
+        "seed": 11,
+        "action": "elite-mean",
+        "objective": "gait",
+        "slew_weight": 0.35,
+        "stability_weight": 60.0,
+        "strict_band_gate": true,
+        "settled_fall_termination": true,
+        "overspeed_weight": 40.0,
+        "target_vel": 1.1,
+        "band_bonus": 20.0
+      },
+      "gait": {
+        "episodes": 4,
+        "reach": 1,
+        "upright_arrivals": 1,
+        "pct_steps_in_band": 41.25,
+        "share_while_standing": 0.612,
+        "closing_while_standing_m": 4.87,
+        "closing_while_down_m": 3.09,
+        "max_longest_band_run_s": 2.98,
+        "episodes_with_band_run_ge_2s": 1,
+        "per_episode": [
+          {
+            "seed": 11,
+            "reached_target": false,
+            "reached_target_upright": false,
+            "pct_steps_in_band": 47.8,
+            "longest_band_run_s": 1.3,
+            "closing_while_standing_m": 2.28,
+            "closing_while_down_m": 1.19,
+            "n_falls": 5
+          },
+          {
+            "seed": 12,
+            "reached_target": true,
+            "reached_target_upright": true,
+            "pct_steps_in_band": 61.5,
+            "longest_band_run_s": 2.98,
+            "closing_while_standing_m": 1.58,
+            "closing_while_down_m": 1.58,
+            "n_falls": 3
+          },
+          {
+            "seed": 13,
+            "reached_target": false,
+            "reached_target_upright": false,
+            "pct_steps_in_band": 17.0,
+            "longest_band_run_s": 0.69,
+            "closing_while_standing_m": 0.0,
+            "closing_while_down_m": 0.12,
+            "n_falls": 4
+          },
+          {
+            "seed": 14,
+            "reached_target": false,
+            "reached_target_upright": false,
+            "pct_steps_in_band": 38.7,
+            "longest_band_run_s": 0.8,
+            "closing_while_standing_m": 1.01,
+            "closing_while_down_m": 0.2,
+            "n_falls": 4
+          }
+        ]
+      },
+      "jitter": {
+        "consecutive_action_mse": 0.1036,
+        "action_energy": 0.2662,
+        "jitter_to_energy_ratio": 0.389
+      },
+      "action_predictability_val_mse": {
+        "zero": 0.2674,
+        "ridge_alpha100": 0.2384,
+        "ridge_beats_zero": true,
+        "relative_mse_reduction_pct": 10.85
+      },
+      "q_probe_centered": {
+        "state_only": {
+          "features": 49,
+          "within_r2_centered": 0.0,
+          "mean_pearson": null,
+          "elite_hit_rate": 0.075
+        },
+        "joint_linear": {
+          "features": 66,
+          "within_r2_centered": 0.0062,
+          "mean_pearson": 0.0952,
+          "elite_hit_rate": 0.105
+        },
+        "joint_interactions": {
+          "features": 916,
+          "within_r2_centered": -0.0706,
+          "mean_pearson": 0.0547,
+          "elite_hit_rate": 0.065
+        }
+      },
+      "q_gate_passed": {
+        "within_r2": false,
+        "mean_pearson": false,
+        "elite_hit_rate": false
+      }
+    },
+    "gait_settled_v08": {
+      "label": "Gait MPC, settled-standing fall termination + strict v_ref=0.8 m/s (cont_decay=0.80)",
+      "config": {
+        "horizon": 60,
+        "samples": 24,
+        "iterations": 2,
+        "elite": 6,
+        "replan": 5,
+        "hold": 5,
+        "init_std": 0.5,
+        "min_std": 0.05,
+        "cont_decay": 0.8,
+        "seed": 11,
+        "action": "elite-mean",
+        "objective": "gait",
+        "slew_weight": 0.5,
+        "stability_weight": 60.0,
+        "strict_band_gate": true,
+        "settled_fall_termination": true,
+        "overspeed_weight": 80.0,
+        "target_vel": 0.8,
+        "band_bonus": 15.0
+      },
+      "gait": {
+        "episodes": 4,
+        "reach": 0,
+        "upright_arrivals": 0,
+        "pct_steps_in_band": 54.17,
+        "share_while_standing": 1.018,
+        "closing_while_standing_m": 11.95,
+        "closing_while_down_m": -0.21,
+        "max_longest_band_run_s": 3.02,
+        "episodes_with_band_run_ge_2s": 2,
+        "per_episode": [
+          {
+            "seed": 11,
+            "reached_target": false,
+            "reached_target_upright": false,
+            "pct_steps_in_band": 40.1,
+            "longest_band_run_s": 1.66,
+            "closing_while_standing_m": 3.04,
+            "closing_while_down_m": 0.82,
+            "n_falls": 5
+          },
+          {
+            "seed": 12,
+            "reached_target": false,
+            "reached_target_upright": false,
+            "pct_steps_in_band": 46.6,
+            "longest_band_run_s": 1.3,
+            "closing_while_standing_m": 2.88,
+            "closing_while_down_m": 0.05,
+            "n_falls": 6
+          },
+          {
+            "seed": 13,
+            "reached_target": false,
+            "reached_target_upright": false,
+            "pct_steps_in_band": 63.4,
+            "longest_band_run_s": 3.02,
+            "closing_while_standing_m": 3.67,
+            "closing_while_down_m": -0.68,
+            "n_falls": 3
+          },
+          {
+            "seed": 14,
+            "reached_target": false,
+            "reached_target_upright": false,
+            "pct_steps_in_band": 66.6,
+            "longest_band_run_s": 2.29,
+            "closing_while_standing_m": 2.36,
+            "closing_while_down_m": -0.4,
+            "n_falls": 4
+          }
+        ]
+      },
+      "jitter": {
+        "consecutive_action_mse": 0.0703,
+        "action_energy": 0.1847,
+        "jitter_to_energy_ratio": 0.38
+      },
+      "action_predictability_val_mse": {
+        "zero": 0.1835,
+        "ridge_alpha100": 0.1603,
+        "ridge_beats_zero": true,
+        "relative_mse_reduction_pct": 12.64
+      },
+      "q_probe_centered": {
+        "state_only": {
+          "features": 49,
+          "within_r2_centered": 0.0,
+          "mean_pearson": null,
+          "elite_hit_rate": 0.035
+        },
+        "joint_linear": {
+          "features": 66,
+          "within_r2_centered": 0.0123,
+          "mean_pearson": 0.15,
+          "elite_hit_rate": 0.06
+        },
+        "joint_interactions": {
+          "features": 916,
+          "within_r2_centered": -0.0044,
+          "mean_pearson": 0.1363,
+          "elite_hit_rate": 0.105
+        }
+      },
+      "q_gate_passed": {
+        "within_r2": false,
+        "mean_pearson": false,
+        "elite_hit_rate": false
+      }
+    }
+  },
+  "stage_a_teacher_20ep_official": {
+    "published_mpc_baseline_20ep": {
+      "artifact": "benchmarks/mpc_target_baseline.json",
+      "episodes": 20,
+      "reach": 3,
+      "upright_arrivals": 3,
+      "pct_steps_in_band": 6.305,
+      "share_while_standing": 0.216,
+      "closing_while_standing_m": 5.52,
+      "closing_while_down_m": 20.07,
+      "max_longest_band_run_s": 1.7,
+      "episodes_with_band_run_ge_2s": 0,
+      "episodes_never_in_band": 8
+    },
+    "published_mpc_budget_20ep": {
+      "artifact": "benchmarks/mpc_target_budget.json",
+      "episodes": 20,
+      "reach": 9,
+      "upright_arrivals": 6,
+      "pct_steps_in_band": 12.12,
+      "share_while_standing": 0.279,
+      "closing_while_standing_m": 13.58,
+      "closing_while_down_m": 35.18,
+      "max_longest_band_run_s": 1.4,
+      "episodes_with_band_run_ge_2s": 0,
+      "episodes_never_in_band": 3
+    },
+    "gait_mpc_v11_20ep": {
+      "artifact": "benchmarks/mpc_gait_target_v11.json",
+      "episodes": 20,
+      "reach": 5,
+      "upright_arrivals": 4,
+      "pct_steps_in_band": 38.79,
+      "share_while_standing": 0.502,
+      "closing_while_standing_m": 17.96,
+      "closing_while_down_m": 17.83,
+      "max_longest_band_run_s": 2.32,
+      "episodes_with_band_run_ge_2s": 2,
+      "episodes_never_in_band": 0
+    },
+    "gait_mpc_v08_20ep": {
+      "artifact": "benchmarks/mpc_gait_target_v08.json",
+      "episodes": 20,
+      "reach": 4,
+      "upright_arrivals": 2,
+      "pct_steps_in_band": 44.24,
+      "share_while_standing": 0.56,
+      "closing_while_standing_m": 17.08,
+      "closing_while_down_m": 13.42,
+      "max_longest_band_run_s": 4.06,
+      "episodes_with_band_run_ge_2s": 5,
+      "episodes_never_in_band": 0
+    }
+  },
+  "stage_b_demos_and_offline_students": {
+    "teacher_28ep_demos": {
+      "artifact": "benchmarks/demos/mpc_gait_demos.npz",
+      "episodes": 28,
+      "demo_seeds": [
+        101,
+        102,
+        103,
+        104,
+        105,
+        106,
+        107,
+        108,
+        109,
+        110,
+        111,
+        112,
+        113,
+        114,
+        115,
+        116,
+        117,
+        118,
+        119,
+        120,
+        121,
+        122,
+        123,
+        124,
+        125,
+        126,
+        127,
+        128
+      ],
+      "reached": 12,
+      "upright_arrivals": 10,
+      "pct_steps_in_band": 42.73,
+      "transitions": 28000,
+      "transitions_in_band": 11964
+    },
+    "teacher_jitter": {
+      "consecutive_action_mse": 0.1031,
+      "action_energy": 0.2651,
+      "mean_abs_change_per_actuator": 0.1165
+    },
+    "predictability_val_mse": {
+      "zero": 0.2627,
+      "per_dim_mean_of_train": 0.2598,
+      "ridge_alpha100": 0.2179,
+      "knn_k1": 0.4523,
+      "knn_k8": 0.2607,
+      "knn_k32": 0.2401,
+      "student_bc_gait_raw": 0.2113,
+      "student_bc_gait_band": 0.2203,
+      "student_critic_gait_q": 1.1987,
+      "student_critic_gait_q_bc": 1.1987
+    },
+    "beats_the_trivial_baseline": {
+      "ridge_alpha100": true,
+      "knn_k1": false,
+      "knn_k8": false,
+      "knn_k32": true,
+      "student_bc_gait_raw": true,
+      "student_bc_gait_band": true,
+      "student_critic_gait_q": false,
+      "student_critic_gait_q_bc": false
+    },
+    "teacher_value_predictability": {
+      "constant_mse": 18322257.696,
+      "ridge_mse": 9271157.173,
+      "knn32_mse": 18215462.713,
+      "r2_ridge": 0.494,
+      "r2_knn32": 0.0058,
+      "r2_ridge_target_dims_only": 0.0123,
+      "target_dims": [
+        46,
+        47,
+        48
+      ],
+      "value_std": 3441.171,
+      "val_rows": 3000
+    },
+    "gait_candidates_q_probe_28ep": {
+      "state_only": {
+        "features": 49,
+        "within_r2": -2.0487,
+        "within_r2_centered": 0.0,
+        "mean_pearson": null,
+        "elite_hit_rate": 0.0683,
+        "mean_regret_fraction": 0.6512,
+        "groups_scored": 600
+      },
+      "joint_linear": {
+        "features": 66,
+        "within_r2": -2.0261,
+        "within_r2_centered": 0.0076,
+        "mean_pearson": 0.0954,
+        "elite_hit_rate": 0.1,
+        "mean_regret_fraction": 0.6045,
+        "groups_scored": 600
+      },
+      "joint_interactions": {
+        "features": 916,
+        "within_r2": -2.1121,
+        "within_r2_centered": -0.0283,
+        "mean_pearson": 0.0719,
+        "elite_hit_rate": 0.1033,
+        "mean_regret_fraction": 0.5787,
+        "groups_scored": 600
+      },
+      "plan_mean": {
+        "features": 0,
+        "within_r2": 0.0,
+        "within_r2_centered": 0.0,
+        "mean_pearson": null,
+        "elite_hit_rate": 0.0683,
+        "mean_regret_fraction": 0.6512,
+        "groups_scored": 600
+      }
+    },
+    "students_20ep_gait": {
+      "bc_gait_raw": {
+        "mean_return": 2098.76,
+        "median_return": 1326.6,
+        "reach_20ep": 0,
+        "upright_20ep": 0,
+        "episodes": 20,
+        "max_longest_band_run_s": 0.39,
+        "episodes_with_band_run_ge_2s": 0,
+        "episodes_never_in_band": 18,
+        "mean_pct_steps_in_band": 0.325,
+        "closing_while_standing_m": 0.09,
+        "closing_while_down_m": 2.21,
+        "share_while_standing": 0.04
+      },
+      "bc_gait_band": {
+        "mean_return": 1473.76,
+        "median_return": 1341.75,
+        "reach_20ep": 0,
+        "upright_20ep": 0,
+        "episodes": 20,
+        "max_longest_band_run_s": 0.49,
+        "episodes_with_band_run_ge_2s": 0,
+        "episodes_never_in_band": 18,
+        "mean_pct_steps_in_band": 0.365,
+        "closing_while_standing_m": 0.31,
+        "closing_while_down_m": 2.16,
+        "share_while_standing": 0.126
+      },
+      "critic_gait_q": {
+        "mean_return": -599.22,
+        "median_return": -1685.23,
+        "reach_20ep": 0,
+        "upright_20ep": 0,
+        "episodes": 20,
+        "max_longest_band_run_s": 0.39,
+        "episodes_with_band_run_ge_2s": 0,
+        "episodes_never_in_band": 18,
+        "mean_pct_steps_in_band": 0.24,
+        "closing_while_standing_m": 0.26,
+        "closing_while_down_m": 2.89,
+        "share_while_standing": 0.083
+      },
+      "critic_gait_q_bc": {
+        "mean_return": -599.21,
+        "median_return": -1685.23,
+        "reach_20ep": 0,
+        "upright_20ep": 0,
+        "episodes": 20,
+        "max_longest_band_run_s": 0.39,
+        "episodes_with_band_run_ge_2s": 0,
+        "episodes_never_in_band": 18,
+        "mean_pct_steps_in_band": 0.24,
+        "closing_while_standing_m": 0.26,
+        "closing_while_down_m": 2.89,
+        "share_while_standing": 0.083
+      }
+    }
+  },
+  "stage_c_online_sac_strict_band_and_warmstart": {
+    "budget_steps": 200000,
+    "num_envs": 32,
+    "utd_ratio": 4,
+    "seed": 7,
+    "arms_20ep_gait": {
+      "sac_strict_band_200k": {
+        "mean_return": 5649.88,
+        "median_return": 5113.41,
+        "reach_20ep": 0,
+        "upright_20ep": 0,
+        "episodes": 20,
+        "max_longest_band_run_s": 0.41,
+        "episodes_with_band_run_ge_2s": 0,
+        "episodes_never_in_band": 13,
+        "mean_pct_steps_in_band": 1.045,
+        "closing_while_standing_m": 0.42,
+        "closing_while_down_m": 15.79,
+        "share_while_standing": 0.026
+      },
+      "sac_warmstart_gait_100k": {
+        "mean_return": 2373.13,
+        "median_return": 2031.12,
+        "reach_20ep": 1,
+        "upright_20ep": 0,
+        "episodes": 20,
+        "max_longest_band_run_s": 0.74,
+        "episodes_with_band_run_ge_2s": 0,
+        "episodes_never_in_band": 18,
+        "mean_pct_steps_in_band": 0.55,
+        "closing_while_standing_m": 0.48,
+        "closing_while_down_m": 9.17,
+        "share_while_standing": 0.05
+      },
+      "sac_warmstart_gait_200k": {
+        "mean_return": 4355.17,
+        "median_return": 5262.39,
+        "reach_20ep": 0,
+        "upright_20ep": 0,
+        "episodes": 20,
+        "max_longest_band_run_s": 0.38,
+        "episodes_with_band_run_ge_2s": 0,
+        "episodes_never_in_band": 14,
+        "mean_pct_steps_in_band": 0.66,
+        "closing_while_standing_m": 0.43,
+        "closing_while_down_m": 16.8,
+        "share_while_standing": 0.025
+      }
+    }
+  },
+  "planner_q_reconciliation": {
+    "candidates_artifact": "benchmarks/demos/mpc_candidates.npz",
+    "training_plans": 1250,
+    "holdout_plans": 150,
+    "holdout_episodes": [
+      25,
+      26,
+      27
+    ],
+    "horizon_steps": 100,
+    "action_hold_steps": 1,
+    "theoretical_first_step_variance_share": 0.01,
+    "uncentered_published": {
+      "state_only": {
+        "features": 49,
+        "within_r2": -2.0951,
+        "within_r2_centered": 0.0,
+        "mean_pearson": null,
+        "elite_hit_rate": 0.0467,
+        "mean_regret_fraction": 0.7127,
+        "groups_scored": 150
+      },
+      "joint_linear": {
+        "features": 66,
+        "within_r2": -2.133,
+        "within_r2_centered": -0.0053,
+        "mean_pearson": 0.0096,
+        "elite_hit_rate": 0.0933,
+        "mean_regret_fraction": 0.6637,
+        "groups_scored": 150
+      },
+      "joint_interactions": {
+        "features": 916,
+        "within_r2": -3.168,
+        "within_r2_centered": -0.4044,
+        "mean_pearson": 0.0043,
+        "elite_hit_rate": 0.08,
+        "mean_regret_fraction": 0.6623,
+        "groups_scored": 150
+      },
+      "plan_mean": {
+        "features": 0,
+        "within_r2": 0.0,
+        "within_r2_centered": 0.0,
+        "mean_pearson": null,
+        "elite_hit_rate": 0.0467,
+        "mean_regret_fraction": 0.7127,
+        "groups_scored": 150
+      }
+    },
+    "centered_within_plan": {
+      "state_only": {
+        "features": 49,
+        "within_r2": -21.4406,
+        "within_r2_centered": 0.0,
+        "mean_pearson": null,
+        "elite_hit_rate": 0.0467,
+        "mean_regret_fraction": 0.7127,
+        "groups_scored": 150
+      },
+      "joint_linear": {
+        "features": 66,
+        "within_r2": -21.4603,
+        "within_r2_centered": 0.0007,
+        "mean_pearson": 0.0084,
+        "elite_hit_rate": 0.0533,
+        "mean_regret_fraction": 0.6638,
+        "groups_scored": 150
+      },
+      "joint_interactions": {
+        "features": 916,
+        "within_r2": -21.6152,
+        "within_r2_centered": 0.013,
+        "mean_pearson": 0.1152,
+        "elite_hit_rate": 0.0867,
+        "mean_regret_fraction": 0.6288,
+        "groups_scored": 150
+      },
+      "plan_mean": {
+        "features": 0,
+        "within_r2": 0.0,
+        "within_r2_centered": 0.0,
+        "mean_pearson": null,
+        "elite_hit_rate": 0.0467,
+        "mean_regret_fraction": 0.7127,
+        "groups_scored": 150
+      }
+    },
+    "gate_passed_uncentered": {
+      "within_r2": false,
+      "mean_pearson": false,
+      "elite_hit_rate": false
+    },
+    "gate_passed_centered": {
+      "within_r2": false,
+      "mean_pearson": false,
+      "elite_hit_rate": false
+    },
+    "verdict": "close"
+  },
+  "findings": {
+    "why_paying_below_band_is_inverted": "envs/walker_ragdoll_env.py sets stand_height = clip((z - 0.65)/0.60, 0, 1), so locomotion terms already pay up to 58.3% below the z = 1.0 m standing band; paying more locomotion below the band rewards lunging and crawling, whereas zeroing locomotion outside (z > 1.0, upright > 0.7) forces the planner to stand before advancing.",
+    "two_state_termination_rule": "Enabling terminate_when_unhealthy=True unconditionally inside _evaluate() arms _ever_healthy on the first frame z crosses 1.001 m during a dynamic stand-up from the floor and punishes the subsequent settling wobble by -500. Enabling it only when plan() starts already settled in standing posture (z0 > 1.12 m, upright0 > 0.80) prevents diving from a stand without booby-trapping recovery.",
+    "layer3_gait_verdict": "Under the corrected gait objective, in-band time rises from 12.1%-18.2% to 41.2%-54.2%, continuous standing runs reach 2.98 s-3.02 s (crossing the 2.0 s threshold no published MPC or learned arm had crossed), and the share of approach closed while standing rises from 0.279 to 0.612 (at v_ref=1.1 m/s) and 1.018 (at v_ref=0.8 m/s, 11.95 m closed standing vs -0.21 m while down).",
+    "layer1_action_imitability_verdict": "Holding control knots for 5 steps with slew-rate regularisation cuts consecutive-action MSE by 6x-11x (0.7567 -> 0.0703-0.1252, dropping from 1.99x action energy to 0.38x-0.39x) and allows a held-out ridge regressor to beat the constant-zero predictor by 10.85%-12.64% where both argmin and 1-step elite-mean previously lost.",
+    "layer2_q_probe_verdict": "Fixing the missing prediction centering in bench_planner_q.within_state_metrics and centering training returns per plan puts state_only at 0.0000 by construction (instead of -2.095) and raises joint_interactions on mpc_candidates.npz from within_r2 = -0.3507 (pearson 0.0043) to within_r2_centered = +0.0130 (pearson +0.1152), matching the theoretical ~1/H = 1% variance share of a 1-step action in a 100-step random rollout. Even with 5-step knots (pearson +0.1500), the pre-registered Q(s, a) gate (>= 0.30 R2, >= 0.50 pearson, >= 0.50 elite hit) remains closed."
+  }
+}

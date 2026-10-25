@@ -35,6 +35,88 @@ import bench_approach_mechanism as bam
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
+def _planner_kwargs_from_args(args, seed_override=None):
+    return {
+        "horizon": args.horizon,
+        "samples": args.samples,
+        "iterations": args.iterations,
+        "elite": args.elite,
+        "replan": args.replan,
+        "seed": args.seed if seed_override is None else seed_override,
+        "action": getattr(args, "action", "argmin"),
+        "hold": getattr(args, "hold", 1),
+        "init_std": getattr(args, "init_std", 0.6),
+        "min_std": getattr(args, "min_std", 0.05),
+        "cont_decay": getattr(args, "cont_decay", 1.0),
+        "objective": getattr(args, "objective", "published"),
+        "slew_weight": getattr(args, "slew_weight", 0.0),
+        "stability_weight": getattr(args, "stability_weight", None),
+        "strict_band_gate": getattr(args, "strict_band_gate", False),
+        "settled_fall_termination": getattr(args, "settled_fall_termination", False),
+        "overspeed_weight": getattr(args, "overspeed_weight", 0.0),
+        "target_vel": getattr(args, "target_vel", 0.8),
+        "band_bonus": getattr(args, "band_bonus", 0.0),
+    }
+
+
+def _collect_episode_worker(task):
+    ep, cfg, rec_cands = task
+    ns = argparse.Namespace(**cfg)
+    planner = mpc.CrossEntropyPlanner(**_planner_kwargs_from_args(ns, seed_override=ns.seed + ep))
+    planner.record_candidates = rec_cands
+    env = gym.make("WalkerRagdoll-v0", reset_mode="mixed", task_phase="target",
+                   **TRAINING_REWARD_KWARGS)
+    unw = env.unwrapped
+    radius = float(unw._target_radius)
+    try:
+        seed = ns.demo_seed_base + ep
+        obs, info = env.reset(seed=seed)
+        planner.bind(env)
+        o, a, b, d, rw, pv = [], [], [], [], [], []
+        cands = []
+        min_dist = float(info["target_distance"])
+        min_dist_band = float("inf")
+        n_steps = n_falls = 0
+        was_healthy = unw.is_healthy
+        for step_i in range(ns.steps):
+            action = np.asarray(planner(obs), dtype=np.float64).reshape(-1)
+            if rec_cands and planner.just_replanned:
+                cands.append((planner.last_obs, planner.last_candidates, ep, step_i))
+            o.append(np.asarray(obs, dtype=np.float32))
+            a.append(action.astype(np.float32))
+            obs, reward, terminated, truncated, info = env.step(action)
+            n_steps += 1
+            dist = float(info["target_distance"])
+            min_dist = min(min_dist, dist)
+            in_band = (float(unw.data.qpos[2]) > bam.BAND_Z
+                       and float(unw.upright_factor) > bam.BAND_UPRIGHT)
+            if in_band:
+                min_dist_band = min(min_dist_band, dist)
+            b.append(np.float32(in_band))
+            d.append(np.float32(dist))
+            rw.append(np.float32(reward))
+            pv.append(np.float32(planner.last_value))
+            healthy = unw.is_healthy
+            if was_healthy and not healthy:
+                n_falls += 1
+            was_healthy = healthy
+            if terminated:
+                break
+        o, a, b, d, rw, pv = (np.stack(o), np.stack(a), np.stack(b), np.stack(d),
+                              np.stack(rw), np.stack(pv))
+        ep_meta = {
+            "episode": ep, "seed": seed, "steps": int(n_steps),
+            "min_target_distance": round(min_dist, 3),
+            "reached_target": bool(min_dist <= radius),
+            "reached_target_upright": bool(min_dist_band <= radius),
+            "falls": int(n_falls),
+            "pct_steps_in_band": round(100.0 * float(b.mean()), 1),
+        }
+        return (o, a, b, d, rw, pv, ep_meta, cands)
+    finally:
+        env.close()
+
+
 def collect(args, candidate_sink=None):
     """Roll the planner out on demo seeds and return the demonstration arrays.
 
@@ -45,73 +127,85 @@ def collect(args, candidate_sink=None):
     (which is the question bench_planner_q.py pre-registers). Leaving it None keeps the returned schema
     and the planner's cost exactly as the published collection measured them.
     """
-    planner = mpc.CrossEntropyPlanner(horizon=args.horizon, samples=args.samples,
-                                      iterations=args.iterations, elite=args.elite,
-                                      replan=args.replan, seed=args.seed, action=args.action)
-    planner.record_candidates = candidate_sink is not None
-    env = gym.make("WalkerRagdoll-v0", reset_mode="mixed", task_phase="target",
-                   **TRAINING_REWARD_KWARGS)
-    unw = env.unwrapped
-    radius = float(unw._target_radius)
-    obs_dim = int(env.observation_space.shape[0])
-    act_dim = int(np.prod(env.action_space.shape))
-
+    workers = getattr(args, "workers", 1)
     obs_all, act_all, band_all, dist_all, rew_all, val_all, episodes = [], [], [], [], [], [], []
-    try:
-        for ep in range(args.episodes):
-            seed = args.demo_seed_base + ep
-            obs, info = env.reset(seed=seed)
-            planner.bind(env)
-            o, a, b, d, rw, pv = [], [], [], [], [], []
-            min_dist = float(info["target_distance"])
-            min_dist_band = float("inf")
-            n_steps = n_falls = 0
-            was_healthy = unw.is_healthy
-            for step_i in range(args.steps):
-                action = np.asarray(planner(obs), dtype=np.float64).reshape(-1)
-                if candidate_sink is not None and planner.just_replanned:
-                    candidate_sink.append((planner.last_obs, planner.last_candidates, ep, step_i))
-                o.append(np.asarray(obs, dtype=np.float32))
-                a.append(action.astype(np.float32))
-                obs, reward, terminated, truncated, info = env.step(action)
-                n_steps += 1
-                dist = float(info["target_distance"])
-                min_dist = min(min_dist, dist)
-                in_band = (float(unw.data.qpos[2]) > bam.BAND_Z
-                           and float(unw.upright_factor) > bam.BAND_UPRIGHT)
-                if in_band:
-                    min_dist_band = min(min_dist_band, dist)
-                b.append(np.float32(in_band))
-                d.append(np.float32(dist))
-                # The reward the teacher's action actually earned, and the value the teacher had
-                # assigned to the state it acted from. Together they turn the file from an
-                # imitation dataset into a preference dataset: the second column is what a critic
-                # would have to learn, and it is scored on the same rows as the first.
-                rw.append(np.float32(reward))
-                pv.append(np.float32(planner.last_value))
-                healthy = unw.is_healthy
-                if was_healthy and not healthy:
-                    n_falls += 1
-                was_healthy = healthy
-                if terminated:
-                    break
-            o, a, b, d, rw, pv = (np.stack(o), np.stack(a), np.stack(b), np.stack(d),
-                                  np.stack(rw), np.stack(pv))
-            obs_all.append(o); act_all.append(a); band_all.append(b); dist_all.append(d)
-            rew_all.append(rw); val_all.append(pv)
-            episodes.append({
-                "episode": ep, "seed": seed, "steps": int(n_steps),
-                "min_target_distance": round(min_dist, 3),
-                "reached_target": bool(min_dist <= radius),
-                "reached_target_upright": bool(min_dist_band <= radius),
-                "falls": int(n_falls),
-                "pct_steps_in_band": round(100.0 * float(b.mean()), 1),
-            })
-            print(f"ep{ep:3d} seed{seed} steps={n_steps:4d} closest={min_dist:6.3f} "
-                  f"upright_arr={episodes[-1]['reached_target_upright']} "
-                  f"band={100.0 * float(b.mean()):5.1f}%", flush=True)
-    finally:
-        env.close()
+    if workers > 1:
+        from concurrent.futures import ProcessPoolExecutor
+        cfg = {k: getattr(args, k) for k in dir(args) if not k.startswith("_") and not callable(getattr(args, k))}
+        rec_cands = candidate_sink is not None
+        with ProcessPoolExecutor(max_workers=workers) as pool:
+            for o, a, b, d, rw, pv, ep_meta, cands in pool.map(
+                    _collect_episode_worker, [(ep, cfg, rec_cands) for ep in range(args.episodes)]):
+                obs_all.append(o); act_all.append(a); band_all.append(b); dist_all.append(d)
+                rew_all.append(rw); val_all.append(pv); episodes.append(ep_meta)
+                if candidate_sink is not None and cands:
+                    candidate_sink.extend(cands)
+                print(f"ep{ep_meta['episode']:3d} seed{ep_meta['seed']} steps={ep_meta['steps']:4d} "
+                      f"closest={ep_meta['min_target_distance']:6.3f} "
+                      f"upright_arr={ep_meta['reached_target_upright']} "
+                      f"band={ep_meta['pct_steps_in_band']:5.1f}%", flush=True)
+    else:
+        planner = mpc.CrossEntropyPlanner(**_planner_kwargs_from_args(args))
+        planner.record_candidates = candidate_sink is not None
+        env = gym.make("WalkerRagdoll-v0", reset_mode="mixed", task_phase="target",
+                       **TRAINING_REWARD_KWARGS)
+        unw = env.unwrapped
+        radius = float(unw._target_radius)
+        try:
+            for ep in range(args.episodes):
+                seed = args.demo_seed_base + ep
+                obs, info = env.reset(seed=seed)
+                planner.bind(env)
+                o, a, b, d, rw, pv = [], [], [], [], [], []
+                min_dist = float(info["target_distance"])
+                min_dist_band = float("inf")
+                n_steps = n_falls = 0
+                was_healthy = unw.is_healthy
+                for step_i in range(args.steps):
+                    action = np.asarray(planner(obs), dtype=np.float64).reshape(-1)
+                    if candidate_sink is not None and planner.just_replanned:
+                        candidate_sink.append((planner.last_obs, planner.last_candidates, ep, step_i))
+                    o.append(np.asarray(obs, dtype=np.float32))
+                    a.append(action.astype(np.float32))
+                    obs, reward, terminated, truncated, info = env.step(action)
+                    n_steps += 1
+                    dist = float(info["target_distance"])
+                    min_dist = min(min_dist, dist)
+                    in_band = (float(unw.data.qpos[2]) > bam.BAND_Z
+                               and float(unw.upright_factor) > bam.BAND_UPRIGHT)
+                    if in_band:
+                        min_dist_band = min(min_dist_band, dist)
+                    b.append(np.float32(in_band))
+                    d.append(np.float32(dist))
+                    # The reward the teacher's action actually earned, and the value the teacher had
+                    # assigned to the state it acted from. Together they turn the file from an
+                    # imitation dataset into a preference dataset: the second column is what a critic
+                    # would have to learn, and it is scored on the same rows as the first.
+                    rw.append(np.float32(reward))
+                    pv.append(np.float32(planner.last_value))
+                    healthy = unw.is_healthy
+                    if was_healthy and not healthy:
+                        n_falls += 1
+                    was_healthy = healthy
+                    if terminated:
+                        break
+                o, a, b, d, rw, pv = (np.stack(o), np.stack(a), np.stack(b), np.stack(d),
+                                      np.stack(rw), np.stack(pv))
+                obs_all.append(o); act_all.append(a); band_all.append(b); dist_all.append(d)
+                rew_all.append(rw); val_all.append(pv)
+                episodes.append({
+                    "episode": ep, "seed": seed, "steps": int(n_steps),
+                    "min_target_distance": round(min_dist, 3),
+                    "reached_target": bool(min_dist <= radius),
+                    "reached_target_upright": bool(min_dist_band <= radius),
+                    "falls": int(n_falls),
+                    "pct_steps_in_band": round(100.0 * float(b.mean()), 1),
+                })
+                print(f"ep{ep:3d} seed{seed} steps={n_steps:4d} closest={min_dist:6.3f} "
+                      f"upright_arr={episodes[-1]['reached_target_upright']} "
+                      f"band={100.0 * float(b.mean()):5.1f}%", flush=True)
+        finally:
+            env.close()
 
     obs_cat = np.concatenate(obs_all)
     rms = {"mean": obs_cat.mean(axis=0).astype(np.float64),
@@ -139,6 +233,17 @@ def main():
     ap.add_argument("--action", choices=["argmin", "elite-mean"], default="argmin",
                     help="passed through to the planner; elite-mean records the smooth target "
                          "(mean of the elite set's first action) instead of the search winner")
+    ap.add_argument("--objective", choices=["published", "gait"], default="published")
+    ap.add_argument("--hold", type=int, default=1)
+    ap.add_argument("--init-std", type=float, default=0.6)
+    ap.add_argument("--min-std", type=float, default=0.05)
+    ap.add_argument("--cont-decay", type=float, default=1.0)
+    ap.add_argument("--slew-weight", type=float, default=0.0)
+    ap.add_argument("--overspeed-weight", type=float, default=0.0)
+    ap.add_argument("--target-vel", type=float, default=0.8)
+    ap.add_argument("--band-bonus", type=float, default=0.0)
+    ap.add_argument("--settled-fall-termination", action="store_true")
+    ap.add_argument("--workers", type=int, default=1)
     ap.add_argument("--out", default="benchmarks/demos/mpc_demos.npz")
     ap.add_argument("--record-candidates", action="store_true",
                     help="also write the CEM's (state, candidate first action, predicted return) triples "

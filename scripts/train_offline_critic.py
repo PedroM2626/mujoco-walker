@@ -152,7 +152,8 @@ def train(args):
             best = {"val": val_loss, "epoch": epoch + 1,
                     "actor": {k: v.detach().cpu().clone()
                               for k, v in actor.state_dict().items()},
-                    "q1": {k: v.detach().cpu().clone() for k, v in q1.state_dict().items()}}
+                    "q1": {k: v.detach().cpu().clone() for k, v in q1.state_dict().items()},
+                    "q2": {k: v.detach().cpu().clone() for k, v in q2.state_dict().items()}}
         if (epoch + 1) % 10 == 0 or epoch == 0:
             print(f"epoch {epoch + 1:3d} td={history[-1]['train_td_mse']:.1f} "
                   f"actor={history[-1]['train_actor_loss']:.3f} val_td={val_loss:.1f}", flush=True)
@@ -167,7 +168,12 @@ def train(args):
     torch.save({
         "algo": "offline_critic", "env_version": ENV_VERSION, "task_phase": "target",
         "target_forward_velocity": 1.2, "reward_kwargs": dict(TRAINING_REWARD_KWARGS),
-        "actor_state_dict": actor.state_dict(), "obs_rms": rms, "global_step": best["epoch"],
+        "actor_state_dict": actor.state_dict(),
+        "qf1_state_dict": best["q1"],
+        "qf2_state_dict": best["q2"],
+        "qf1_target_state_dict": best["q1"],
+        "qf2_target_state_dict": best["q2"],
+        "obs_rms": rms, "global_step": best["epoch"],
         "critic": {
             "demos": args.demos, "actor_mode": args.actor, "epochs": args.epochs,
             "selected_epoch": best["epoch"], "val_td_mse": round(best["val"], 2),

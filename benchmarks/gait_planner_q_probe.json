@@ -1,0 +1,54 @@
+{
+  "protocol": "ridge probes on the CEM's own candidate evaluations: 5000 training plans, 600 held-out plans from episodes [25, 26, 27]; every predictor scored on the same held-out candidates, within-state (each plan's mean removed from target and prediction)",
+  "gate": {
+    "within_r2_min": 0.3,
+    "mean_pearson_min": 0.5,
+    "elite_hit_rate_min": 0.5,
+    "elite_fraction_of_candidates": 0.1
+  },
+  "cells": {
+    "state_only": {
+      "features": 49,
+      "within_r2": -2.048707498687734,
+      "within_r2_centered": 1.2139078631179245e-09,
+      "mean_pearson": NaN,
+      "elite_hit_rate": 0.06833333333333333,
+      "mean_regret_fraction": 0.6511900839006901,
+      "groups_scored": 600
+    },
+    "joint_linear": {
+      "features": 66,
+      "within_r2": -2.0261490256973524,
+      "within_r2_centered": 0.007582301243058254,
+      "mean_pearson": 0.09542741042651222,
+      "elite_hit_rate": 0.1,
+      "mean_regret_fraction": 0.6044915433871954,
+      "groups_scored": 600
+    },
+    "joint_interactions": {
+      "features": 916,
+      "within_r2": -2.112106106981514,
+      "within_r2_centered": -0.028266321554278218,
+      "mean_pearson": 0.0719434388735506,
+      "elite_hit_rate": 0.10333333333333333,
+      "mean_regret_fraction": 0.5786717522120453,
+      "groups_scored": 600
+    },
+    "plan_mean": {
+      "features": 0,
+      "within_r2": 1.8260374323730844e-09,
+      "within_r2_centered": 1.2139076410733196e-09,
+      "mean_pearson": NaN,
+      "elite_hit_rate": 0.06833333333333333,
+      "mean_regret_fraction": 0.6511900839006901,
+      "groups_scored": 600
+    }
+  },
+  "gate_passed": {
+    "within_r2": false,
+    "mean_pearson": false,
+    "elite_hit_rate": false
+  },
+  "verdict": "close",
+  "decision_rule": "above all three thresholds the next step is to extract the argmax policy and score it on the 20 published episodes against the teacher's own upright arrivals; below any of them no training run is spent"
+}

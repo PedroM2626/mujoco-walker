@@ -571,6 +571,32 @@ checkpoints record 1.2 - two reward functions for one task speed. Closest approa
 radius and every torso measurement do not depend on the reward, which is why the comparison is built
 out of those and not out of returns.
 
+A follow-up gait-teacher and student-transfer audit in `benchmarks/mpc_gait_teacher_benchmark.json`
+(`scripts/bench_gait_mpc_teacher.py`, detailed in `docs/lab-notes.md`) tested what happens when the
+MPC planner itself is modified so that locomotion reward is gated strictly inside the standing band
+(`z > 1.0 m`, `upright > 0.7`, `--objective gait`) and optimized over 5-step (0.25 s) torque knots
+with `elite-mean` execution and settled-fall termination. On the 20-episode official target benchmark
+(`benchmarks/mpc_gait_target_v08.json` and `benchmarks/mpc_gait_target_v11.json`), the modified
+planner walks upright: `mpc_gait_target_v08` spends 44.24% of all steps in the standing band, closes
+56.0% of its target approach while standing (17.08 m standing vs 13.42 m down), rises into the band in
+20/20 episodes, and holds continuous standing runs up to 4.06 s (5/20 episodes >= 2.0 s), while
+`mpc_gait_target_v11` reaches 5/20 targets with 4/5 (80%) upright arrivals and holds up to 2.32 s.
+Knot holding cuts consecutive-action MSE on the 28-episode demonstration set (`benchmarks/gait_bc_teacher_benchmark.json`)
+by 7.3x (`0.7567 -> 0.1031`, `0.389x` of action energy) so that held-out predictors and behavioral
+cloning students (`bc_gait_raw` `0.2113`, `bc_gait_band` `0.2203`) beat the constant-zero baseline
+(`0.2598` / `0.2627`) for the first time (`beats_the_trivial_baseline = True`). Reconciling an
+uncentered group-residual calculation in `scripts/bench_planner_q.py` (`within_r2_centered`) shows
+that within-state candidate $Q(s,a)$ regressions are positive (`+0.0130` on `mpc_candidates.npz`,
+`+0.0080` on `benchmarks/gait_planner_q_probe.json`) rather than negative (`-0.3507`), though still
+$\le 1.3\%$ of variance because a single first action knot explains ~1% of a 60-100 step return.
+Closed-loop neural students (`benchmarks/gait_mpc_students.json`, `benchmarks/gait_sac_online_eval.json`)
+ still do not walk to the target: pure open-loop BC students cannot recover from the 18/20 fallen
+`mixed` resets without online lookahead (`0/20` reaches, `18/20` never in band), offline TD critics
+diverge on out-of-distribution actions (`val_td_mse = 2957 -> 150910`), and short 200k-step online SAC
+warm-starts (`sac_warmstart_gait_100k` reaches `1/20` with `0.74 s` longest band run,
+`episodes_never_in_band = 13/20`) break the floor paralysis (`+5113` to `+5262` median return vs
+`+1326` in pure BC) but need multi-million-step budgets to sustain standing locomotion.
+
 What the phase split does cost is that a phase cannot change mid-run. `task_phase` is read once in the
 constructor and decides the observation width - `observation_size = 49 if task_phase == "target" else
 46`, the three extra components being the target's relative x, y and clipped distance - and that width
@@ -1319,7 +1345,7 @@ and the pipes, not MuJoCo.
 
 **The `num_envs=8` in those screens is not only a plumbing choice, and saying so costs a flag.** The
 SAC loop runs one critic update per collection iteration, and a collection iteration is `num_envs`
-environment steps (`scripts/train_walker.py:2144-2187`), so the optimisation each environment step receives
+environment steps (`scripts/train_walker.py:2241-2298`), so the optimisation each environment step receives
 is 1/`num_envs`: at 8 envs a step is optimised four times as hard as at 32, and `--num-envs` was the
 only knob that could turn that. The two rates in this section are the same fact wearing a stopwatch -
 the `v9` arm of the 5M pair ran at **1,798.4 s per 1M steps** at 8 envs while the 40M run at 32 envs
@@ -2335,7 +2361,7 @@ Three facts to keep in mind:
 
 The suite is plain `unittest` (no pytest required) and covers the environment contract, the
 golden reward rollouts, the parallel/serial vector-env parity, checkpointing and the race
-harness — **475 tests, 260 s in this window** (`Ran 475 tests in 260.058s ... OK
+harness — **480 tests, 269 s in this window** (`Ran 480 tests in 269.468s ... OK
 (skipped=7)` under `.venv`). Windows of this suite have measured 176.3 s at 102 tests, 269.995 s
 at 121, 261.1 s at 127, 329.964 s at 128, 319.168 s at 130, 184.716 s, 203.108 s and 306.976 s at
 140, 144.678 s at 147, 230.268 s at 157, 171.016 s and 170.304 s at 194, and 174.008 s,
@@ -2409,7 +2435,7 @@ that they ran - see Phase 4, item 6. How each of those states was found, with th
 ## 🔬 Reproducing and measuring
 
 ```bash
-python -m unittest discover -s tests -t .   # 475 tests in .venv, 260 s; see "Running the tests"
+python -m unittest discover -s tests -t .   # 480 tests in .venv, 269 s; see "Running the tests"
 python scripts/bench_env.py --seconds 4             # env throughput, physics vs Python split
 python scripts/bench_mjx.py --sizes 32,128          # MJX/JAX batched stepping
 python scripts/bench_mjx_pairs.py --verify          # is an explicit-<pair> world the same MDP? (MuJoCo-C)
@@ -2515,6 +2541,11 @@ python scripts/bench_planner_q.py              # the pre-registered probe on tho
                                           # The gate was fixed before the dataset existed, and the
                                           # verdict ("extract" or "close") lands in
                                           # benchmarks/planner_q_probe.json
+python scripts/bench_gait_mpc_teacher.py --reconcile-only
+                                          # Route 4 (corrected): reconciles within-plan centered Q(s, a)
+                                          # R2 on mpc_candidates.npz and writes the 3-layer Gait-MPC
+                                          # teacher benchmark to benchmarks/mpc_gait_teacher_benchmark.json
+                                          # (--run-all re-runs the 4-episode MuJoCo CEM probes live)
 python scripts/train_walker.py --algo sac --run-id preset_sac_euler_1m --seed 7 --total-timesteps 1000000 \
   --num-envs 8 --task-phase target --reset-mode mixed --target-forward-velocity 1.2 \
   --checkpoint-interval 500000 --device cuda --physics-preset euler

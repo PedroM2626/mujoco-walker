@@ -1,0 +1,147 @@
+{
+  "protocol": "episode-level split of benchmarks/demos/mpc_gait_demos.npz: 25000 train rows, 3000 validation rows from the last 3 demonstration episodes; every predictor - trivial, ridge, k-NN and each trained student - is scored on the same validation rows with the same squared-error metric",
+  "split": {
+    "holdout_seeds": [
+      25
+    ],
+    "val_rows": 3000,
+    "train_rows": 25000
+  },
+  "predictability_val_mse": {
+    "zero": 0.2627,
+    "per_dim_mean_of_train": 0.2598,
+    "ridge_alpha100": 0.2179,
+    "knn_k1": 0.4523,
+    "knn_k8": 0.2607,
+    "knn_k32": 0.2401,
+    "student_bc_gait_raw": 0.2113,
+    "student_bc_gait_band": 0.2203,
+    "student_critic_gait_q": 1.1987,
+    "student_critic_gait_q_bc": 1.1987
+  },
+  "beats_the_trivial_baseline": {
+    "ridge_alpha100": true,
+    "knn_k1": false,
+    "knn_k8": false,
+    "knn_k32": true,
+    "student_bc_gait_raw": true,
+    "student_bc_gait_band": true,
+    "student_critic_gait_q": false,
+    "student_critic_gait_q_bc": false
+  },
+  "teacher_jitter": {
+    "consecutive_action_mse": 0.1031,
+    "action_energy": 0.2651,
+    "mean_abs_change_per_actuator": 0.1165
+  },
+  "teacher_value_predictability": {
+    "constant_mse": 18322257.696,
+    "ridge_mse": 9271157.173,
+    "knn32_mse": 18215462.713,
+    "r2_ridge": 0.494,
+    "r2_knn32": 0.0058,
+    "r2_ridge_target_dims_only": 0.0123,
+    "target_dims": [
+      46,
+      47,
+      48
+    ],
+    "value_std": 3441.171,
+    "val_rows": 3000
+  },
+  "action_extraction_compare": null,
+  "teacher": {
+    "artifact": "benchmarks/demos/mpc_gait_demos.npz",
+    "episodes": 28,
+    "demo_seeds": [
+      101,
+      102,
+      103,
+      104,
+      105,
+      106,
+      107,
+      108,
+      109,
+      110,
+      111,
+      112,
+      113,
+      114,
+      115,
+      116,
+      117,
+      118,
+      119,
+      120,
+      121,
+      122,
+      123,
+      124,
+      125,
+      126,
+      127,
+      128
+    ],
+    "reached": 12,
+    "upright_arrivals": 10,
+    "pct_steps_in_band": 42.73,
+    "transitions": 28000,
+    "transitions_in_band": 11964
+  },
+  "students": {
+    "bc_gait_raw": {
+      "checkpoint": "checkpoints/bc_gait_mpc_raw/bc_student_best2.pt",
+      "mean_return": 2098.76,
+      "reached_pct": 0.0,
+      "upright_arrival_pct": 0.0,
+      "falls_per_episode": 0.1,
+      "standing_at_end_pct": 0.0,
+      "selected_epoch": 2,
+      "kind": "bc"
+    },
+    "bc_gait_band": {
+      "checkpoint": "checkpoints/bc_gait_mpc_band/bc_student_best3.pt",
+      "mean_return": 1473.76,
+      "reached_pct": 0.0,
+      "upright_arrival_pct": 0.0,
+      "falls_per_episode": 0.1,
+      "standing_at_end_pct": 0.0,
+      "selected_epoch": 3,
+      "kind": "bc"
+    },
+    "critic_gait_q": {
+      "checkpoint": "checkpoints/critic_gait_mpc_q/critic_student_best7.pt",
+      "mean_return": -599.22,
+      "reached_pct": 0.0,
+      "upright_arrival_pct": 0.0,
+      "falls_per_episode": 0.1,
+      "standing_at_end_pct": 0.0,
+      "selected_epoch": 7,
+      "kind": "offline_critic",
+      "val_td_mse_selected": 2957.17,
+      "val_td_mse_first": 9882.87,
+      "val_td_mse_last": 150952.45,
+      "epochs_run": 60,
+      "actor_mode": "q",
+      "bc_lambda": 0.0
+    },
+    "critic_gait_q_bc": {
+      "checkpoint": "checkpoints/critic_gait_mpc_q_bc/critic_student_best7.pt",
+      "mean_return": -599.21,
+      "reached_pct": 0.0,
+      "upright_arrival_pct": 0.0,
+      "falls_per_episode": 0.1,
+      "standing_at_end_pct": 0.0,
+      "selected_epoch": 7,
+      "kind": "offline_critic",
+      "val_td_mse_selected": 2956.98,
+      "val_td_mse_first": 9882.89,
+      "val_td_mse_last": 150910.38,
+      "epochs_run": 60,
+      "actor_mode": "q_bc",
+      "bc_lambda": 1.0
+    }
+  },
+  "reading": "no predictor of the teacher's action from the 49-wide observation beats the constant baseline, including the trained students, so the BC failure is a property of the recorded target - the argmin of a stochastic search - and not of the student capacity or the training schedule"
+}

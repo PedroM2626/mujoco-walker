@@ -352,6 +352,17 @@ def parse_args():
                         help="discount used inside the shaping term. Default: this run's --gamma, which "
                              "is what makes the term telescope against the same critic that bootstraps "
                              "with it.")
+    parser.add_argument("--strict-band-gate", action="store_true", default=False,
+                        help="Zero locomotion reward terms (target_progress, target_direction, "
+                             "forward_velocity) outside the standing band (z > 1.0 m, upright > 0.7) "
+                             "in the reward seen by the learner, while keeping logged episode returns "
+                             "on the unmodified published reward.")
+    parser.add_argument("--demo-buffer", type=str, default="",
+                        help="Path to an MPC demonstration .npz file (with disjoint demo_seeds) to "
+                             "pre-populate the SAC replay buffer at step 0.")
+    parser.add_argument("--bc-reg-weight", type=float, default=0.0,
+                        help="Weight of the TD3+BC / BC+SAC in-band demonstration regulariser added "
+                             "to the SAC actor loss when --demo-buffer is provided.")
     parser.add_argument("--use-supervisor-in-training", action="store_true", default=False, help="Use recovery supervisor during target phase training")
     # PPO-specific arguments
     parser.add_argument("--num-steps", type=int, default=int(get_env_or_default("NUM_STEPS", ENV_VARS["NUM_STEPS"])), help="PPO rollout length per env.")
@@ -371,6 +382,26 @@ def parse_args():
     return parser.parse_args()
 
 
+class StrictBandGate(gym.Wrapper):
+    """Zero locomotion reward terms outside the standing band (z > 1.0 m, upright > 0.7).
+
+    Placed outside RecordEpisodeStatistics (the same position as PotentialShaping) so episode returns
+    stay on the unmodified published reward while the learner receives zero locomotion incentive for
+    diving or crawling in 0.65 < z <= 1.0 m.
+    """
+
+    def step(self, action):
+        obs, reward, terminated, truncated, info = self.env.step(action)
+        z = float(info.get("z_position", 0.0))
+        up = float(info.get("upright", 0.0))
+        if not (z > 1.0 and up > 0.7):
+            reward = (float(reward)
+                      - float(info.get("reward_target_progress", 0.0))
+                      - float(info.get("reward_target_direction", 0.0))
+                      - float(info.get("reward_forward_velocity", 0.0)))
+        return obs, reward, terminated, truncated, info
+
+
 def make_env(
     env_id,
     idx,
@@ -388,6 +419,7 @@ def make_env(
     reward_kwargs=None,
     target_curriculum=False,
     value_shaping=None,
+    strict_band_gate=False,
 ):
     def thunk():
         env_kwargs = {
@@ -414,6 +446,8 @@ def make_env(
         env = gym.wrappers.FlattenObservation(env)
         env = gym.wrappers.RecordEpisodeStatistics(env)
         env = wrap_clip_action(env)
+        if strict_band_gate:
+            env = StrictBandGate(env)
         if value_shaping:
             # Imported here rather than at the top of the file: the potential reads its normalisation
             # constants from evaluate_merging, and evaluate_merging imports this module.
@@ -444,6 +478,7 @@ def env_common_kwargs(args):
         "reward_kwargs": effective_reward_kwargs(args),
         "target_curriculum": bool(getattr(args, "target_curriculum", False)),
         "value_shaping": shaping_config(args),
+        "strict_band_gate": bool(getattr(args, "strict_band_gate", False)),
     }
 
 
@@ -1475,16 +1510,33 @@ def latest_ppo_checkpoint(ckpt_dir):
     return max(candidates)[1] if candidates else None
 
 
+def latest_student_checkpoint(ckpt_dir):
+    if not os.path.isdir(ckpt_dir):
+        return None
+    candidates = []
+    for name in os.listdir(ckpt_dir):
+        for prefix in ("bc_student_best", "critic_student_best"):
+            if name.startswith(prefix) and name.endswith(".pt"):
+                try:
+                    candidates.append((int(name[len(prefix):-3]), os.path.join(ckpt_dir, name)))
+                except ValueError:
+                    pass
+    return max(candidates)[1] if candidates else None
+
+
 def latest_checkpoint_any(ckpt_dir):
     """Find latest checkpoint of any algorithm type."""
     sac = latest_sac_checkpoint(ckpt_dir)
     ppo = latest_ppo_checkpoint(ckpt_dir)
     td3 = latest_td3_checkpoint(ckpt_dir)
+    student = latest_student_checkpoint(ckpt_dir)
     candidates = []
-    for path in (sac, ppo, td3):
+    for path in (sac, ppo, td3, student):
         if path is not None:
             try:
-                step = int(os.path.basename(path).split("_")[-1].replace(".pt", ""))
+                base = os.path.basename(path).replace(".pt", "")
+                digits = "".join(ch for ch in base.split("_")[-1] if ch.isdigit())
+                step = int(digits) if digits else 0
                 candidates.append((step, path))
             except ValueError:
                 pass
@@ -2070,17 +2122,25 @@ def train(start_time=None):
             )
         print(f"[INIT] Loading actor initialization from {ckpt_path}")
         checkpoint = load_torch_checkpoint(ckpt_path, device)
-        if checkpoint.get("algo") not in {"sac", "sac_actor"}:
-            raise ValueError(f"Checkpoint {ckpt_path} is not a SAC checkpoint.")
+        if checkpoint.get("algo") not in {"sac", "sac_actor", "bc", "offline_critic"}:
+            raise ValueError(f"Checkpoint {ckpt_path} is not a SAC/BC/offline-critic checkpoint.")
         actor_expanded = load_actor_initialization(actor, checkpoint)
         if actor_expanded:
             print("[INIT] Expanded actor input layer for new target observations.")
-        if args.init_critics and checkpoint.get("algo") == "sac":
+        if args.init_critics and "qf1_state_dict" in checkpoint:
             print("[INIT] Loading critics too; expanding if observation size changed.")
             load_state_dict_with_expanded_input(qf1, checkpoint["qf1_state_dict"], "net.0.weight")
             load_state_dict_with_expanded_input(qf2, checkpoint["qf2_state_dict"], "net.0.weight")
-            load_state_dict_with_expanded_input(qf1_target, checkpoint["qf1_target_state_dict"], "net.0.weight")
-            load_state_dict_with_expanded_input(qf2_target, checkpoint["qf2_target_state_dict"], "net.0.weight")
+            load_state_dict_with_expanded_input(
+                qf1_target,
+                checkpoint.get("qf1_target_state_dict", checkpoint["qf1_state_dict"]),
+                "net.0.weight",
+            )
+            load_state_dict_with_expanded_input(
+                qf2_target,
+                checkpoint.get("qf2_target_state_dict", checkpoint["qf2_state_dict"]),
+                "net.0.weight",
+            )
         elif args.init_critics:
             print("[INIT] Skipping critic initialization because lightweight actor checkpoint was loaded.")
         if checkpoint.get("obs_rms") is not None:
@@ -2092,6 +2152,38 @@ def train(start_time=None):
         print(
             "[INIT] Starting a fresh replay buffer and optimizer state for the new reward phase."
         )
+
+    demo_in_band_obs = None
+    demo_in_band_act = None
+    if getattr(args, "demo_buffer", ""):
+        demo_path = args.demo_buffer if os.path.isabs(args.demo_buffer) else os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))), args.demo_buffer)
+        with np.load(demo_path) as d_handle:
+            d_arrays = {k: d_handle[k] for k in d_handle.files}
+        with open(demo_path + ".json", encoding="utf-8") as d_meta_handle:
+            d_meta = json.load(d_meta_handle)
+        eval_overlap = set(range(11, 31)) & set(d_meta.get("demo_seeds", []))
+        if eval_overlap:
+            raise SystemExit(f"--demo-buffer overlaps evaluation seeds 11..30 on {sorted(eval_overlap)}")
+        obs_rms_cur = get_obs_rms(envs)
+        d_mean = np.asarray(obs_rms_cur.mean, dtype=np.float64)
+        d_var = np.asarray(obs_rms_cur.var, dtype=np.float64)
+        d_obs_norm = np.clip((d_arrays["obs"].astype(np.float64) - d_mean) / np.sqrt(d_var + 1e-8),
+                             -10.0, 10.0).astype(np.float32)
+        d_obs_next = np.roll(d_obs_norm, -1, axis=0)
+        d_bounds = np.cumsum([e["steps"] for e in d_meta["episodes"]])[:-1]
+        d_dones = np.zeros(len(d_obs_norm), dtype=np.float32)
+        d_last = np.concatenate([d_bounds - 1, [len(d_obs_norm) - 1]]).astype(int)
+        d_dones[d_last] = 1.0
+        d_act = d_arrays["action"].astype(np.float32)
+        d_rew = d_arrays["reward"].astype(np.float32)
+        rb.add(d_obs_norm, d_obs_next, d_act, d_rew, d_dones)
+        in_band_mask = d_arrays["in_band"].astype(bool)
+        if in_band_mask.any() and getattr(args, "bc_reg_weight", 0.0) > 0.0:
+            demo_in_band_obs = torch.as_tensor(d_obs_norm[in_band_mask], dtype=torch.float32, device=device)
+            demo_in_band_act = torch.as_tensor(d_act[in_band_mask], dtype=torch.float32, device=device)
+        print(f"[DEMO-BUFFER] Pre-populated replay buffer with {len(d_obs_norm)} transitions "
+              f"({int(in_band_mask.sum())} in-band) from {args.demo_buffer}")
 
     run_dir = get_run_dir(run_name)
     os.makedirs(run_dir, exist_ok=True)
@@ -2173,6 +2265,13 @@ def train(start_time=None):
                             qf2_pi = qf2(batch.obs, pi)
                             min_qf_pi = torch.min(qf1_pi, qf2_pi)
                             actor_loss = ((log_alpha.exp() * log_pi) - min_qf_pi).mean()
+                            if demo_in_band_obs is not None and args.bc_reg_weight > 0.0:
+                                d_idx = torch.randint(0, demo_in_band_obs.shape[0],
+                                                      (min(256, demo_in_band_obs.shape[0]),), device=device)
+                                d_mean_out, _ = actor(demo_in_band_obs[d_idx])
+                                bc_loss = F.mse_loss(torch.tanh(d_mean_out), demo_in_band_act[d_idx])
+                                q_scale = min_qf_pi.abs().mean().detach().clamp(min=1.0)
+                                actor_loss = actor_loss + (args.bc_reg_weight * q_scale) * bc_loss
 
                             actor_optimizer.zero_grad()
                             actor_loss.backward()

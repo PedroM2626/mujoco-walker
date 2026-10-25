@@ -252,6 +252,9 @@ def render_episode(policy, path, seed, steps, fps, out_dir, world_tag, model_ste
     policy_reset = getattr(policy, "reset", None)
     if policy_reset:
         policy_reset()
+    policy_bind = getattr(policy, "bind", None)
+    if policy_bind:
+        policy_bind(env)
     frames, tele_rows = [], []
     dist = float(info.get("target_distance", np.inf))
     min_dist = dist
@@ -358,6 +361,10 @@ def render_episode(policy, path, seed, steps, fps, out_dir, world_tag, model_ste
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", default=None, help="checkpoint path (any Phase-1 actor)")
+    ap.add_argument("--mpc-artifact", default=None,
+                    help="render CrossEntropyPlanner episodes using the config in a committed MPC JSON artifact")
+    ap.add_argument("--mpc-init-std", type=float, default=0.5,
+                    help="initial CEM sampling std when rendering from --mpc-artifact")
     ap.add_argument("--seeds", default="14,25,11,29")
     ap.add_argument("--world", default="published",
                     choices=("published", "explicit_full", "gait_reduced"))
@@ -388,12 +395,31 @@ def main():
               f"{len(args.gif_from)} clip(s) at {args.gif_width} px/{args.gif_fps} fps)")
         return
 
-    if not args.model:
-        raise SystemExit("--model is required unless --pair-gif is used")
+    if not args.model and not args.mpc_artifact:
+        raise SystemExit("--model or --mpc-artifact is required unless --gif-from is used")
 
-    label, phase, width, policy, policy_reset, rinfo = build_policy(args.model, args.device)
-    policy.reset = policy_reset
-    ck_step = os.path.basename(args.model).rsplit("_", 1)[-1].split(".")[0]
+    if args.mpc_artifact:
+        from bench_mpc import CrossEntropyPlanner
+        from envs.reward_shaping import TRAINING_REWARD_KWARGS
+        with open(args.mpc_artifact, encoding="utf-8") as handle:
+            mpc_art = json.load(handle)
+        cfg = mpc_art["config"]
+        label = f"CrossEntropyPlanner({cfg.get('objective', 'published')}, hold={cfg.get('hold', 1)})"
+        phase = "target"
+        width = 49
+        ck_step = os.path.splitext(os.path.basename(args.mpc_artifact))[0]
+        rinfo = {
+            "reward_kwargs": dict(TRAINING_REWARD_KWARGS),
+            "target_curriculum": False,
+            "env_version": "standup_balance_walk_curriculum_v9",
+            "reward_source": "TRAINING_REWARD_KWARGS",
+            "value_shaping": None,
+        }
+        policy = None
+    else:
+        label, phase, width, policy, policy_reset, rinfo = build_policy(args.model, args.device)
+        policy.reset = policy_reset
+        ck_step = os.path.basename(args.model).rsplit("_", 1)[-1].split(".")[0]
     env_kwargs = {"reset_mode": "mixed", "task_phase": phase or "target",
                   **(rinfo["reward_kwargs"] or {})}
     if rinfo["target_curriculum"]:
@@ -403,13 +429,38 @@ def main():
         "NOT the published MDP: arms removed from collision" if args.world == "gait_reduced"
         else "explicit <pair> set, verified same MDP")
     radius = 0.45
-    print(f"[CLIP] model={args.model} algo={label} phase={phase} obs={width} "
+    model_id = args.mpc_artifact or args.model
+    print(f"[CLIP] model={model_id} algo={label} phase={phase} obs={width} "
           f"world={world_tag} curriculum={rinfo['target_curriculum']}")
     t0 = time.perf_counter()
     episodes = []
     for seed in [int(s) for s in args.seeds.split(",")]:
-        tele = render_episode(policy, path, seed, args.steps, args.fps, args.out_dir,
-                              args.world, f"{args.world}_{ck_step}", radius, env_kwargs, banner)
+        if args.mpc_artifact:
+            ep_policy = CrossEntropyPlanner(
+                horizon=int(cfg["horizon"]),
+                samples=int(cfg["samples"]),
+                iterations=int(cfg["iterations"]),
+                elite=int(cfg["elite"]),
+                replan=int(cfg["replan"]),
+                seed=int(seed),
+                action=str(cfg.get("action", "elite-mean")),
+                objective=str(cfg.get("objective", "gait")),
+                hold=int(cfg.get("hold", 5)),
+                init_std=float(cfg.get("init_std", args.mpc_init_std)),
+                min_std=float(cfg.get("min_std", 0.05)),
+                cont_decay=float(cfg.get("cont_decay", 1.0)),
+                slew_weight=float(cfg.get("slew_weight", 0.0)),
+                settled_fall_termination=bool(cfg.get("settled_fall_termination", False)),
+                overspeed_weight=float(cfg.get("overspeed_weight", 0.0)),
+                target_vel=float(cfg.get("target_vel", 0.8)),
+                band_bonus=float(cfg.get("band_bonus", 0.0)),
+            )
+            frame_world_tag = f"{args.world} ({ck_step})"
+        else:
+            ep_policy = policy
+            frame_world_tag = args.world
+        tele = render_episode(ep_policy, path, seed, args.steps, args.fps, args.out_dir,
+                              frame_world_tag, f"{args.world}_{ck_step}", radius, env_kwargs, banner)
         if args.publish_clips:
             tele.update(publish_clip(os.path.join(args.out_dir, tele["video"]), args.publish_clips))
         episodes.append(tele)
@@ -426,7 +477,7 @@ def main():
         json.dump({"protocol": f"make_target_clips.py: {label} actor, deterministic, "
                               f"task_phase={phase}, reset_mode=mixed, {args.steps} env steps "
                               f"max at {args.fps} fps, world={world_tag}",
-                   "model": args.model, "algo": label, "task_phase": phase,
+                   "model": model_id, "algo": label, "task_phase": phase,
                    "checkpoint_env_version": rinfo["env_version"],
                    "reward_source": rinfo["reward_source"],
                    "value_shaping_recorded_not_applied": rinfo["value_shaping"],

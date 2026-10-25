@@ -597,6 +597,41 @@ warm-starts (`sac_warmstart_gait_100k` reaches `1/20` with `0.74 s` longest band
 `episodes_never_in_band = 13/20`) break the floor paralysis (`+5113` to `+5262` median return vs
 `+1326` in pure BC) but need multi-million-step budgets to sustain standing locomotion.
 
+![Gait-MPC teacher walking upright to the target: seed 14 (v_ref=1.1 m/s) and seed 20 (v_ref=0.8 m/s), side by side](docs/media/gait_mpc_upright_arrivals_seed14_seed20.gif)
+
+*The corrected Gait-MPC teacher (`CrossEntropyPlanner --objective gait --hold 5 --action elite-mean`)
+walking upright to the target in the published v9 contact world (`benchmarks/target_clips_mpc_gait_v11.json`,
+`benchmarks/target_clips_mpc_gait_v08.json`, full `.mp4` clips in `docs/media/clips/`). Left:
+`mpc_gait_target_v11` on **seed 14** (`d0 = 2.858 m`, reset fallen at `z = 0.312 m`), rising into the
+standing band (`44.8%` of steps in band, `1.565 m` closed while standing, `64.8%` standing share) and
+arriving `reached_upright` at **0.442 m** (`step 270`, `torso z = 1.151 m`, `upright = 0.824`, return
+**97,042.60**). Right: `mpc_gait_target_v08` on **seed 20** (`d0 = 4.610 m`, reset fallen at
+`z = 0.437 m`), closing `2.723 m` while standing (`60.8%` standing share) and arriving `reached_upright`
+at **0.133 m** (`step 631`, `torso z = 1.002 m`, `upright = 0.964`, return **89,955.74**).*
+
+![Gait-MPC teacher vs pure BC student on seed 14, side by side](docs/media/gait_mpc_vs_bc_student_seed14.gif)
+
+*Teacher vs pure behavioral-cloning student on the identical **seed 14** fallen reset
+(`benchmarks/target_clips_bc_gait_raw.json`). Left: the Gait-MPC teacher (`mpc_gait_target_v11`) uses
+its 60-step online MuJoCo lookahead every 0.05 s to stand up from `z = 0.312 m` and walk upright into
+the target (`reached_upright`, `min_dist = 0.442 m`). Right: `bc_gait_raw` (`bc_student_best2.pt`),
+despite beating the constant-zero baseline on held-out teacher states (`val_mse = 0.2113` vs `0.2598`),
+compounds open-loop errors during the multi-contact stand-up from the floor and remains `stalled` at
+**2.818 m** (`933` arm-floor contact steps, return **966.76**).*
+
+![Gait-MPC teacher vs warm-started online SAC student on seed 30, side by side](docs/media/gait_mpc_vs_sac_student_seed30.gif)
+
+*The one episode out of 20 where a student trained from the Gait-MPC teacher enters the `0.45 m` target
+radius: **seed 30** (`d0 = 3.273 m`, `benchmarks/target_clips_sac_warmstart_gait_100k.json`). Left:
+`mpc_gait_target_v11` spends `46.5%` of the episode in the standing band (`1.449 m` closed while
+standing, `longest_band_run_s = 1.58 s`) and reaches **0.434 m** (`step 865`, `torso z = 0.909 m`,
+`upright = 0.908`, `reached_by_falling` because `z < 1.0 m` at the closest frame, return **89,845.19**).
+Right: the warm-started online SAC student `sac_warmstart_gait_100k` (`sac_actor_100000.pt`, initialized
+from `bc_gait_raw` with the 28-episode Gait-MPC demonstration buffer, in-band BC regularizer, and
+`--strict-band-gate`) breaks out of the BC floor paralysis (`mean_x_velocity = +0.3021 m/s`, return
+**8,674.46**) and reaches the target at **0.398 m**, but arrives `reached_by_falling` rather than
+walking upright.*
+
 What the phase split does cost is that a phase cannot change mid-run. `task_phase` is read once in the
 constructor and decides the observation width - `observation_size = 49 if task_phase == "target" else
 46`, the three extra components being the target's relative x, y and clipped distance - and that width

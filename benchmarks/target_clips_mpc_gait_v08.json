@@ -1,0 +1,40 @@
+{
+ "protocol": "make_target_clips.py: CrossEntropyPlanner(gait, hold=5) actor, deterministic, task_phase=target, reset_mode=mixed, 1000 env steps max at 100 fps, world=v9 published (automatic filter)",
+ "model": "benchmarks/mpc_gait_target_v08.json",
+ "algo": "CrossEntropyPlanner(gait, hold=5)",
+ "task_phase": "target",
+ "checkpoint_env_version": "standup_balance_walk_curriculum_v9",
+ "reward_source": "TRAINING_REWARD_KWARGS",
+ "value_shaping_recorded_not_applied": null,
+ "target_curriculum": false,
+ "world": "published",
+ "world_tag": "v9 published (automatic filter)",
+ "xml": "D:\\mujoco-walker\\walker_ragdoll.xml",
+ "target_radius": 0.45,
+ "fps": 100,
+ "below_floor_tolerance_m": 0.02,
+ "seconds": 151.8,
+ "episodes": [
+  {
+   "steps": 1000,
+   "min_target_distance": 0.133,
+   "reached_target": true,
+   "min_target_distance_upright": 0.133,
+   "reached_target_upright": true,
+   "mean_x_velocity": 0.5577,
+   "falls": 4,
+   "return": 89955.74,
+   "arm_floor_contact_steps": 223,
+   "arm_below_floor_steps": 50,
+   "arm_max_depth_below_floor_m": 0.0872,
+   "seed": 20,
+   "outcome": "reached_upright",
+   "frames": 1000,
+   "frame_check": "robot-coloured pixel ratio 0.0053; marker pixels 285",
+   "video": "published_mpc_gait_target_v08s_seed20_reached_upright.mp4",
+   "published_path": "docs/media/clips/published_mpc_gait_target_v08s_seed20_reached_upright.mp4",
+   "published_sha256": "5a830f371a46442fbfcc630a4e4219ea2bfc83066e1d1623daea482aa0a026b7",
+   "published_bytes": 4522182
+  }
+ ]
+}

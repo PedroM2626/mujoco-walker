@@ -191,6 +191,38 @@ class TestGaitMpcBenchmarkArtifact(unittest.TestCase):
             stage_b["students_20ep_gait"]["bc_gait_raw"]["episodes_never_in_band"],
         )
 
+        # 5. Verify the rendered Gait-MPC teacher and student clip sidecars, mp4 hashes, and README GIFs
+        import hashlib
+        sidecars = (
+            "benchmarks/target_clips_mpc_gait_v11.json",
+            "benchmarks/target_clips_mpc_gait_v08.json",
+            "benchmarks/target_clips_bc_gait_raw.json",
+            "benchmarks/target_clips_sac_warmstart_gait_100k.json",
+        )
+        for rel_sc in sidecars:
+            sc_path = os.path.join(ROOT, rel_sc.replace("/", os.sep))
+            self.assertTrue(os.path.exists(sc_path), f"missing clip sidecar {rel_sc}")
+            with open(sc_path, encoding="utf-8") as handle:
+                sc = json.load(handle)
+            for ep in sc["episodes"]:
+                mp4_path = os.path.join(ROOT, ep["published_path"].replace("/", os.sep))
+                self.assertTrue(os.path.exists(mp4_path), f"missing published clip {ep['published_path']}")
+                self.assertEqual(os.path.getsize(mp4_path), ep["published_bytes"])
+                with open(mp4_path, "rb") as mhandle:
+                    self.assertEqual(hashlib.sha256(mhandle.read()).hexdigest(), ep["published_sha256"])
+
+        with open(os.path.join(ROOT, "README.md"), encoding="utf-8") as handle:
+            readme = handle.read()
+        for gif_rel in (
+            "docs/media/gait_mpc_upright_arrivals_seed14_seed20.gif",
+            "docs/media/gait_mpc_vs_bc_student_seed14.gif",
+            "docs/media/gait_mpc_vs_sac_student_seed30.gif",
+        ):
+            self.assertIn(gif_rel, readme, f"README.md does not embed {gif_rel}")
+            gif_path = os.path.join(ROOT, gif_rel.replace("/", os.sep))
+            self.assertTrue(os.path.exists(gif_path), f"missing GIF {gif_rel}")
+            self.assertLessEqual(os.path.getsize(gif_path) / 1e6, 3.6, f"{gif_rel} exceeds 3.6 MB budget")
+
 
 if __name__ == "__main__":
     unittest.main()

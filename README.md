@@ -574,7 +574,7 @@ out of those and not out of returns.
 A follow-up gait-teacher and student-transfer audit in `benchmarks/mpc_gait_teacher_benchmark.json`
 (`scripts/bench_gait_mpc_teacher.py`, detailed in `docs/lab-notes.md`) tested what happens when the
 MPC planner itself is modified so that locomotion reward is gated strictly inside the standing band
-(`z > 1.0 m`, `upright > 0.7`, `--objective gait`) and optimized over 5-step (0.25 s) torque knots
+(`z > 1.0 m`, `upright > 0.7`, `--objective gait`) and optimized over 5-step (0.05 s) torque knots
 with `elite-mean` execution and settled-fall termination. On the 20-episode official target benchmark
 (`benchmarks/mpc_gait_target_v08.json` and `benchmarks/mpc_gait_target_v11.json`), the modified
 planner walks upright: `mpc_gait_target_v08` spends 44.24% of all steps in the standing band, closes
@@ -583,8 +583,8 @@ planner walks upright: `mpc_gait_target_v08` spends 44.24% of all steps in the s
 `mpc_gait_target_v11` reaches 5/20 targets with 4/5 (80%) upright arrivals and holds up to 2.32 s.
 Knot holding cuts consecutive-action MSE on the 28-episode demonstration set (`benchmarks/gait_bc_teacher_benchmark.json`)
 by 7.3x (`0.7567 -> 0.1031`, `0.389x` of action energy) so that held-out predictors and behavioral
-cloning students (`bc_gait_raw` `0.2113`, `bc_gait_band` `0.2203`) beat the constant-zero baseline
-(`0.2598` / `0.2627`) for the first time (`beats_the_trivial_baseline = True`). Reconciling an
+cloning students (`bc_gait_raw` `0.2113`, `bc_gait_band` `0.2203`) beat both constant baselines
+(per-dimension mean `0.2598`, zero `0.2627`) for the first time (`beats_the_trivial_baseline = True`). Reconciling an
 uncentered group-residual calculation in `scripts/bench_planner_q.py` (`within_r2_centered`) shows
 that the within-state candidate $Q(s,a)$ regressions sit at about zero rather than far below it:
 `+0.0130` centered (`joint_interactions`) on `mpc_candidates.npz` against the uncentered `-3.168`
@@ -592,7 +592,7 @@ that `benchmarks/planner_q_probe.json` published, and `+0.0076` (`joint_linear`)
 (`joint_interactions`) on `benchmarks/gait_planner_q_probe.json` - at most 1.3% of variance, because a
 single first action knot explains ~1% of a 60-100 step return.
 Closed-loop neural students (`benchmarks/gait_mpc_students.json`, `benchmarks/gait_sac_online_eval.json`)
- still do not walk to the target: pure open-loop BC students cannot recover from the 18/20 fallen
+ still do not walk to the target: pure BC students cannot recover from the 18/20 fallen
 `mixed` resets without online lookahead (`0/20` reaches, `18/20` never in band), offline TD critics
 diverge on out-of-distribution actions (`val_td_mse = 2957 -> 150910`), and short 200k-step online SAC
 runs with the strict band gate break the floor paralysis (median return `+5113` from scratch,
@@ -620,8 +620,9 @@ at **0.133 m** (`step 631`, `torso z = 1.002 m`, `upright = 0.964`, return **89,
 (`benchmarks/target_clips_bc_gait_raw.json`). Left: the Gait-MPC teacher (`mpc_gait_target_v11`) uses
 its 60-step online MuJoCo lookahead every 0.05 s to stand up from `z = 0.312 m` and walk upright into
 the target (`reached_upright`, `min_dist = 0.442 m`). Right: `bc_gait_raw` (`bc_student_best2.pt`),
-despite beating the constant-zero baseline on held-out teacher states (`val_mse = 0.2113` vs `0.2598`),
-compounds open-loop errors during the multi-contact stand-up from the floor and remains `stalled` at
+despite beating the constant baselines on held-out teacher states (`val_mse = 0.2113` vs `0.2598` for the
+per-dimension mean),
+compounds its errors during the multi-contact stand-up from the floor and remains `stalled` at
 **2.818 m** (`933` arm-floor contact steps, return **966.76**).*
 
 ![Gait-MPC teacher vs warm-started online SAC student on seed 30, side by side](docs/media/gait_mpc_vs_sac_student_seed30.gif)
@@ -2403,13 +2404,13 @@ The suite is plain `unittest` (no pytest required) and covers the environment co
 golden reward rollouts, the parallel/serial vector-env parity, checkpointing, the race
 harness, the contact worlds and MJX pairs, physics presets, reward and value shaping, the
 BC/critic/Gait-MPC students and teacher, the target clips, and the README's own numbers against
-`benchmarks/` (`tests/test_readme_evidence.py`) — **480 tests, 269 s in this window** (`Ran 480 tests in 269.468s ... OK
-(skipped=7)` under `.venv`). Windows of this suite have measured 176.3 s at 102 tests, 269.995 s
+`benchmarks/` (`tests/test_readme_evidence.py`) — **486 tests, 977 s in this window** (`Ran 486 tests in 977.305s ... OK
+(skipped=7)` under `.venv`, on a machine shared with other projects' CPU-heavy jobs). Windows of this suite have measured 176.3 s at 102 tests, 269.995 s
 at 121, 261.1 s at 127, 329.964 s at 128, 319.168 s at 130, 184.716 s, 203.108 s and 306.976 s at
 140, 144.678 s at 147, 230.268 s at 157, 171.016 s and 170.304 s at 194, and 174.008 s,
 170.391 s, 175.036 s, 168.775 s, 168.986 s and 166.606 s at 201/205/210, 169.919 s at 214,
 and 163.920 s and 161.829 s at 237, 165.360 s and 164.902 s at 243, 161.647 s and 162.674 s at 250, 162.726 s and 162.167 s at 251, 171.616 s and 163.434 s at 252, 163.769 s and 163.748 s at 255, 226.912 s and 217.651 s at 260, 193.167 s and 191.909 s at 273, 206.150 s at 279, 193.904 s at 284, 201.464 s at 289, 189.864 s and 187.485 s at 294, 190.012 s at 297, 230.180 s at 301, 190.655 s at 311, 211.202 s at 317, 195.419 s at 322, 184.182 s at 326, 180.964 s at 326, 266.112 s and 191.187 s at 339, 185.556 s at 340, 193.319 s at 351, 218.984 s at 369, 238.576 s at 376, 355.206 s at 399, 339.222 s and 373.536 s at 424/426, 320.360 s, 308.791 s, 398.060 s, 401.094 s, 397.254 s and 446.193 s at 428/430/438/455/458/459, 253.676 s, 254.946 s and 250.889 s at
-466/467/472, 729.079 s and 390.465 s at 472, and 260.058 s at 475 -
+466/467/472, 729.079 s and 390.465 s at 472, 260.058 s at 475, 863.577 s and 977.305 s at 486 (both measured while two other projects ran CPU-heavy Python jobs on this machine) -
 those last windows carry a dose test that runs three short CPU trainings, which are about 27 s of
 them, so that entry is not slower hardware; consecutive runs of one commit agree to 4%, where the
 147 and 157 windows an afternoon earlier were 1.6x apart for ten more tests. The
@@ -2433,8 +2434,8 @@ python -m unittest discover -s tests -t .
 All seven skips are `tests/test_phase4_behaviour`, which needs `Walker2d-v5` and cannot get it on
 gymnasium 0.29; nothing else skips here (torch in `.venv` is a cu121 build and the device answers,
 so the CUDA graph-capture test runs). The reverse does not hold: run the same command under
-`.venv-phase4` and all 23 test modules import and pass - discovery there collects 474 of the
-480 tests, and all of them pass with one skip in 198.478 s (2026-11-01), once `requirements-phase4.txt` brings `imageio-ffmpeg` for the clip
+`.venv-phase4` and all 23 test modules import and pass - discovery there collects 480 of the
+486 tests, and all of them pass with one skip (198.478 s at 474 on 2026-11-01, 474.155 s at 480 on 2026-11-02), once `requirements-phase4.txt` brings `imageio-ffmpeg` for the clip
 render tests. Do not run two copies of the suite at once, in one venv or across both: the training
 tests write to the repository's own `checkpoints/` and `runs/` under fixed run ids, so concurrent
 runs delete each other's event files and overwrite each other's checkpoints.
@@ -2480,7 +2481,7 @@ that they ran - see Phase 4, item 6. How each of those states was found, with th
 ## 🔬 Reproducing and measuring
 
 ```bash
-python -m unittest discover -s tests -t .   # 480 tests in .venv, 269 s; see "Running the tests"
+python -m unittest discover -s tests -t .   # 486 tests in .venv, 977 s under load; see "Running the tests"
 python scripts/bench_env.py --seconds 4             # env throughput, physics vs Python split
 python scripts/bench_mjx.py --sizes 32,128          # MJX/JAX batched stepping
 python scripts/bench_mjx_pairs.py --verify          # is an explicit-<pair> world the same MDP? (MuJoCo-C)

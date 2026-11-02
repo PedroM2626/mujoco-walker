@@ -5587,5 +5587,271 @@ class TestReadmeCurriculumProvenanceCells(ReadmeGate, unittest.TestCase):
         self.assertNotIn("recovery agent was fine-tuned from the walking agent", phase3,
                          "Phase 3 still states the reversed lineage that the checkpoint dates refute")
 
+
+class TestReadmeGaitMpcCells(ReadmeGate, unittest.TestCase):
+    """The Gait-MPC teacher-and-students paragraph and its three GIF captions, against the raw artifacts.
+
+    This section shipped ungated and four of its figures were wrong on arrival: the strict-band run's
+    13/20 and +5113 were credited to the warm-start, an uncentered R2 of -0.3507 that no artifact holds
+    stood in for the recorded -3.168, and a 5-step knot was called 0.25 s at a 0.01 s control step.
+    Every figure is therefore read from the per-arm evaluation it came from, not from the summary
+    JSON alone, and the summary is checked against those same evaluations.
+    """
+
+    START = "A follow-up gait-teacher and student-transfer audit"
+    END = "What the phase split does cost"
+    B = os.path.join(ROOT, "benchmarks")
+
+    def setUp(self):
+        with open(README, encoding="utf-8") as handle:
+            readme = handle.read()
+        start = readme.index(self.START)
+        self.block = readme[start:readme.index(self.END, start)]
+        (self.v08, self.v11, self.bc, self.old_bc, self.qold, self.qgait, self.summary,
+         self.students, self.sac, self.clip08, self.clip11, self.clipbc, self.clipsac) = \
+            self.read_artifacts(*[os.path.join(self.B, f) for f in (
+                "mpc_gait_target_v08.json", "mpc_gait_target_v11.json",
+                "gait_bc_teacher_benchmark.json", "bc_teacher_benchmark.json",
+                "planner_q_probe.json", "gait_planner_q_probe.json",
+                "mpc_gait_teacher_benchmark.json", "gait_mpc_students.json",
+                "gait_sac_online_eval.json", "target_clips_mpc_gait_v08.json",
+                "target_clips_mpc_gait_v11.json", "target_clips_bc_gait_raw.json",
+                "target_clips_sac_warmstart_gait_100k.json")])
+        self.bad = []
+        self.what = "Gait-MPC"
+
+    @staticmethod
+    def _control_dt():
+        """frame_skip x MuJoCo timestep, read from the env's default and the model it loads."""
+        import inspect
+        sys.path.insert(0, ROOT)
+        from envs.walker_ragdoll_env import WalkerRagdollEnv
+        frame_skip = inspect.signature(WalkerRagdollEnv.__init__).parameters["frame_skip"].default
+        with open(os.path.join(ROOT, "walker_ragdoll.xml"), encoding="utf-8") as handle:
+            timestep = float(re.search(r'timestep="([\d.]+)"', handle.read()).group(1))
+        return frame_skip * timestep
+
+    @staticmethod
+    def _episode(artifact, seed, key="per_episode"):
+        hits = [e for e in artifact[key] if e["seed"] == seed]
+        assert len(hits) == 1, f"seed {seed} is not exactly once in the artifact"
+        return hits[0]
+
+    def test_the_knot_and_the_lookahead_are_the_configured_ones(self):
+        dt = self._control_dt()
+        for arm in (self.v08, self.v11):
+            self.assertEqual(arm["config"]["objective"], "gait")
+            self.assertEqual(arm["config"]["action"], "elite-mean")
+            self.assertTrue(arm["config"]["settled_fall_termination"])
+        m = self.sentence(r"optimized over (\d+)-step \(([\d.]+) s\) torque knots", "the knot length")
+        self.check("knot steps", m.group(1), self.v08["config"]["hold"], places=0)
+        self.check("knot seconds", m.group(2), self.v08["config"]["hold"] * dt, places=2)
+        m = self.sentence(r"its (\d+)-step online MuJoCo lookahead every ([\d.]+) s", "the lookahead")
+        self.check("lookahead steps", m.group(1), self.v11["config"]["horizon"], places=0)
+        self.check("replan seconds", m.group(2), self.v11["config"]["replan"] * dt, places=2)
+
+    def test_the_teacher_arms_are_the_official_twenty_episodes(self):
+        a = self.v08["all_episodes"]
+        m = self.sentence(r"`mpc_gait_target_v08` spends ([\d.]+)% of all steps in the standing band, "
+                          r"closes ([\d.]+)% of its target approach while standing \(([\d.]+) m "
+                          r"standing vs ([\d.]+) m down\), rises into the band in (\d+)/(\d+) "
+                          r"episodes, and holds continuous standing runs up to ([\d.]+) s "
+                          r"\((\d+)/(\d+) episodes >= ([\d.]+) s\)", "the v08 teacher")
+        self.check("v08 % in band", m.group(1), a["mean_pct_steps_in_band"], places=2)
+        self.check("v08 share standing", m.group(2), a["share_while_standing"] * 100, places=1)
+        self.check("v08 m standing", m.group(3), a["closing_while_standing_m"], places=2)
+        self.check("v08 m down", m.group(4), a["closing_while_down_m"], places=2)
+        self.check("v08 rose into band", m.group(5), a["episodes"] - a["episodes_never_in_band"],
+                   places=0)
+        self.check("v08 episodes", [m.group(6), m.group(9)], [a["episodes"]] * 2, places=0)
+        self.check("v08 longest run", m.group(7), a["max_longest_band_run_s"], places=2)
+        self.check("v08 runs >= 2 s", m.group(8), a["episodes_with_band_run_ge_2s"], places=0)
+        m = self.sentence(r"`mpc_gait_target_v11` reaches (\d+)/(\d+) targets with (\d+)/(\d+) "
+                          r"\((\d+)%\) upright arrivals and holds up to ([\d.]+) s", "the v11 teacher")
+        reach = self.v11["reach_episodes"]["episodes"]
+        upright = self.v11["upright_arrival_episodes"]["episodes"]
+        self.check("v11 reaches", [m.group(1), m.group(4)], [reach, reach], places=0)
+        self.check("v11 episodes", m.group(2), self.v11["all_episodes"]["episodes"], places=0)
+        self.check("v11 upright", m.group(3), upright, places=0)
+        self.check("v11 upright %", m.group(5), 100 * upright / reach, places=0)
+        self.check("v11 longest run", m.group(6),
+                   self.v11["all_episodes"]["max_longest_band_run_s"], places=2)
+
+    def test_the_demonstrations_and_offline_predictors(self):
+        jit, old = self.bc["teacher_jitter"], self.old_bc["teacher_jitter"]
+        mse = self.bc["predictability_val_mse"]
+        m = self.sentence(r"on the (\d+)-episode demonstration set \(`benchmarks/gait_bc_teacher_"
+                          r"benchmark.json`\) by ([\d.]+)x \(`([\d.]+) -> ([\d.]+)`, `([\d.]+)x` of "
+                          r"action energy\)", "the knot jitter cut")
+        self.check("demo episodes", m.group(1), self.bc["teacher"]["episodes"], places=0)
+        self.check("jitter ratio", m.group(2),
+                   old["consecutive_action_mse"] / jit["consecutive_action_mse"], places=1)
+        self.check("old jitter", m.group(3), old["consecutive_action_mse"], places=4)
+        self.check("new jitter", m.group(4), jit["consecutive_action_mse"], places=4)
+        self.check("jitter / energy", m.group(5),
+                   jit["consecutive_action_mse"] / jit["action_energy"], places=3)
+        m = self.sentence(r"\(`bc_gait_raw` `([\d.]+)`, `bc_gait_band` `([\d.]+)`\) beat both constant "
+                          r"baselines \(per-dimension mean `([\d.]+)`, zero `([\d.]+)`\)",
+                          "the held-out student MSEs")
+        self.check("bc raw MSE", m.group(1), mse["student_bc_gait_raw"], places=4)
+        self.check("bc band MSE", m.group(2), mse["student_bc_gait_band"], places=4)
+        self.check("per-dim mean MSE", m.group(3), mse["per_dim_mean_of_train"], places=4)
+        self.check("zero MSE", m.group(4), mse["zero"], places=4)
+        for student in ("student_bc_gait_raw", "student_bc_gait_band"):
+            self.assertTrue(self.bc["beats_the_trivial_baseline"][student])
+            self.assertLess(mse[student], min(mse["zero"], mse["per_dim_mean_of_train"]))
+
+    def test_the_action_value_reconciliation(self):
+        centered = self.summary["planner_q_reconciliation"]["centered_within_plan"]
+        gait = self.qgait["cells"]
+        m = self.sentence(r"`\+([\d.]+)` centered \(`joint_interactions`\) on `mpc_candidates.npz` "
+                          r"against the uncentered `(-[\d.]+)` that `benchmarks/planner_q_probe.json` "
+                          r"published, and `\+([\d.]+)` \(`joint_linear`\) / `(-[\d.]+)` "
+                          r"\(`joint_interactions`\) on `benchmarks/gait_planner_q_probe.json` - at "
+                          r"most ([\d.]+)% of variance", "the centered Q(s, a) cells")
+        self.check("centered, candidates", m.group(1),
+                   centered["joint_interactions"]["within_r2_centered"], places=4)
+        self.check("uncentered, published", m.group(2),
+                   self.qold["cells"]["joint_interactions"]["within_r2"], places=3)
+        self.check("gait joint_linear", m.group(3), gait["joint_linear"]["within_r2_centered"],
+                   places=4)
+        self.check("gait joint_interactions", m.group(4),
+                   gait["joint_interactions"]["within_r2_centered"], places=4)
+        best = max(centered["joint_interactions"]["within_r2_centered"],
+                   *(c["within_r2_centered"] for c in gait.values()))
+        self.check("variance ceiling", m.group(5), 100 * best, places=1)
+
+    def test_the_students_and_which_arm_reached(self):
+        stage_b = self.summary["stage_b_demos_and_offline_students"]["students_20ep_gait"]
+        stage_c = self.summary["stage_c_online_sac_strict_band_and_warmstart"]["arms_20ep_gait"]
+        evals = {**self.students["models"], **self.sac["models"]}
+        for name, row in {**stage_b, **stage_c}.items():
+            self.check(f"summary median, {name}", row["median_return"], evals[name]["median"], places=2)
+            self.check(f"summary reaches, {name}", row["reach_20ep"],
+                       evals[name]["reached_target_pct"] * evals[name]["episodes"] / 100, places=0)
+        fallen = sum(not e["start_in_band"] for e in self.v11["per_episode"])
+        m = self.sentence(r"cannot recover from the (\d+)/(\d+) fallen `mixed` resets without online "
+                          r"lookahead \(`(\d+)/(\d+)` reaches, `(\d+)/(\d+)` never in band\)",
+                          "the BC students")
+        self.check("fallen resets", [m.group(1), m.group(2)], [fallen, len(self.v11["per_episode"])],
+                   places=0)
+        for arm in ("bc_gait_raw", "bc_gait_band"):
+            self.check(f"{arm} reaches", m.group(3), stage_b[arm]["reach_20ep"], places=0)
+            self.check(f"{arm} never in band", m.group(5), stage_b[arm]["episodes_never_in_band"],
+                       places=0)
+        m = self.sentence(r"`val_td_mse = (\d+) -> (\d+)`", "the critic divergence")
+        critic = self.bc["students"]["critic_gait_q_bc"]
+        self.check("critic selected TD", m.group(1), critic["val_td_mse_selected"], places=0)
+        self.check("critic last TD", m.group(2), critic["val_td_mse_last"], places=0)
+        m = self.sentence(r"median return `\+(\d+)` from scratch, `sac_strict_band_200k`, and `\+(\d+)` "
+                          r"warm-started, `sac_warmstart_gait_200k`, vs `\+(\d+)` in pure BC; `(\d+)/20` "
+                          r"and `(\d+)/20` episodes never in band", "the 200k SAC arms")
+        self.check("strict median", m.group(1), self.sac["models"]["sac_strict_band_200k"]["median"],
+                   places=0)
+        self.check("warm 200k median", m.group(2),
+                   self.sac["models"]["sac_warmstart_gait_200k"]["median"], places=0)
+        self.check("BC median", m.group(3), self.students["models"]["bc_gait_raw"]["median"], places=0)
+        self.check("strict never in band", m.group(4),
+                   stage_c["sac_strict_band_200k"]["episodes_never_in_band"], places=0)
+        self.check("warm 200k never in band", m.group(5),
+                   stage_c["sac_warmstart_gait_200k"]["episodes_never_in_band"], places=0)
+        m = self.sentence(r"reaches a target - `(\d+)/(\d+)`, not upright - with a `([\d.]+) s` longest "
+                          r"band run and `(\d+)/(\d+)` episodes never in band", "the 100k warm-start")
+        w = stage_c["sac_warmstart_gait_100k"]
+        self.check("100k reaches", m.group(1), w["reach_20ep"], places=0)
+        self.check("100k episodes", [m.group(2), m.group(5)], [w["episodes"]] * 2, places=0)
+        self.check("100k longest run", m.group(3), w["max_longest_band_run_s"], places=2)
+        self.check("100k never in band", m.group(4), w["episodes_never_in_band"], places=0)
+        self.assertEqual(w["upright_20ep"], 0)
+        reached = sorted(n for n, r in {**stage_b, **stage_c}.items() if r["reach_20ep"])
+        self.assertEqual(reached, ["sac_warmstart_gait_100k"],
+                         "the README says only the 100k warm-start reaches a target")
+
+    def test_the_captions_are_the_recorded_episodes(self):
+        def caption(pattern, what, ep, clip, fields):
+            m = self.sentence(pattern, what)
+            for group, (label, value, places) in enumerate(fields, start=1):
+                self.check(f"{what}: {label}", m.group(group), value, places=places)
+            self.assertEqual(clip["min_target_distance"], ep["min_target_distance"],
+                             f"{what}: the clip is not the scored episode")
+            return m
+
+        ep = self._episode(self.v11, 14)
+        clip = self._episode(self.clip11, 14, "episodes")
+        self.assertEqual(clip["outcome"], "reached_upright")
+        caption(r"`mpc_gait_target_v11` on \*\*seed 14\*\* \(`d0 = ([\d.]+) m`, reset fallen at "
+                r"`z = ([\d.]+) m`\), rising into the standing band \(`([\d.]+)%` of steps in band, "
+                r"`([\d.]+) m` closed while standing, `([\d.]+)%` standing share\) and arriving "
+                r"`reached_upright` at \*\*([\d.]+) m\*\* \(`step (\d+)`, `torso z = ([\d.]+) m`, "
+                r"`upright = ([\d.]+)`, return \*\*([\d,.]+)\*\*\)", "seed 14 teacher", ep, clip,
+                [("d0", ep["d0"], 3), ("reset z", ep["z_at_reset"], 3),
+                 ("% in band", ep["pct_steps_in_band"], 1),
+                 ("m standing", ep["closing_while_standing_m"], 3),
+                 ("standing share", ep["share_of_approach_while_standing"] * 100, 1),
+                 ("min distance", ep["min_target_distance"], 3), ("step", ep["min_dist_step"], 0),
+                 ("torso z", ep["min_dist_z"], 3), ("upright", ep["min_dist_upright"], 3),
+                 ("return", clip["return"], 2)])
+
+        ep = self._episode(self.v08, 20)
+        clip = self._episode(self.clip08, 20, "episodes")
+        self.assertEqual(clip["outcome"], "reached_upright")
+        caption(r"`mpc_gait_target_v08` on \*\*seed 20\*\* \(`d0 = ([\d.]+) m`, reset fallen at "
+                r"`z = ([\d.]+) m`\), closing `([\d.]+) m` while standing \(`([\d.]+)%` standing "
+                r"share\) and arriving `reached_upright` at \*\*([\d.]+) m\*\* \(`step (\d+)`, "
+                r"`torso z = ([\d.]+) m`, `upright = ([\d.]+)`, return \*\*([\d,.]+)\*\*\)",
+                "seed 20 teacher", ep, clip,
+                [("d0", ep["d0"], 3), ("reset z", ep["z_at_reset"], 3),
+                 ("m standing", ep["closing_while_standing_m"], 3),
+                 ("standing share", ep["share_of_approach_while_standing"] * 100, 1),
+                 ("min distance", ep["min_target_distance"], 3), ("step", ep["min_dist_step"], 0),
+                 ("torso z", ep["min_dist_z"], 3), ("upright", ep["min_dist_upright"], 3),
+                 ("return", clip["return"], 2)])
+
+        bc = self._episode(self.clipbc, 14, "episodes")
+        self.assertEqual(bc["outcome"], "stalled")
+        m = self.sentence(r"`min_dist = ([\d.]+) m`\)\. Right: `bc_gait_raw`", "seed 14 teacher, again")
+        self.check("seed 14 teacher min distance", m.group(1),
+                   self._episode(self.v11, 14)["min_target_distance"], places=3)
+        m = self.sentence(r"\(`val_mse = ([\d.]+)` vs `([\d.]+)` for the per-dimension mean\)",
+                          "the BC student's held-out MSE")
+        mse = self.bc["predictability_val_mse"]
+        self.check("bc caption MSE", m.group(1), mse["student_bc_gait_raw"], places=4)
+        self.check("bc caption baseline", m.group(2), mse["per_dim_mean_of_train"], places=4)
+        m = self.sentence(r"remains `stalled` at \*\*([\d.]+) m\*\* \(`(\d+)` arm-floor contact steps, "
+                          r"return \*\*([\d,.]+)\*\*\)", "the BC student's seed 14")
+        self.check("bc min distance", m.group(1), bc["min_target_distance"], places=3)
+        self.check("bc arm contacts", m.group(2), bc["arm_floor_contact_steps"], places=0)
+        self.check("bc return", m.group(3), bc["return"], places=2)
+
+        ep = self._episode(self.v11, 30)
+        clip = self._episode(self.clip11, 30, "episodes")
+        self.assertEqual(clip["outcome"], "reached_by_falling")
+        self.assertFalse(ep["reached_target_upright"])
+        m = self.sentence(r"\*\*seed 30\*\* \(`d0 = ([\d.]+) m`", "seed 30 start")
+        self.check("seed 30 d0", m.group(1), ep["d0"], places=3)
+        caption(r"spends `([\d.]+)%` of the episode in the standing band \(`([\d.]+) m` closed while "
+                r"standing, `longest_band_run_s = ([\d.]+) s`\) and reaches \*\*([\d.]+) m\*\* "
+                r"\(`step (\d+)`, `torso z = ([\d.]+) m`, `upright = ([\d.]+)`, `reached_by_falling` "
+                r"because `z < 1.0 m` at the closest frame, return \*\*([\d,.]+)\*\*\)",
+                "seed 30 teacher", ep, clip,
+                [("% in band", ep["pct_steps_in_band"], 1),
+                 ("m standing", ep["closing_while_standing_m"], 3),
+                 ("longest run", ep["longest_band_run_s"], 2),
+                 ("min distance", ep["min_target_distance"], 3), ("step", ep["min_dist_step"], 0),
+                 ("torso z", ep["min_dist_z"], 3), ("upright", ep["min_dist_upright"], 3),
+                 ("return", clip["return"], 2)])
+        self.assertLess(ep["min_dist_z"], 1.0)
+
+        sac = self._episode(self.clipsac, 30, "episodes")
+        self.assertEqual(sac["outcome"], "reached_by_falling")
+        self.assertIn("sac_actor_100000.pt", self.clipsac["model"])
+        m = self.sentence(r"`mean_x_velocity = \+([\d.]+) m/s`, return \*\*([\d,.]+)\*\*\) and reaches "
+                          r"the target at \*\*([\d.]+) m\*\*, but arrives `reached_by_falling`",
+                          "the SAC student's seed 30")
+        self.check("sac x velocity", m.group(1), sac["mean_x_velocity"], places=4)
+        self.check("sac return", m.group(2), sac["return"], places=2)
+        self.check("sac min distance", m.group(3), sac["min_target_distance"], places=3)
+
+
 if __name__ == "__main__":
     unittest.main()

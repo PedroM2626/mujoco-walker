@@ -846,8 +846,8 @@ speed-vs-reach trade-off (`3 of 4` upright arrivals in `gait_smooth_v08`, `1 of 
      `per_dim_mean = 0.2598`): `ridge_alpha100 = 0.2179`, `knn_k32 = 0.2401`, `student_bc_gait_raw = 0.2113`
      (`-19.6%` below zero), and `student_bc_gait_band = 0.2203` (`beats_the_trivial_baseline = True` for all
      four, whereas every regressor and student lost to the constant baseline on the old `hold=1, argmin`
-     teacher). Meanwhile, the planner's state value remains learnable (`r2_ridge = 0.4536`, `r2_knn32 = 0.4366`
-     vs `r2_ridge_target_dims_only = 0.1743`), while the 5-step-knot candidate $Q(s, a)$ probe
+     teacher). Meanwhile, the planner's state value stays learnable by ridge (`r2_ridge = 0.494` vs
+     `r2_ridge_target_dims_only = 0.0123`) though not by k-NN (`r2_knn32 = 0.0058`), while the 5-step-knot candidate $Q(s, a)$ probe
      (`benchmarks/gait_planner_q_probe.json`, 5,600 plans $\times$ 48 candidates) scores
      `within_r2_centered = +0.008, pearson = +0.095` on `joint_linear` — keeping the pre-registered $Q(s, a)$
      gate closed.

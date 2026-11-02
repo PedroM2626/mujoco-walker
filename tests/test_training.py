@@ -9,6 +9,7 @@ import shutil
 import torch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts"))
 
 # A test that spawns a real trainer must not write into the repository's MLflow archive. Every
 # tracking-URI consumer here honours MLFLOW_TRACKING_URI (utils/mlflow_uri.py), and subprocesses

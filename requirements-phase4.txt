@@ -27,4 +27,8 @@ matplotlib>=3.7.5
 tqdm>=4.66.1
 joblib>=1.3.0
 scipy>=1.11.4
+# gymnasium[mujoco] pulls imageio but not its ffmpeg backend, so any .mp4 writer - RecordVideo,
+# or the render tests in tests/test_target_clips.py when the suite is run here - fails with
+# "Could not find a backend to open ... .mp4". Same pin as requirements.txt.
+imageio-ffmpeg>=0.4.9
 pytest>=7.4.0

@@ -811,7 +811,7 @@ direction and shows the exact opposite mechanism:
    Line 136 computed `ss_res = sum((y - p)**2)` without removing `p.mean()`, and `fit_ridge` fitted
    uncentered returns across states (`std ~ 3833`). Adding `within_r2_centered` and `probe_centered` puts
    `state_only` at `0.0000` by construction (instead of `-2.095`) and moves `joint_interactions` on the
-   committed `benchmarks/demos/mpc_candidates.npz` from `within_r2 = -0.3507 (pearson 0.0043)` to
+   committed `benchmarks/demos/mpc_candidates.npz` from `within_r2 = -3.168 (pearson 0.0043)` to
    `within_r2_centered = +0.0130 (pearson +0.1152)` - matching the theoretical `1/100 = 1%` variance share
    of a 1-step action in a 100-step random rollout, while confirming that the pre-registered `Q(s, a)` gate
    (`>= 0.30 R2, >= 0.50 pearson, >= 0.50 elite hit`) stays closed even under 5-step knots (`pearson +0.1500`).
@@ -863,7 +863,9 @@ speed-vs-reach trade-off (`3 of 4` upright arrivals in `gait_smooth_v08`, `1 of 
      `StrictBandGate` (`--strict-band-gate`, zeroing locomotion rewards outside `z > 1.0 m, upright > 0.7`)
      from scratch (`sac_strict_band_200k`) and warm-started from `bc_gait_mpc_raw` + the 28k demonstration
      replay buffer + in-band BC regularisation (`sac_warmstart_gait_100k`, `sac_warmstart_gait_200k`) lifts
-     20-episode mean return from `+2098.76` (offline BC) to **`+4355.17` (`median +5262.39`)** and **`+5649.88`
-     (`median +5113.41`)**, cuts `episodes_never_in_band` from `18/20` to `13/20-14/20` as online rollouts
-     learn to stand up from fallen resets, and reaches `1/20` targets at `100k` steps (`max_longest_band_run_s = 0.74 s`),
+     20-episode mean return from `+2098.76` (offline BC) to **`+5649.88` (`median +5113.41`)** from scratch and
+     **`+4355.17` (`median +5262.39`)** warm-started at 200k, cuts `episodes_never_in_band` from `18/20` to
+     `13/20` (from scratch) and `14/20` (warm-started, 200k) as online rollouts learn to stand up from fallen
+     resets, and reaches `1/20` targets at `100k` steps (`max_longest_band_run_s = 0.74 s`, still `18/20`
+     never in band),
      while `200k` steps (4% of the 5M-step budget) is still too short to converge a full 2-second standing walk.

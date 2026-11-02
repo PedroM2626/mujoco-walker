@@ -32,7 +32,7 @@ Why this exists:
      `p.mean()`, and `fit_ridge` fitted uncentered returns whose between-state variance (`std ~ 3833`)
      swamped within-state action variance. Reconciling that metric on the committed 28-episode
      `benchmarks/demos/mpc_candidates.npz` puts `state_only` at `0.0000` by construction (instead of
-     `-2.095`) and moves `joint_interactions` from `within_r2 = -0.3507, pearson = 0.0043` to
+     `-2.095`) and moves `joint_interactions` from `within_r2 = -3.168, pearson = 0.0043` to
      `within_r2_centered = +0.0130, pearson = +0.1152` - matching the theoretical `~1/H = 1%` variance
      share of a 1-step action in a 100-step random rollout, and confirming that the pre-registered
      `Q(s, a)` gate (`within_r2 >= 0.30, pearson >= 0.50, elite_hit >= 0.50`) stays closed.
@@ -552,7 +552,7 @@ def build_artifact(run_all=False):
                 "Fixing the missing prediction centering in bench_planner_q.within_state_metrics "
                 "and centering training returns per plan puts state_only at 0.0000 by construction "
                 "(instead of -2.095) and raises joint_interactions on mpc_candidates.npz from "
-                "within_r2 = -0.3507 (pearson 0.0043) to within_r2_centered = +0.0130 (pearson "
+                "within_r2 = -3.168 (pearson 0.0043) to within_r2_centered = +0.0130 (pearson "
                 "+0.1152), matching the theoretical ~1/H = 1% variance share of a 1-step action in "
                 "a 100-step random rollout. Even with 5-step knots (pearson +0.1500), the "
                 "pre-registered Q(s, a) gate (>= 0.30 R2, >= 0.50 pearson, >= 0.50 elite hit) "

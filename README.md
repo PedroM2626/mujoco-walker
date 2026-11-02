@@ -586,16 +586,21 @@ by 7.3x (`0.7567 -> 0.1031`, `0.389x` of action energy) so that held-out predict
 cloning students (`bc_gait_raw` `0.2113`, `bc_gait_band` `0.2203`) beat the constant-zero baseline
 (`0.2598` / `0.2627`) for the first time (`beats_the_trivial_baseline = True`). Reconciling an
 uncentered group-residual calculation in `scripts/bench_planner_q.py` (`within_r2_centered`) shows
-that within-state candidate $Q(s,a)$ regressions are positive (`+0.0130` on `mpc_candidates.npz`,
-`+0.0080` on `benchmarks/gait_planner_q_probe.json`) rather than negative (`-0.3507`), though still
-$\le 1.3\%$ of variance because a single first action knot explains ~1% of a 60-100 step return.
+that the within-state candidate $Q(s,a)$ regressions sit at about zero rather than far below it:
+`+0.0130` centered (`joint_interactions`) on `mpc_candidates.npz` against the uncentered `-3.168`
+that `benchmarks/planner_q_probe.json` published, and `+0.0076` (`joint_linear`) / `-0.0283`
+(`joint_interactions`) on `benchmarks/gait_planner_q_probe.json` - at most 1.3% of variance, because a
+single first action knot explains ~1% of a 60-100 step return.
 Closed-loop neural students (`benchmarks/gait_mpc_students.json`, `benchmarks/gait_sac_online_eval.json`)
  still do not walk to the target: pure open-loop BC students cannot recover from the 18/20 fallen
 `mixed` resets without online lookahead (`0/20` reaches, `18/20` never in band), offline TD critics
 diverge on out-of-distribution actions (`val_td_mse = 2957 -> 150910`), and short 200k-step online SAC
-warm-starts (`sac_warmstart_gait_100k` reaches `1/20` with `0.74 s` longest band run,
-`episodes_never_in_band = 13/20`) break the floor paralysis (`+5113` to `+5262` median return vs
-`+1326` in pure BC) but need multi-million-step budgets to sustain standing locomotion.
+runs with the strict band gate break the floor paralysis (median return `+5113` from scratch,
+`sac_strict_band_200k`, and `+5262` warm-started, `sac_warmstart_gait_200k`, vs `+1327` in pure BC;
+`13/20` and `14/20` episodes never in band) but need multi-million-step budgets to sustain standing
+locomotion. The warm-start's 100k checkpoint (`sac_warmstart_gait_100k`) is the only student arm that
+reaches a target - `1/20`, not upright - with a `0.74 s` longest band run and `18/20` episodes never in
+band.
 
 ![Gait-MPC teacher walking upright to the target: seed 14 (v_ref=1.1 m/s) and seed 20 (v_ref=0.8 m/s), side by side](docs/media/gait_mpc_upright_arrivals_seed14_seed20.gif)
 
@@ -2395,8 +2400,10 @@ Three facts to keep in mind:
 ## ✅ Running the tests
 
 The suite is plain `unittest` (no pytest required) and covers the environment contract, the
-golden reward rollouts, the parallel/serial vector-env parity, checkpointing and the race
-harness — **480 tests, 269 s in this window** (`Ran 480 tests in 269.468s ... OK
+golden reward rollouts, the parallel/serial vector-env parity, checkpointing, the race
+harness, the contact worlds and MJX pairs, physics presets, reward and value shaping, the
+BC/critic/Gait-MPC students and teacher, the target clips, and the README's own numbers against
+`benchmarks/` (`tests/test_readme_evidence.py`) — **480 tests, 269 s in this window** (`Ran 480 tests in 269.468s ... OK
 (skipped=7)` under `.venv`). Windows of this suite have measured 176.3 s at 102 tests, 269.995 s
 at 121, 261.1 s at 127, 329.964 s at 128, 319.168 s at 130, 184.716 s, 203.108 s and 306.976 s at
 140, 144.678 s at 147, 230.268 s at 157, 171.016 s and 170.304 s at 194, and 174.008 s,
@@ -2426,10 +2433,13 @@ python -m unittest discover -s tests -t .
 All seven skips are `tests/test_phase4_behaviour`, which needs `Walker2d-v5` and cannot get it on
 gymnasium 0.29; nothing else skips here (torch in `.venv` is a cu121 build and the device answers,
 so the CUDA graph-capture test runs). The reverse does not hold: run the same command under
-`.venv-phase4` and the suite does not assemble - seven of the eleven test modules fail to import
-and seven further tests fail (`Ran 44 tests ... FAILED (failures=7, errors=7, skipped=7)`).
-`.github/workflows/ci.yml` is written for that reality: it runs this suite on the root interpreter
-and, on the Phase-4 one, only the import check plus `tests/test_phase4_behaviour`.
+`.venv-phase4` and all 23 test modules import and pass - discovery there collects 474 of the
+480 tests, and all of them pass with one skip in 198.478 s (2026-11-01), once `requirements-phase4.txt` brings `imageio-ffmpeg` for the clip
+render tests. Do not run two copies of the suite at once, in one venv or across both: the training
+tests write to the repository's own `checkpoints/` and `runs/` under fixed run ids, so concurrent
+runs delete each other's event files and overwrite each other's checkpoints.
+`.github/workflows/ci.yml` still runs only the import check plus `tests/test_phase4_behaviour` on
+the Phase-4 interpreter, and the full suite on the root one.
 
 ---
 

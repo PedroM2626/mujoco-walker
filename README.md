@@ -7,6 +7,32 @@ Two custom environments carry the work: `WalkerRagdoll-v0` (`envs/walker_ragdoll
 stock `Walker2d-v5` for the Phase-4 offline benchmark. There is no Humanoid environment in
 this repo, despite earlier wording here.
 
+## 🗺️ Repository map
+
+Every root script runs from the repository root, on the interpreter named in "Installation &
+Setup"; `openai_walker/` runs from inside that folder.
+
+| Path | What is in it |
+|:---|:---|
+| `walker_ragdoll.xml` | The MuJoCo model of the 17-actuator ragdoll every Phase 1-3 script loads. |
+| `envs/` | `walker_ragdoll_env.py` (the `WalkerRagdoll-v0` environment, registered with Gymnasium when the module is imported), `reward_shaping.py` (the shaping the online trainers apply, in one place), `value_potential.py` (a frozen planner-value regressor used as a shaping potential), `parallel_vector_env.py` (process-parallel vector env with `SyncVectorEnv` semantics) and `normalize_compat.py` (lets checkpoints that pickled Gymnasium's `RunningMeanStd` load across Gymnasium versions). |
+| `scripts/` | Entry points. Trainers: `train_walker.py` (`--algo sac`, `ppo` or `td3`), `train_redq.py`, `train_dreamer.py`, `train_ars.py`, `train_bc_ragdoll.py`, `train_offline_critic.py`, `train_moe_gate.py`, `merge_models.py`. Evaluation and viewers: `eval_phase1.py`, `evaluate_merging.py`, `eval_headless.py`, `play.py`, `play_race_ragdoll.py` (the Phase 1-3 multi-agent race, with a GUI). Every `bench_*.py`, `summarize_*.py`, `collect_mpc_demos.py`, `fit_planner_potential.py`, `make_target_clips.py` and `paired_stats.py` is a measurement whose command is in "Reproducing and measuring". `verify.py` checks the Phase-2 artifacts; `mock_wrappers.py` is an alias module kept only so old merged checkpoints still unpickle. |
+| `utils/` | `checkpoint.py` (save, load, prune and delete runs under `checkpoints/` and `runs/`), `mlflow_uri.py` (the one tracking URI), `gpu_window.py` (measures the GPU a long run is about to start into). |
+| `tests/` | The `unittest` suite - see "Running the tests". `test_readme_evidence.py` and `test_artifacts_reproducible.py` check this README's numbers against `benchmarks/`. |
+| `benchmarks/` | Every committed measurement as JSON, one file per experiment; `benchmarks/demos/` holds the provenance sidecars of the MPC demonstration sets (the `.npz` arrays are gitignored). |
+| `logs/` | Evidence logs of the training runs and evaluations the README cites. |
+| `docs/` | `lab-notes.md` (how each correction was found, with the commands) and `media/` (the GIFs and `.mp4` clips embedded here). |
+| `mujoco_mpc_walker/` | Phase 2: the C++ MuJoCo MPC walker task (`main.cc`, `walker_task.cc`/`.h`, `task_walker.xml`, `CMakeLists.txt`, `build.bat`, `Dockerfile`) and `play_mpc.py`, the viewer for the Phase-2 BC policy. `run.bat` launches the built `walker_mpc.exe`; it hard-codes `D:\mujoco-walker\...` paths, so it only runs from a checkout at that location. |
+| `openai_walker/` | Phase 4 on `Walker2d-v5`: teacher, dataset, offline, offline-to-online and IRL trainers, evaluators and results - listed script by script in the Phase 4 section. |
+| `requirements*.txt`, `Dockerfile`, `Dockerfile.mjx` | The three interpreters and two images - see "Installation & Setup". |
+| `pyproject.toml` | Metadata and `pytest`/`ruff` settings only; it is deliberately not an installable package, because the scripts resolve their paths from the repository root. |
+| `.env.example` | The trainer's environment-variable defaults; copy it to `.env` (gitignored) to override them locally. |
+
+Local and gitignored, created as you run things: `checkpoints/`, `runs/` (TensorBoard), `videos/`,
+`mlruns.db` and `mlruns/` (MLflow), the Phase-3 outputs `merged_avg_model.pt`, `merged_ta_model.pt` and
+`moe_gate.pt` at the root, and `external/` (third-party models fetched for the MJX
+benchmarks).
+
 ---
 
 ## 🧠 Project Architecture & Phases

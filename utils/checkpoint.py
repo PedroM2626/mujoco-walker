@@ -1,3 +1,11 @@
+"""Checkpoint storage for the Phase 1-3 trainers: save, load, prune and delete runs.
+
+Checkpoints live under `checkpoints/<run_id>/` and TensorBoard logs under `runs/<run_name>/`,
+both relative to the working directory (the repository root). `save_checkpoint` keeps the last
+`keep_last_n` files, and `force_delete_run` clears a run before a fresh start without touching a
+sibling seed's log directory.
+"""
+
 import os
 import glob
 import re

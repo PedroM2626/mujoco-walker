@@ -17,7 +17,7 @@ name = "mujoco-walker"
 version = "0.0.0"
 description = "RL and MLOps laboratory: WalkerRagdoll-v0 stand-up/walking curriculum, model merging and MoE, and a Walker2d-v5 offline/inverse-RL benchmark."
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.10"  # mlflow>=3.0 (requirements.txt) has no 3.8/3.9 distribution
 license = { file = "LICENSE" }
 
 [tool.pytest.ini_options]

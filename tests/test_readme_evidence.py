@@ -46,6 +46,7 @@ PHASE4_ENV_NOTE = "\u26a0\ufe0f **The environment this table needs"
 RACE_50EP = os.path.join(ROOT, "benchmarks", "phase4_race_50ep.json")
 N1_ART = os.path.join(ROOT, "benchmarks", "phase4_n1_vs_50ep.json")
 PAIRED_50EP = os.path.join(ROOT, "benchmarks", "phase4_paired_50ep_seed2026.json")
+PQR_EVAL = os.path.join(ROOT, "benchmarks", "phase4_pqr_eval.json")
 CURVE = os.path.join(ROOT, "benchmarks", "teacher_eval_curve.json")
 PAIR_BCQ_TEACHER = "BCQ - Teacher (Upper Bound)"
 
@@ -427,7 +428,8 @@ class TestReadmePhase4RaceCells(ReadmeGate, unittest.TestCase):
         self.block = self.readme[start:end]
         hist_end = self.readme.index(PHASE4_ENV_NOTE, end)
         self.hist = self.readme[end:hist_end]
-        self.race, self.n1art, self.paired = self.read_artifacts(RACE_50EP, N1_ART, PAIRED_50EP)
+        self.race, self.n1art, self.paired, self.pqr = self.read_artifacts(
+            RACE_50EP, N1_ART, PAIRED_50EP, PQR_EVAL)
         self.what = "Phase-4 race"
         self.bad = []
 
@@ -448,6 +450,30 @@ class TestReadmePhase4RaceCells(ReadmeGate, unittest.TestCase):
             self.assertIsNotNone(s, f"{key} is not in phase4_race_50ep.json")
             self.check(label, [snums(cells[c])[0] for c in (1, 2, 3, 4)],
                        [s["mean"], s["std"], s["min"], s["max"]], places=2)
+        pqr_ev = self.pqr["evaluation_50ep_seed2026"]["PQR"]
+        bc_ev = self.pqr["evaluation_50ep_seed2026"]["BC"]
+        hist = self.pqr["training_loss_history"]
+        m = self.sentence(
+            r"`train_irl_pqr\.py --seed 2026 --epochs 10 --no-mlflow` \(`([\d.]+) s`\) produces "
+            r"`openai_walker/pqr_policy\.pt` \(`sha256: ([0-9A-F]+)`\), which scores \*\*mean ([\d.]+), "
+            r"median ([\d.]+), std ([\d.]+), min ([\d.]+), max ([\d.]+)\*\* over the same 50 seeded "
+            r"episodes \(`evaluate_all\.py --episodes 50 --seed 2026`, with the `BC` control reproducing "
+            r"\*\*([\d.]+)\*\* digit for digit\)",
+            "the PQR item-6 evaluation")
+        self.check("PQR train s", m.group(1), self.pqr["train_wall_clock_seconds"], places=2)
+        self.assertEqual(m.group(2), self.pqr["weights"]["sha256"])
+        self.check("PQR 50ep stats", [m.group(3), m.group(4), m.group(5), m.group(6), m.group(7)],
+                   [pqr_ev["mean"], pqr_ev["median"], pqr_ev["std"], pqr_ev["min"], pqr_ev["max"]],
+                   places=2)
+        self.check("PQR BC control", m.group(8), bc_ev["mean"], places=2)
+        m2 = self.sentence(
+            r"`pi_loss: ([\d.]+) -> ([\d.]+)`.*?"
+            r"causing `q_loss` to explode from `([\d.]+)` to \*\*`([\d,.]+)`",
+            "the PQR loss explosion")
+        self.check("PQR pi_loss", [m2.group(1), m2.group(2)],
+                   [hist["pi_loss"][0], hist["pi_loss"][-1]], places=6)
+        self.check("PQR q_loss start", m2.group(3), hist["q_loss"][0], places=5)
+        self.check("PQR q_loss end", m2.group(4), hist["q_loss"][-1], places=2)
 
     def test_the_historical_table_matches_the_recorded_draws(self):
         self.block = self.hist  # cell() reads the block under test

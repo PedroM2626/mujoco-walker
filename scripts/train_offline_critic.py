@@ -61,7 +61,23 @@ def build_transitions(arrays, meta, mean, var):
     # (batch, 1) target broadcasts to (batch, batch) - a wrong loss that trains and prints numbers.
     return {"obs": x, "obs_next": x_next, "act": act.astype(np.float32),
             "rew": rew.astype(np.float32).reshape(-1, 1),
+            "plan_value": arrays["plan_value"].astype(np.float32).reshape(-1, 1),
+            "mc_return": compute_mc_return(rew, bounds, gamma=0.99).reshape(-1, 1),
             "not_done": not_done.astype(np.float32).reshape(-1, 1)}, bounds
+
+
+def compute_mc_return(rew, bounds, gamma=0.99):
+    """Exact discounted return G_t = sum_{k>=0} gamma^k r_{t+k} within each episode."""
+    rew = np.asarray(rew, dtype=np.float64).reshape(-1)
+    mc = np.zeros_like(rew, dtype=np.float64)
+    starts = np.concatenate([[0], np.asarray(bounds, dtype=int)])
+    ends = np.concatenate([np.asarray(bounds, dtype=int), [len(rew)]])
+    for s, e in zip(starts, ends):
+        g = 0.0
+        for t in range(e - 1, s - 1, -1):
+            g = rew[t] + gamma * g
+            mc[t] = g
+    return mc.astype(np.float32)
 
 
 def episode_of(n_rows, bounds):
@@ -86,8 +102,9 @@ def train(args):
     def t(name):
         return torch.tensor(tr[name], device=device)
 
-    data = {k: t(k)[~val] for k in ("obs", "obs_next", "act", "rew", "not_done")}
-    vdata = {k: t(k)[val] for k in ("obs", "obs_next", "act", "rew", "not_done")}
+    cols = ("obs", "obs_next", "act", "rew", "plan_value", "mc_return", "not_done")
+    data = {k: t(k)[~val] for k in cols}
+    vdata = {k: t(k)[val] for k in cols}
     obs_dim, act_dim = int(tr["obs"].shape[1]), int(tr["act"].shape[1])
     q1, q2 = SoftQNetwork(obs_dim, act_dim).to(device), SoftQNetwork(obs_dim, act_dim).to(device)
     q1t, q2t = SoftQNetwork(obs_dim, act_dim).to(device), SoftQNetwork(obs_dim, act_dim).to(device)
@@ -96,10 +113,17 @@ def train(args):
         for p in dst.parameters():
             p.requires_grad_(False)
     actor = SACAgent(obs_dim, gym.spaces.Box(-1.0, 1.0, shape=(act_dim,))).to(device)
+    init_actor_path = getattr(args, "init_actor", None)
+    if init_actor_path:
+        full_init = init_actor_path if os.path.isabs(init_actor_path) else os.path.join(ROOT, init_actor_path)
+        init_ckpt = torch.load(full_init, map_location=device, weights_only=False)
+        actor.load_state_dict(init_ckpt["actor_state_dict"])
     for p in actor.fc_logstd.parameters():
         p.requires_grad_(False)
 
-    opt_q = torch.optim.Adam(list(q1.parameters()) + list(q2.parameters()), lr=args.lr)
+    mode = getattr(args, "mode", "td")
+    opt_q = torch.optim.Adam(list(q1.parameters()) + list(q2.parameters()), lr=args.lr,
+                             weight_decay=1e-4 if mode != "td" else 0.0)
     opt_pi = torch.optim.Adam([p for p in actor.parameters() if p.requires_grad], lr=args.lr)
     lam = args.bc_lambda / float(data["rew"].abs().mean()) if args.actor == "q_bc" else 0.0
 
@@ -108,55 +132,108 @@ def train(args):
         return torch.tanh(mean_out)
 
     history = []
-    best = {"val": float("inf"), "epoch": 0, "actor": None, "q1": None}
-    for epoch in range(args.epochs):
-        perm = torch.randperm(data["obs"].shape[0], device=device)
-        q_sum = pi_sum = 0.0
-        for start in range(0, len(perm), args.batch):
-            i = perm[start:start + args.batch]
-            b = {k: v[i] for k, v in data.items()}
+    best = {"val": float("inf"), "val_r2": None, "epoch": 0, "actor": None, "q1": None, "q2": None}
+    if mode in ("planner_value", "mc_return"):
+        target_col = "plan_value" if mode == "planner_value" else "mc_return"
+        v_std = float(data[target_col].std().clamp(min=1.0))
+        anchor_scale = 0.25 * v_std
+        y_val_true = vdata[target_col]
+        y_val_var = float(((y_val_true - y_val_true.mean()) ** 2).mean().clamp(min=1e-8))
+        for epoch in range(args.epochs):
+            perm = torch.randperm(data["obs"].shape[0], device=device)
+            q_sum = 0.0
+            for start in range(0, len(perm), args.batch):
+                i = perm[start:start + args.batch]
+                b_obs = data["obs"][i]
+                b_act = data["act"][i]
+                b_val = data[target_col][i]
+                # Supervised state-action value fit on demonstrated (s, a*) plus perturbed actions
+                # a_pert = clip(a* + noise, -1, 1) with local quadratic penalty so dQ/da at step 0
+                # points smoothly back toward the demonstrated action knot a*.
+                noise = torch.randn_like(b_act) * 0.25
+                b_act_pert = (b_act + noise).clamp(-1.0, 1.0)
+                act_dist_sq = ((b_act_pert - b_act) ** 2).mean(dim=1, keepdim=True)
+                b_val_pert = b_val - anchor_scale * act_dist_sq
+
+                loss_on = F.mse_loss(q1(b_obs, b_act), b_val) + F.mse_loss(q2(b_obs, b_act), b_val)
+                loss_off = (F.mse_loss(q1(b_obs, b_act_pert), b_val_pert)
+                            + F.mse_loss(q2(b_obs, b_act_pert), b_val_pert))
+                loss_q = loss_on + 0.5 * loss_off
+                opt_q.zero_grad()
+                loss_q.backward()
+                opt_q.step()
+                q_sum += float(loss_on) * len(i)
             with torch.no_grad():
-                a_next = policy_action(b["obs_next"]).clamp(-1, 1)
-                tgt = torch.min(q1t(b["obs_next"], a_next), q2t(b["obs_next"], a_next))
-                target = b["rew"] + args.gamma * tgt * b["not_done"]
-            if target.shape != b["rew"].shape or target.dim() != 2:
-                raise SystemExit(f"TD target has shape {tuple(target.shape)}, expected "
-                                 f"{tuple(b['rew'].shape)} - a broadcast would train a wrong loss")
-            q_pred = q1(b["obs"], b["act"])
-            if q_pred.shape != target.shape:
-                raise SystemExit(f"Q output {tuple(q_pred.shape)} does not match the TD target "
-                                 f"{tuple(target.shape)}")
-            loss_q = F.mse_loss(q_pred, target) + F.mse_loss(q2(b["obs"], b["act"]), target)
-            opt_q.zero_grad(); loss_q.backward(); opt_q.step()
-            q_sum += float(loss_q) * len(i)
-            for src, dst in ((q1, q1t), (q2, q2t)):
-                for ps, pd in zip(src.parameters(), dst.parameters()):
-                    pd.data.mul_(1 - args.tau).add_(args.tau * ps.data)
-            opt_pi.zero_grad()
-            a = policy_action(b["obs"])
-            loss_pi = -q1(b["obs"], a).mean()
-            if lam:
-                loss_pi = loss_pi + lam * F.mse_loss(a, b["act"])
-            loss_pi.backward(); opt_pi.step()
-            pi_sum += float(loss_pi) * len(i)
-        with torch.no_grad():
-            a_v = policy_action(vdata["obs"]).clamp(-1, 1)
-            vq = torch.min(q1(vdata["obs"], a_v), q2(vdata["obs"], a_v))
-            vtgt = vdata["rew"] + args.gamma * torch.min(q1t(vdata["obs_next"], a_v),
-                                                          q2t(vdata["obs_next"], a_v)) * vdata["not_done"]
-            val_loss = float(F.mse_loss(vq, vtgt))
-        history.append({"epoch": epoch + 1, "train_td_mse": round(q_sum / len(perm), 2),
-                        "train_actor_loss": round(pi_sum / len(perm), 3),
-                        "val_td_mse": round(val_loss, 2)})
-        if val_loss < best["val"]:
-            best = {"val": val_loss, "epoch": epoch + 1,
-                    "actor": {k: v.detach().cpu().clone()
-                              for k, v in actor.state_dict().items()},
+                vq = 0.5 * (q1(vdata["obs"], vdata["act"]) + q2(vdata["obs"], vdata["act"]))
+                val_mse = float(F.mse_loss(vq, y_val_true))
+                val_r2 = float(1.0 - val_mse / y_val_var)
+            history.append({
+                "epoch": epoch + 1,
+                "train_value_mse": round(q_sum / len(perm), 2),
+                "val_td_mse": round(val_mse, 2),
+                "val_value_r2": round(val_r2, 4),
+            })
+            if val_mse < best["val"]:
+                best = {
+                    "val": val_mse,
+                    "val_r2": round(val_r2, 4),
+                    "epoch": epoch + 1,
+                    "actor": {k: v.detach().cpu().clone() for k, v in actor.state_dict().items()},
                     "q1": {k: v.detach().cpu().clone() for k, v in q1.state_dict().items()},
-                    "q2": {k: v.detach().cpu().clone() for k, v in q2.state_dict().items()}}
-        if (epoch + 1) % 10 == 0 or epoch == 0:
-            print(f"epoch {epoch + 1:3d} td={history[-1]['train_td_mse']:.1f} "
-                  f"actor={history[-1]['train_actor_loss']:.3f} val_td={val_loss:.1f}", flush=True)
+                    "q2": {k: v.detach().cpu().clone() for k, v in q2.state_dict().items()},
+                }
+            if (epoch + 1) % 10 == 0 or epoch == 0:
+                print(f"epoch {epoch + 1:3d} mode={mode} train_mse={history[-1]['train_value_mse']:.1f} "
+                      f"val_mse={val_mse:.1f} val_r2={val_r2:.4f}", flush=True)
+    else:
+        for epoch in range(args.epochs):
+            perm = torch.randperm(data["obs"].shape[0], device=device)
+            q_sum = pi_sum = 0.0
+            for start in range(0, len(perm), args.batch):
+                i = perm[start:start + args.batch]
+                b = {k: v[i] for k, v in data.items()}
+                with torch.no_grad():
+                    a_next = policy_action(b["obs_next"]).clamp(-1, 1)
+                    tgt = torch.min(q1t(b["obs_next"], a_next), q2t(b["obs_next"], a_next))
+                    target = b["rew"] + args.gamma * tgt * b["not_done"]
+                if target.shape != b["rew"].shape or target.dim() != 2:
+                    raise SystemExit(f"TD target has shape {tuple(target.shape)}, expected "
+                                     f"{tuple(b['rew'].shape)} - a broadcast would train a wrong loss")
+                q_pred = q1(b["obs"], b["act"])
+                if q_pred.shape != target.shape:
+                    raise SystemExit(f"Q output {tuple(q_pred.shape)} does not match the TD target "
+                                     f"{tuple(target.shape)}")
+                loss_q = F.mse_loss(q_pred, target) + F.mse_loss(q2(b["obs"], b["act"]), target)
+                opt_q.zero_grad(); loss_q.backward(); opt_q.step()
+                q_sum += float(loss_q) * len(i)
+                for src, dst in ((q1, q1t), (q2, q2t)):
+                    for ps, pd in zip(src.parameters(), dst.parameters()):
+                        pd.data.mul_(1 - args.tau).add_(args.tau * ps.data)
+                opt_pi.zero_grad()
+                a = policy_action(b["obs"])
+                loss_pi = -q1(b["obs"], a).mean()
+                if lam:
+                    loss_pi = loss_pi + lam * F.mse_loss(a, b["act"])
+                loss_pi.backward(); opt_pi.step()
+                pi_sum += float(loss_pi) * len(i)
+            with torch.no_grad():
+                a_v = policy_action(vdata["obs"]).clamp(-1, 1)
+                vq = torch.min(q1(vdata["obs"], a_v), q2(vdata["obs"], a_v))
+                vtgt = vdata["rew"] + args.gamma * torch.min(q1t(vdata["obs_next"], a_v),
+                                                              q2t(vdata["obs_next"], a_v)) * vdata["not_done"]
+                val_loss = float(F.mse_loss(vq, vtgt))
+            history.append({"epoch": epoch + 1, "train_td_mse": round(q_sum / len(perm), 2),
+                            "train_actor_loss": round(pi_sum / len(perm), 3),
+                            "val_td_mse": round(val_loss, 2)})
+            if val_loss < best["val"]:
+                best = {"val": val_loss, "val_r2": None, "epoch": epoch + 1,
+                        "actor": {k: v.detach().cpu().clone()
+                                  for k, v in actor.state_dict().items()},
+                        "q1": {k: v.detach().cpu().clone() for k, v in q1.state_dict().items()},
+                        "q2": {k: v.detach().cpu().clone() for k, v in q2.state_dict().items()}}
+            if (epoch + 1) % 10 == 0 or epoch == 0:
+                print(f"epoch {epoch + 1:3d} td={history[-1]['train_td_mse']:.1f} "
+                      f"actor={history[-1]['train_actor_loss']:.3f} val_td={val_loss:.1f}", flush=True)
     if best["actor"] is None:
         raise SystemExit("no validation rows; nothing to select the checkpoint by")
     actor.load_state_dict(best["actor"])
@@ -175,8 +252,10 @@ def train(args):
         "qf2_target_state_dict": best["q2"],
         "obs_rms": rms, "global_step": best["epoch"],
         "critic": {
-            "demos": args.demos, "actor_mode": args.actor, "epochs": args.epochs,
+            "demos": args.demos, "mode": mode, "actor_mode": args.actor,
+            "init_actor": init_actor_path, "epochs": args.epochs,
             "selected_epoch": best["epoch"], "val_td_mse": round(best["val"], 2),
+            "val_value_r2": best["val_r2"],
             "gamma": args.gamma, "tau": args.tau, "bc_lambda": args.bc_lambda if lam else 0.0,
             "transitions": int(len(perm)), "val_rows": int(val.sum()),
             "holdout_episodes": [int(meta["episodes"][e]["seed"]) for e in
@@ -186,13 +265,19 @@ def train(args):
             "history": history,
         },
     }, path)
-    print(f"wrote {path} (best epoch {best['epoch']}, val_td_mse={best['val']:.1f})")
+    print(f"wrote {path} (best epoch {best['epoch']}, val_td_mse={best['val']:.1f}, val_r2={best['val_r2']})")
     return path
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--demos", default="benchmarks/demos/mpc_preference_demos.npz")
+    ap.add_argument("--mode", choices=["td", "planner_value", "mc_return"], default="td",
+                    help="'td' runs offline Bellman backups; 'planner_value' and 'mc_return' fit "
+                         "twin critics by supervised regression onto the planner lookahead value "
+                         "or discounted trajectory return without TD bootstrapping divergence")
+    ap.add_argument("--init-actor", default=None,
+                    help="optional BC actor checkpoint to carry in actor_state_dict for SAC warm-start")
     ap.add_argument("--actor", choices=["q", "q_bc"], default="q")
     ap.add_argument("--run-id", default=None)
     ap.add_argument("--epochs", type=int, default=60)

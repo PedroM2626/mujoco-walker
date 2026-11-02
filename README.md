@@ -638,7 +638,12 @@ never-in-band episodes from `18/20` to `8/20`, raises in-band time up to `14.88%
 at `z > 1.15 m`, `upright > 0.85`) and `12.86%` with a `2.25 s` continuous standing run
 (`rec+bc_gait_band`), and closes up to `2.22 m` while standing (`rec+bc_gait_raw` at `z > 1.1 m`,
 `upright > 0.8`), yet boundary chattering between the 49-D student and the 46-D target-blind recovery
-policy keeps target reaches at `0/20`.
+policy keeps target reaches at `0/20`. Pre-training the SAC twin critics supervisedly on the planner's
+state values (`critic_gait_mpc_val`, held-out $R^2 = +0.469$, eliminating TD bootstrapping blowup) and
+warm-starting both actor and critics in online SAC on upright resets (`sac_valcritic_upright_100k` and
+`200k`) extends in-band continuous standing runs from `0.81 s` (pure BC) to `1.39 s` (+72%) and standing
+distance closed from `3.01 m` to `7.61 m` (2.5x), while reaching 1/20 targets under the settled recovery
+supervisor.
 
 ![Gait-MPC teacher walking upright to the target: seed 14 (v_ref=1.1 m/s) and seed 20 (v_ref=0.8 m/s), side by side](docs/media/gait_mpc_upright_arrivals_seed14_seed20.gif)
 
@@ -973,8 +978,10 @@ plus the visual race in that order.
     - `train_irl_airl.py`: AIRL - the adversarial variant whose discriminator is shaped to recover a
       reward function.
     - `train_irl_maxent.py`: MaxEnt IRL with a linear reward ($r = \theta^{\top}\phi$).
-    - `train_irl_pqr.py`: Deep PQR IRL. Its only run died before saving `pqr_policy.pt`, so PQR has
-      no row in the table (item 6 below the table).
+    - `train_irl_pqr.py`: Deep PQR IRL. Its historical June 2026 run died on batch 1 of Step 3 due to
+      `opt_r.backward()` on line 168; fixed, trained (`--seed 2026 --no-mlflow`), and evaluated over 50
+      seeded episodes in `benchmarks/phase4_pqr_eval.json` (**mean 2466.51, std 970.27, min 1141.43,
+      max 3924.11**, item 6 below the table).
 6.  **Evaluation:** `evaluate_all.py --episodes 50 --seed 2026` is the headless, seeded evaluator
     every number in the table comes from (`final_results_50ep_seed2026.txt`, per-episode returns in
     `final_episodes_50ep_seed2026.json`; the 20-episode seed-123 check is
@@ -982,9 +989,8 @@ plus the visual race in that order.
     display, and `final_results.txt` is its historical single-episode record.
 
 `mlflow_backend.py` points every script above at the one `mlruns.db` at the repository root (see
-"Monitoring Experiments"). `train.py` is a Phase-2 leftover, not part of this pipeline: it reads
-`build/dataset.csv` and asks for a `collect_data.py`, neither of which is in the repository, so it
-cannot run as checked in.
+"Monitoring Experiments"). `train.py` is the Phase-2 C++ dataset trainer: it reads
+`mujoco_mpc_walker/build/dataset.csv` produced by `mujoco_mpc_walker/generate_data.cc` (`mjpc_dataset_tool`).
 
 ---
 
@@ -1068,11 +1074,25 @@ What this measurement changes, stated plainly:
    unchanged rows still match their old values exactly, and BCQ's row is now 2732.60 - which
    drops it behind BC+SAC (Regularized) into 5th. The GUI reference `play_race.py`, whose
    unseeded single-episode output is `final_results.txt`, is seeded the same way.
-6. **PQR is absent because it was never saved, not because it is slow.** `train_irl_pqr.py`
-   exists and an MLflow run `Deep_PQR_IRL` is in the database with 0 metrics - the process
-   died before writing `pqr_policy.pt`. `iql_sac_model.pt` is missing the same way, after 653
-   metrics. Both were closed as stale (`closed_as_stale` tag) rather than deleted: the metric
-   history is the only surviving evidence that they ran.
+6. **PQR was absent from the June 2026 race because a typo killed it on Step 3; fixed and trained, it
+   scores 2466.51 (`benchmarks/phase4_pqr_eval.json`).** The historical MLflow run `Deep_PQR_IRL` sits
+   in `mlruns.db` with 0 metrics (closed as stale via `closed_as_stale` alongside `iql_sac_model.pt`
+   after 653 metrics) because line 168 of `openai_walker/train_irl_pqr.py` called `opt_r.backward()`
+   instead of `loss_r.backward()`, raising `AttributeError: 'Adam' object has no attribute 'backward'`
+   on batch 1 of Step 3 before saving `pqr_policy.pt`. Fixing that bug and running
+   `train_irl_pqr.py --seed 2026 --epochs 10 --no-mlflow` (`51.14 s`) produces `openai_walker/pqr_policy.pt`
+   (`sha256: 1A0CDA10ECA93F58A34DB5E5181C4F6DEBC28CC6B40FA5CDC458381FA22D45B7`), which scores
+   **mean 2466.51, median 2205.49, std 970.27, min 1141.43, max 3924.11** over the same 50 seeded
+   episodes (`evaluate_all.py --episodes 50 --seed 2026`, with the `BC` control reproducing **3529.44**
+   digit for digit) - placing 6th of 15 overall and 1st among the four IRL scripts, ahead of Decision
+   Transformer (`1927.23`) and GAIL (`998.07`). However, inspecting the three stages explains why:
+   Step 1 trains `PolicyNet` (`256x256` ReLU + `tanh` on raw 17-D states) for 10 epochs of MSE
+   behavioral cloning (`pi_loss: 0.069199 -> 0.009266`); Step 2 bootstraps `QNet` against itself with
+   neither a discount factor nor a target network (`mse(Q(s, 0), 0) + mse(Q(s, a), Q(s', pi(s')))`),
+   causing `q_loss` to explode from `0.00163` to **`207,744,105,298.71` (`2.08e11`)** by epoch 10; and
+   Step 3 fits `RewardNet` to that exploded `QNet` (`r_loss: 2.57e11 -> 1.85e11`) without ever
+   updating `pi`. Thus `pqr_policy.pt` is structurally the Step-1 10-epoch MSE BC policy, not a policy
+   trained on a recovered reward.
 7. **Every retired single-episode draw is now placed inside the distribution the same weights
    produce today**, so "the n=1 table was a poor estimator" can be said per model instead of as
    one sentence for thirteen numbers (`benchmarks/phase4_n1_vs_50ep.json`, regenerated by

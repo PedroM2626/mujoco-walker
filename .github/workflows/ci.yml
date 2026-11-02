@@ -60,7 +60,7 @@ jobs:
 
   # The Phase-4 scripts need gymnasium>=1.0 for Walker2d-v5 and cannot share the
   # interpreter above, so they get their own install.
-  phase4-imports:
+  phase4-suite:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -93,11 +93,19 @@ jobs:
           print("gymnasium", gym.__version__, "| sb3", stable_baselines3.__version__)
           PY
 
-      # Behavioural, not just importable. Note most model files are gitignored, so on
-      # CI this legitimately covers the tracked dataset + teacher and skips the rest;
-      # it prints what it skipped so a silent shrink of coverage is visible.
-      - name: Phase 4 behavioural tests
-        run: python -m unittest tests.test_phase4_behaviour -v 2>&1 | tee phase4-tests.log
+      - name: System libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libosmesa6 libgl1 libglx-mesa0
+          echo "MUJOCO_GL=osmesa" >> "$GITHUB_ENV"
+
+      # The whole suite, not just tests.test_phase4_behaviour: since requirements-phase4.txt
+      # brings imageio-ffmpeg every module imports and passes on this interpreter too, so a
+      # change that only breaks under gymnasium 1.0 shows up here. Most Phase-4 model files are
+      # gitignored, so test_phase4_behaviour covers the tracked dataset + teacher and prints
+      # what it skipped, keeping a silent shrink of coverage visible.
+      - name: Full suite on the Phase-4 interpreter
+        run: python -m unittest discover -s tests -t . -v 2>&1 | tee phase4-tests.log
 
       - name: Report failure reason
         if: failure()

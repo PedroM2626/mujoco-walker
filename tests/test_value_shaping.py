@@ -248,7 +248,7 @@ class TestScoringIsUnaffected(unittest.TestCase):
 class TestTrainerProvenance(unittest.TestCase):
     """A short real run, because the fields above are the trainer's promise about its own checkpoints."""
 
-    run_id = "vshape_test_run"
+    run_id = f"vshape_test_run_{os.getpid()}"  # per process: see tests/test_training.py
 
     def tearDown(self):
         shutil.rmtree(os.path.join(ROOT, "checkpoints", self.run_id), ignore_errors=True)

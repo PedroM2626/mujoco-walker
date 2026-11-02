@@ -19,10 +19,14 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(
 os.environ.setdefault("MLFLOW_TRACKING_URI", "sqlite:///" + os.path.join(
     tempfile.gettempdir(), "test_mlruns_walker.db").replace(os.sep, "/"))
 
+# Run ids below are suffixed with the process id: these trainers write under the repository's own
+# checkpoints/ and runs/, so two copies of the suite running at once would otherwise delete each
+# other's event files and overwrite each other's checkpoints.
+
 
 class TestTrainingIntegration(unittest.TestCase):
     def setUp(self):
-        self.run_id = "integration_test_run"
+        self.run_id = f"integration_test_run_{os.getpid()}"
         # Clean up before
         ckpt_path = os.path.join("checkpoints", self.run_id)
         if os.path.exists(ckpt_path):
@@ -206,7 +210,7 @@ class TestRedqBatchedEnsembleRuns(unittest.TestCase):
     """
 
     def setUp(self):
-        self.run_id = "integration_test_redq"
+        self.run_id = f"integration_test_redq_{os.getpid()}"
         for path in (os.path.join("checkpoints", self.run_id),):
             if os.path.exists(path):
                 shutil.rmtree(path)
@@ -272,7 +276,7 @@ class TestSacUtdRatio(unittest.TestCase):
     """
 
     ROOT = os.path.dirname(os.path.dirname(__file__))
-    RUN_ID = "utd_ratio_test"
+    RUN_ID = f"utd_ratio_test_{os.getpid()}"
     TOTAL = 1024
     LEARNING_STARTS = 128
 

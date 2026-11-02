@@ -138,11 +138,12 @@ class TestAgent(unittest.TestCase):
 class TestCheckpoint(unittest.TestCase):
     def setUp(self):
         self.run_id = "test_run_123"
-        self.base_dir = "test_checkpoints"
+        self.base_dir = f"test_checkpoints_{os.getpid()}"  # per process, so parallel suites never share it
         force_delete_run(self.run_id, ckpt_base=self.base_dir)
 
     def tearDown(self):
         force_delete_run(self.run_id, ckpt_base=self.base_dir)
+        shutil.rmtree(self.base_dir, ignore_errors=True)
 
     def test_save_and_load(self):
         env = gym.make("WalkerRagdoll-v0")
@@ -182,7 +183,8 @@ class TestForceDeleteRunScope(unittest.TestCase):
     thread with FileNotFoundError.
     """
 
-    base = "test_run_logs"
+    base = f"test_run_logs_{os.getpid()}"
+    ckpt_base = f"test_checkpoints_{os.getpid()}"
 
     def _make(self, name):
         path = os.path.join(self.base, name)
@@ -193,13 +195,13 @@ class TestForceDeleteRunScope(unittest.TestCase):
 
     def tearDown(self):
         shutil.rmtree(self.base, ignore_errors=True)
-        shutil.rmtree("test_checkpoints/shared_run", ignore_errors=True)
+        shutil.rmtree(self.ckpt_base, ignore_errors=True)
 
     def test_only_the_callers_log_directory_is_removed(self):
         mine = self._make("shared_run__7")
         sibling = self._make("shared_run__8")
         force_delete_run("shared_run", "shared_run__7",
-                         ckpt_base="test_checkpoints", run_base=self.base)
+                         ckpt_base=self.ckpt_base, run_base=self.base)
         self.assertFalse(os.path.isdir(mine), "this run's own log dir should be cleared")
         self.assertTrue(os.path.isdir(sibling),
                         "another seed's log dir belongs to another run")
@@ -207,7 +209,7 @@ class TestForceDeleteRunScope(unittest.TestCase):
     def test_glob_mode_still_clears_every_directory_of_the_run(self):
         for name in ("shared_run__7", "shared_run__8", "shared_run__9"):
             self._make(name)
-        force_delete_run("shared_run", ckpt_base="test_checkpoints", run_base=self.base)
+        force_delete_run("shared_run", ckpt_base=self.ckpt_base, run_base=self.base)
         self.assertEqual([d for d in os.listdir(self.base)], [],
                          "without run_name the caller means the whole run id")
 

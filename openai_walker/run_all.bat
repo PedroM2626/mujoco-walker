@@ -1,7 +1,8 @@
 @echo off
 REM Pipeline completo Fase 4 (Walker2d-v5). Rode a partir de openai_walker\.
 REM Etapas pesadas (AIRL/DT) podem levar horas; comente com REM para pular.
-REM Pre-req: pip install -r ..\requirements.txt
+REM Pre-req: pip install -r ..\requirements-phase4.txt  (o requirements.txt da raiz pina
+REM gymnasium 0.29, onde Walker2d-v5 nao existe)
 
 python train_teacher.py
 if errorlevel 1 exit /b %errorlevel%

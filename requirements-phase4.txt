@@ -4,11 +4,11 @@
 # Separate from requirements.txt on purpose. Every Phase-4 script calls
 # gym.make("Walker2d-v5"), which only exists from gymnasium 1.0, and train_teacher.py /
 # the offline-to-online variants import stable_baselines3. Neither is satisfiable by the
-# committed .venv (Python 3.8, gymnasium 0.29.1, no SB3), which is why that whole phase
+# root .venv (gymnasium 0.29.1, no SB3), which is why that whole phase
 # could not be run from this repo as checked in.
 #
 # Verified against: .venv-phase4 (Python 3.11.9) with torch 2.5.1+cu121,
-# gymnasium 1.0.0, stable-baselines3 2.4.0, mujoco 3.3.x.
+# gymnasium 1.0.0, stable-baselines3 2.4.0, mujoco 3.14.0.
 gymnasium[mujoco]>=1.0.0
 stable-baselines3>=2.2.1
 torch>=2.2.0

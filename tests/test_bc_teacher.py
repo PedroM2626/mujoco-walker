@@ -136,7 +136,7 @@ class TestCheckpointIsReadableByTheScorer(unittest.TestCase):
             args = type("A", (), {"demos": npz, "filter": "raw",
                                   "epochs": 2, "batch": 64, "lr": 1e-3, "seed": 7,
                                   "device": "cpu", "min_transitions": 10,
-                                  "run_id": "bc_test_run"})()
+                                  "run_id": f"bc_test_run_{os.getpid()}"})()
             path = bc.train(args)
             try:
                 label, phase, width, policy, reset, rinfo = eval_phase1.build_policy(path, "cpu")
@@ -153,7 +153,7 @@ class TestCheckpointIsReadableByTheScorer(unittest.TestCase):
                 self.assertIsNotNone(stored["obs_rms"])
             finally:
                 import shutil
-                shutil.rmtree(os.path.join(ROOT, "checkpoints", "bc_test_run"), ignore_errors=True)
+                shutil.rmtree(os.path.join(ROOT, "checkpoints", f"bc_test_run_{os.getpid()}"), ignore_errors=True)
 
 
 class TestCollectorTrainerSchemaAgree(unittest.TestCase):

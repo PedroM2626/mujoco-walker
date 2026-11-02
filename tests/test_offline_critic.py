@@ -83,13 +83,13 @@ class TestTrainingRuns(unittest.TestCase):
     def args(self, npz, tmp, **over):
         base = {"demos": npz, "actor": "q", "epochs": 2, "batch": 64, "lr": 1e-3, "gamma": 0.99,
                 "tau": 0.005, "bc_lambda": 1.0, "holdout": 1, "seed": 7, "device": "cpu",
-                "run_id": "critic_test_run"}
+                "run_id": f"critic_test_run_{os.getpid()}"}
         base.update(over)
         return type("A", (), base)()
 
     def tearDown(self):
         import shutil
-        shutil.rmtree(os.path.join(ROOT, "checkpoints", "critic_test_run"), ignore_errors=True)
+        shutil.rmtree(os.path.join(ROOT, "checkpoints", f"critic_test_run_{os.getpid()}"), ignore_errors=True)
 
     def test_a_two_epoch_run_selects_by_held_out_td_and_writes_a_loadable_checkpoint(self):
         import eval_phase1
@@ -115,7 +115,7 @@ class TestTrainingRuns(unittest.TestCase):
             path = toc.train(self.args(npz, tmp, actor="q_bc"))
             ck = torch.load(path, map_location="cpu", weights_only=False)
             self.assertGreater(ck["critic"]["bc_lambda"], 0.0)
-            path_q = toc.train(self.args(npz, tmp, actor="q", run_id="critic_test_run"))
+            path_q = toc.train(self.args(npz, tmp, actor="q", run_id=f"critic_test_run_{os.getpid()}"))
             ck_q = torch.load(path_q, map_location="cpu", weights_only=False)
             self.assertEqual(ck_q["critic"]["bc_lambda"], 0.0)
 
@@ -136,7 +136,7 @@ class TestTrainingRuns(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             npz = write_preference_demos(tmp, episodes=3)
             argv = ["scripts/train_offline_critic.py", "--demos", npz, "--holdout", "0",
-                    "--run-id", "critic_test_run"]
+                    "--run-id", f"critic_test_run_{os.getpid()}"]
             original = sys.argv
             sys.argv = argv
             try:

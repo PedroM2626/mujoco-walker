@@ -59,6 +59,9 @@ videos/
 *.pth
 *.pkl
 *.zip
+# Local overrides for scripts/train_walker.py, which loads ./.env at import. Copy .env.example
+# to start one; every value in it is also the trainer's built-in default (ENV_VARS).
+.env
 .env.local
 # One pattern for every local interpreter: .venv, .venv-mjx, .venv-phase4 and the
 # .venv-py38-backup kept when the primary venv moved from Python 3.8 to 3.11.

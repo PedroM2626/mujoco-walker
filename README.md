@@ -713,9 +713,16 @@ actor and commanding zero - because displacement means the same thing in every r
 a return does not.
 
 ### 🟡 Phase 2: MuJoCo MPC & Imitation Learning (Root Directory)
-To achieve mathematically perfect locomotion, we tapped into the official DeepMind C++ MuJoCo MPC (Model Predictive Control) planner:
-- We extracted **15,000 flawless transitions** of the MPC planner optimizing the walker's physics implicitly (`dataset.csv`).
-- **Behavioral Cloning (`scripts/train_walker.py`):** Trained a PyTorch neural network to supervise-clone the MPC's optimal torque decisions, effectively caching the heavy MPC computation into a fast neural policy.
+Phase 2 used the official DeepMind C++ MuJoCo MPC (Model Predictive Control) planner as a teacher:
+- The MPC planner's transitions were recorded into `dataset.csv` (15,000 transitions, by the
+  collector flag below). That file was never committed, so its contents cannot be checked here.
+- **Behavioral Cloning (`openai_walker/train.py`):** a PyTorch network (`WalkerTeacherNet`) was
+  supervise-cloned onto the MPC's torques from frame-stacked states, caching the planner's
+  computation into a fast neural policy. It writes `teacher_model.pt` and `scaler.pkl`, which
+  `mujoco_mpc_walker/play_mpc.py` and `scripts/eval_headless.py` load. The script was born as
+  `mujoco_mpc_walker/train.py` and was moved into `openai_walker/` on 2026-06-07 (`f95bf90`), where
+  its `build/dataset.csv` path no longer points at the MPC build folder; it is not part of the
+  Phase-4 pipeline and does not run as checked in.
 
 ⚠️ **Not reproducible as committed, and the blocker was two layers deeper than it looked.**
 `dataset.csv` is nowhere in the tree or in git history. The obvious cause is real:
@@ -727,10 +734,11 @@ no flag the binary behaves exactly as it always did.
 
 Underneath that, **the CMake project could not configure at all.** `CMakeLists.txt` declared
 `add_executable(mjpc_dataset_tool generate_data.cc walker_task.cc)`, and `generate_data.cc` is
-not in the repository and never was committed, so `cmake ..` aborts with "Cannot find source
-file: generate_data.cc" whatever compiler is installed. The stale target is gone; `build/`
-still holds the `mjpc_dataset_tool.dir` object folder from the day the file existed locally,
-which is how it was traced. `build.bat` then hardcoded `C:\Program Files (x86)\Microsoft
+not in the working tree, so `cmake ..` aborts with "Cannot find source file: generate_data.cc"
+whatever compiler is installed. The file was committed on 2026-05-25 (`1fb8c2a`) and deleted on
+2026-06-07 (`f95bf90`), so it is recoverable with
+`git show f95bf90^:mujoco_mpc_walker/generate_data.cc`; the stale target is gone either way, and
+`build/` still holds its `mjpc_dataset_tool.dir` object folder. `build.bat` then hardcoded `C:\Program Files (x86)\Microsoft
 Visual Studio\18\...` and `C:\Program Files\CMake`, neither of which exists on this machine, so
 it now resolves the toolchain through `vswhere`.
 
@@ -895,21 +903,56 @@ unreachable from `scripts/play.py`; it now takes `--checkpoint` for the root-lev
 containing no MoE code.
 
 ### 🔴 Phase 4: Offline RL & Offline-to-Online Benchmarking (`openai_walker/` folder)
-We migrated to the standardized `Walker2d-v5` Gymnasium environment to conduct a massive benchmark on learning *strictly from static datasets*, without querying the environment.
+We migrated to the standardized `Walker2d-v5` Gymnasium environment to benchmark what can be
+learned from one static dataset of a teacher's transitions. The pure offline methods (step 3) never
+query the environment while training; the offline-to-online hybrids (step 4) and the IRL methods
+(step 5) do, because they keep collecting rollouts. Everything here runs from inside `openai_walker/`
+on the `.venv-phase4` interpreter (`requirements-phase4.txt`), and `run_all.bat` chains steps 1-5
+plus the visual race in that order.
 
-1.  **Online Expert Generation:** `train_teacher.py` trains a flawless Soft Actor-Critic (SAC) model.
-2.  **Dataset Mining:** `generate_dataset.py` records 100k transitions from the teacher (`dataset_openai.csv`).
-3.  **Pure Offline Training:** 
-    - `train_bc.py`: Supervised Imitation.
-    - `train_iql.py`: Implicit Q-Learning (Expectile Regression to avoid out-of-distribution queries).
-    - `train_cql.py`: Conservative Q-Learning (Penalizes Q-values for unseen actions).
-4.  **Offline-to-Online Fine-Tuning:** Injecting offline weights into an active SAC for continued environmental exploration:
-    - `train_bc_sac.py` (Naive initialization)
-    - `train_bc_sac_regularized.py` (BC Loss Penalty in the Actor)
-    - `train_bc_sac_constrained.py` (Action Constraints / Clipping)
-    - `train_iql_sac.py` & `train_cql_sac.py`
-5.  **Inverse Reinforcement Learning (IRL):** `train_irl_gail.py` implements a Generative Adversarial Imitation Learning (GAIL) paradigm. It trains a Discriminator to distinguish expert from agent, and trains a SAC agent purely on the Discriminator's adversarial reward, completely bypassing the MuJoCo environment's native reward.
-6.  **Grand Evaluation:** `play_race.py` sequentially simulates all generated models in the arena.
+1.  **Online Expert Generation:** `train_teacher.py` trains a Stable-Baselines3 SAC teacher for 500k
+    steps (`sac_walker2d_final.zip`, best checkpoint in `logs/best_model.zip`). It is the upper bound
+    the table compares against, not a perfect policy: 3516.95 mean over 50 seeded episodes, with a
+    minimum of 1511.13, statistically tied with plain BC.
+2.  **Dataset Mining:** `generate_dataset.py` records 100k transitions from the teacher
+    (`dataset_openai.csv`, 100,000 rows, the only copy of the dataset; see "Repository size").
+3.  **Pure Offline Training** (dataset only, no environment interaction):
+    - `train_bc.py`: Behavioral Cloning (supervised regression onto the teacher's actions).
+    - `train_iql.py`: Implicit Q-Learning (expectile regression, so the value never queries
+      out-of-distribution actions).
+    - `train_cql.py`: Conservative Q-Learning (penalizes Q-values of unseen actions).
+    - `train_offline_bcq.py`: Batch-Constrained Q-learning (a VAE proposes in-distribution actions
+      and a perturbation network adjusts them).
+    - `train_offline_dt.py`: Decision Transformer (a sequence model conditioned on return-to-go).
+    - `train_extratrees.py`: an Extra Trees (scikit-learn) behavioural clone, scored by
+      `eval_extratrees.py` on the same seeded protocol; its `extratrees_model.pkl` is 2.24 GB and is
+      not committed.
+4.  **Offline-to-Online Fine-Tuning:** offline weights are loaded into a SAC that keeps collecting
+    rollouts:
+    - `train_bc_sac.py` (naive initialization from BC)
+    - `train_bc_sac_regularized.py` (a BC loss term in the actor objective)
+    - `train_bc_sac_constrained.py` (every executed action is clamped to within ±0.2 of the BC
+      policy's action)
+    - `train_iql_sac.py` & `train_cql_sac.py` (initialized from the IQL and CQL models)
+5.  **Inverse Reinforcement Learning (IRL)**, each learning a reward from the dataset and training a
+    policy on it instead of on `Walker2d-v5`'s native reward:
+    - `train_irl_gail.py`: GAIL - a discriminator separates expert from agent transitions and a SAC
+      agent is trained purely on its adversarial reward.
+    - `train_irl_airl.py`: AIRL - the adversarial variant whose discriminator is shaped to recover a
+      reward function.
+    - `train_irl_maxent.py`: MaxEnt IRL with a linear reward ($r = \theta^{\top}\phi$).
+    - `train_irl_pqr.py`: Deep PQR IRL. Its only run died before saving `pqr_policy.pt`, so PQR has
+      no row in the table (item 6 below the table).
+6.  **Evaluation:** `evaluate_all.py --episodes 50 --seed 2026` is the headless, seeded evaluator
+    every number in the table comes from (`final_results_50ep_seed2026.txt`, per-episode returns in
+    `final_episodes_50ep_seed2026.json`; the 20-episode seed-123 check is
+    `final_results_20ep_seed123.txt`). `play_race.py` is the visual race with a GUI; it needs a
+    display, and `final_results.txt` is its historical single-episode record.
+
+`mlflow_backend.py` points every script above at the one `mlruns.db` at the repository root (see
+"Monitoring Experiments"). `train.py` is a Phase-2 leftover, not part of this pipeline: it reads
+`build/dataset.csv` and asks for a `collect_data.py`, neither of which is in the repository, so it
+cannot run as checked in.
 
 ---
 
@@ -2433,14 +2476,19 @@ python -m unittest discover -s tests -t .
 
 All seven skips are `tests/test_phase4_behaviour`, which needs `Walker2d-v5` and cannot get it on
 gymnasium 0.29; nothing else skips here (torch in `.venv` is a cu121 build and the device answers,
-so the CUDA graph-capture test runs). The reverse does not hold: run the same command under
-`.venv-phase4` and all 23 test modules import and pass - discovery there collects 480 of the
-486 tests, and all of them pass with one skip (198.478 s at 474 on 2026-11-01, 474.155 s at 480 on 2026-11-02), once `requirements-phase4.txt` brings `imageio-ffmpeg` for the clip
-render tests. Do not run two copies of the suite at once, in one venv or across both: the training
-tests write to the repository's own `checkpoints/` and `runs/` under fixed run ids, so concurrent
-runs delete each other's event files and overwrite each other's checkpoints.
-`.github/workflows/ci.yml` still runs only the import check plus `tests/test_phase4_behaviour` on
-the Phase-4 interpreter, and the full suite on the root one.
+so the CUDA graph-capture test runs). The same command also works under `.venv-phase4`: all 23
+test modules import there, discovery collects 480 of the 486 tests, and all of them pass with one
+skip (198.478 s at 474 on 2026-11-01, 474.155 s at 480 on 2026-11-02), once
+`requirements-phase4.txt` brings `imageio-ffmpeg` for the clip render tests. The training tests
+write under the repository's own `checkpoints/` and `runs/`, so their run ids carry the process id -
+before that, two concurrent runs deleted each other's event files and overwrote each other's
+checkpoints. With that fixed, both suites run side by side without colliding: on 2026-11-02 the
+`.venv` copy passed (486, OK, 7 skips) while the `.venv-phase4` copy ran next to it, whose one error
+was `test_extra_trees_model_predicts_inside_action_bounds` - the test that loads the 2.24 GB
+`extratrees_model.pkl` - which passes when rerun alone. Prefer one suite at a time on a machine
+that also holds that model.
+`.github/workflows/ci.yml` runs the full suite on both interpreters, plus a `Walker2d-v5` and
+trainer-import check on the Phase-4 one.
 
 ---
 

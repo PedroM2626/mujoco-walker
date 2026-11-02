@@ -1,3 +1,11 @@
+"""Legado da Fase 2: clonagem comportamental do MPC (nao faz parte do pipeline da Fase 4).
+
+Gera `teacher_model.pt` e `scaler.pkl`, lidos por `mujoco_mpc_walker/play_mpc.py` e
+`scripts/eval_headless.py`. Nasceu como `mujoco_mpc_walker/train.py` e foi movido para ca em
+f95bf90; desde entao `build/dataset.csv` aponta para `openai_walker/build/`, que nao existe, e o
+`dataset.csv` do MPC nunca foi versionado. Nao roda como esta no repositorio.
+"""
+
 import torch
 import torch.nn as nn
 import torch.optim as optim

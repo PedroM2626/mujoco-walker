@@ -5608,13 +5608,15 @@ class TestReadmeGaitMpcCells(ReadmeGate, unittest.TestCase):
         start = readme.index(self.START)
         self.block = readme[start:readme.index(self.END, start)]
         (self.v08, self.v11, self.bc, self.old_bc, self.qold, self.qgait, self.summary,
-         self.students, self.sac, self.clip08, self.clip11, self.clipbc, self.clipsac) = \
+         self.students, self.sac, self.decoupled, self.clip08, self.clip11, self.clipbc,
+         self.clipsac) = \
             self.read_artifacts(*[os.path.join(self.B, f) for f in (
                 "mpc_gait_target_v08.json", "mpc_gait_target_v11.json",
                 "gait_bc_teacher_benchmark.json", "bc_teacher_benchmark.json",
                 "planner_q_probe.json", "gait_planner_q_probe.json",
                 "mpc_gait_teacher_benchmark.json", "gait_mpc_students.json",
-                "gait_sac_online_eval.json", "target_clips_mpc_gait_v08.json",
+                "gait_sac_online_eval.json", "gait_standing_and_supervisor_eval.json",
+                "target_clips_mpc_gait_v08.json",
                 "target_clips_mpc_gait_v11.json", "target_clips_bc_gait_raw.json",
                 "target_clips_sac_warmstart_gait_100k.json")])
         self.bad = []
@@ -5766,6 +5768,62 @@ class TestReadmeGaitMpcCells(ReadmeGate, unittest.TestCase):
         reached = sorted(n for n, r in {**stage_b, **stage_c}.items() if r["reach_20ep"])
         self.assertEqual(reached, ["sac_warmstart_gait_100k"],
                          "the README says only the 100k warm-start reaches a target")
+        up = self.decoupled["upright_reset_20ep"]
+        sup = self.decoupled["hybrid_supervisor_mixed_reset_20ep"]
+        m = self.sentence(
+            r"lifts BC median returns 10x \(`\+(\d+)` for `bc_gait_raw`, `\+(\d+)` for "
+            r"`bc_gait_band`\) and standing distance closed to `([\d.]+) m` \(`([\d.]+)%` share\) "
+            r"and `([\d.]+) m` \(`([\d.]+)%` share\), but open-loop covariate shift inside the "
+            r"gait cycle still topples both students after `([\d.]+) s` and `([\d.]+) s` "
+            r"\(`([\d.]+)%` and `([\d.]+)%` of steps in band, `(\d+)/20` reaches vs `([\d.]+) s` "
+            r"and `([\d.]+) m` standing for `walker_target_v1`\)",
+            "the upright-reset decoupling")
+        self.check("upright bc_raw median", m.group(1), up["bc_gait_raw"]["median_return"], places=0)
+        self.check("upright bc_band median", m.group(2), up["bc_gait_band"]["median_return"], places=0)
+        self.check("upright bc_raw stand m", m.group(3), up["bc_gait_raw"]["closing_while_standing_m"],
+                   places=2)
+        self.check("upright bc_raw share %", m.group(4), up["bc_gait_raw"]["share_while_standing"] * 100,
+                   places=1)
+        self.check("upright bc_band stand m", m.group(5), up["bc_gait_band"]["closing_while_standing_m"],
+                   places=2)
+        self.check("upright bc_band share %", m.group(6),
+                   up["bc_gait_band"]["share_while_standing"] * 100, places=1)
+        self.check("upright bc_raw max run", m.group(7), up["bc_gait_raw"]["max_longest_band_run_s"],
+                   places=2)
+        self.check("upright bc_band max run", m.group(8), up["bc_gait_band"]["max_longest_band_run_s"],
+                   places=2)
+        self.check("upright bc_raw % band", m.group(9), up["bc_gait_raw"]["mean_pct_steps_in_band"],
+                   places=2)
+        self.check("upright bc_band % band", m.group(10), up["bc_gait_band"]["mean_pct_steps_in_band"],
+                   places=2)
+        self.check("upright bc reaches", m.group(11), up["bc_gait_raw"]["reach_20ep"], places=0)
+        self.check("upright target_v1 max run", m.group(12),
+                   up["walker_target_v1"]["max_longest_band_run_s"], places=2)
+        self.check("upright target_v1 stand m", m.group(13),
+                   up["walker_target_v1"]["closing_while_standing_m"], places=2)
+        m = self.sentence(
+            r"cuts never-in-band episodes from `(\d+)/20` to `(\d+)/20`, raises in-band time up to "
+            r"`([\d.]+)%` \(`rec\+bc_gait_raw` at `z > 1\.15 m`, `upright > 0\.85`\) and `([\d.]+)%` "
+            r"with a `([\d.]+) s` continuous standing run \(`rec\+bc_gait_band`\), and closes up to "
+            r"`([\d.]+) m` while standing \(`rec\+bc_gait_raw` at `z > 1\.1 m`, `upright > 0\.8`\), "
+            r"yet boundary chattering between the 49-D student and the 46-D target-blind recovery "
+            r"policy keeps target reaches at `(\d+)/20`",
+            "the hybrid recovery supervisor")
+        settled = sup["settled_z115_up085"]["arms"]
+        phase3 = sup["phase3_z11_up08"]["arms"]
+        self.check("mixed bc never in band", m.group(1), stage_b["bc_gait_raw"]["episodes_never_in_band"],
+                   places=0)
+        self.check("sup never in band", m.group(2), settled["bc_gait_raw"]["episodes_never_in_band"],
+                   places=0)
+        self.check("sup settled raw % band", m.group(3), settled["bc_gait_raw"]["mean_pct_steps_in_band"],
+                   places=2)
+        self.check("sup settled band % band", m.group(4),
+                   settled["bc_gait_band"]["mean_pct_steps_in_band"], places=2)
+        self.check("sup settled band max run", m.group(5),
+                   settled["bc_gait_band"]["max_longest_band_run_s"], places=2)
+        self.check("sup phase3 raw stand m", m.group(6),
+                   phase3["bc_gait_raw"]["closing_while_standing_m"], places=2)
+        self.check("sup reaches", m.group(7), settled["bc_gait_band"]["reach_20ep"], places=0)
 
     def test_the_captions_are_the_recorded_episodes(self):
         def caption(pattern, what, ep, clip, fields):

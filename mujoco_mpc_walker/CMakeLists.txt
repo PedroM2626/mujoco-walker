@@ -46,13 +46,27 @@ add_custom_command(TARGET walker_mpc POST_BUILD
     ${CMAKE_CURRENT_BINARY_DIR}/walker_ragdoll.xml
 )
 
-# This file used to end with a second target:
-#
-#   add_executable(mjpc_dataset_tool generate_data.cc walker_task.cc)   + link libraries
-#
-# `generate_data.cc` is not in the repository and never was committed, so CMake aborted at
-# *configure* time with "Cannot find source file: generate_data.cc". That made the whole MPC
-# phase unbuildable - with or without a compiler - which is the real reason the Phase-2
-# dataset cannot be regenerated today, and why build/ holds a June walker_mpc.exe but no
-# dataset. Recording now lives in main.cc behind --dataset_path, so this target has nothing
-# left to build.
+# Headless dataset collector (restored from commit 1fb8c2a / f95bf90^).
+# Wires mjpc::Agent directly (Initialize -> Allocate -> Reset -> state.Set -> PlanIteration ->
+# ActionFromPolicy) over a ThreadPool and writes 15,000 (target_x, target_y, qpos, qvel, ctrl,
+# reward, done) transitions to dataset.csv without opening the GLFW viewer.
+# Recording is also available interactively in walker_mpc via --dataset_path=dataset.csv.
+add_executable(mjpc_dataset_tool
+  generate_data.cc
+  walker_task.cc
+)
+
+target_link_libraries(mjpc_dataset_tool
+  PRIVATE
+    libmjpc
+    mujoco::mujoco
+    absl::flags
+    absl::flags_parse
+    absl::flags_marshalling
+    absl::flags_reflection
+    absl::random_random
+    absl::strings
+    threadpool
+    Threads::Threads
+)
+

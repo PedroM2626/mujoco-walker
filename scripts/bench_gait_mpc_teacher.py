@@ -463,6 +463,11 @@ def build_artifact(run_all=False):
     with open(os.path.join(ROOT, "benchmarks", "gait_planner_q_probe.json"),
               encoding="utf-8") as handle:
         gait_q_probe = json.load(handle)
+    decoupled_path = os.path.join(ROOT, "benchmarks", "gait_standing_and_supervisor_eval.json")
+    decoupled_eval = None
+    if os.path.exists(decoupled_path):
+        with open(decoupled_path, encoding="utf-8") as handle:
+            decoupled_eval = json.load(handle)
     if run_all:
         arms = {
             k: evaluate_gait_arm(cell["label"], **cell["config"])
@@ -479,8 +484,9 @@ def build_artifact(run_all=False):
             "published CEM teachers against Gait-MPC configurations (strict z > 1.0 m locomotion gate, "
             "stability_weight=60, 5-step knot hold, slew-rate regularisation, and two-state settled-"
             "standing fall termination), plus 28-episode student imitation / offline-critic transfer "
-            "(seeds 101..128), 200k-step online SAC warm-start, and within-plan centered Q(s, a) "
-            "reconciliation on benchmarks/demos/mpc_candidates.npz"
+            "(seeds 101..128), 200k-step online SAC warm-start, decoupled upright-reset & hybrid "
+            "recovery-supervisor evaluations (benchmarks/gait_standing_and_supervisor_eval.json), and "
+            "within-plan centered Q(s, a) reconciliation on benchmarks/demos/mpc_candidates.npz"
         ),
         "published_comparators_4ep": {
             "mpc_baseline_24x2_h60": _published_4ep_summary("benchmarks/mpc_target_baseline.json"),
@@ -519,6 +525,15 @@ def build_artifact(run_all=False):
                 for k in ("sac_strict_band_200k", "sac_warmstart_gait_100k", "sac_warmstart_gait_200k")
             },
         },
+        "stage_d_decoupled_standing_and_supervisor_20ep": (
+            {
+                "artifact": "benchmarks/gait_standing_and_supervisor_eval.json",
+                "upright_reset_20ep": decoupled_eval["upright_reset_20ep"],
+                "hybrid_supervisor_mixed_reset_20ep": decoupled_eval["hybrid_supervisor_mixed_reset_20ep"],
+            }
+            if decoupled_eval is not None
+            else None
+        ),
         "planner_q_reconciliation": reconcile_planner_q(),
         "findings": {
             "why_paying_below_band_is_inverted": (
@@ -557,6 +572,24 @@ def build_artifact(run_all=False):
                 "a 100-step random rollout. Even with 5-step knots (pearson +0.1500), the "
                 "pre-registered Q(s, a) gate (>= 0.30 R2, >= 0.50 pearson, >= 0.50 elite hit) "
                 "remains closed."
+            ),
+            "layer4_decoupled_recovery_and_upright_verdict": (
+                "Decoupling stand-up recovery from in-band walking on seeds 11..30 shows both why "
+                "the students fail on mixed resets and why removing fallen resets is not enough "
+                "by itself: under reset_mode='upright' (20/20 starts in band), BC median returns "
+                "rise 10x (+1326.60 -> +13439.65 for bc_gait_raw, +1341.75 -> +12673.56 for "
+                "bc_gait_band) and distance closed while standing rises 14x-33x (0.09 m -> 3.01 m "
+                "and 0.31 m -> 4.39 m, 27.1% standing share), but open-loop covariate shift inside "
+                "the standing gait cycle still topples the student after 0.81 s-0.85 s (4.72%-4.89% "
+                "of steps in band, 0/20 target arrivals vs 8.07 s and 12.98 m standing for "
+                "40M-step walker_target_v1). Pairing the 20M-step recovery expert "
+                "(walker_recovery_v1) with the students on reset_mode='mixed' cuts "
+                "episodes_never_in_band from 18/20 to 8/20, lifts in-band time up to 35x-46x "
+                "(0.325% -> 14.88% for rec+bc_gait_raw at z > 1.15 m, upright > 0.85; "
+                "0.365% -> 12.86% with a 2.25 s continuous standing run for rec+bc_gait_band), "
+                "and raises standing distance closed to 2.22 m (rec+bc_gait_raw at z > 1.1 m, "
+                "upright > 0.8), but handoff chattering between the 49-D student and the 46-D "
+                "target-blind recovery policy keeps target arrivals at 0/20."
             ),
         },
     }

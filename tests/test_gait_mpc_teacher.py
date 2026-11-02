@@ -191,6 +191,26 @@ class TestGaitMpcBenchmarkArtifact(unittest.TestCase):
             stage_b["students_20ep_gait"]["bc_gait_raw"]["episodes_never_in_band"],
         )
 
+        # 4b. Stage D (Decoupled upright-reset & hybrid recovery-supervisor evaluations) + Phase-2 verify
+        stage_d = art["stage_d_decoupled_standing_and_supervisor_20ep"]
+        self.assertIsNotNone(stage_d)
+        up = stage_d["upright_reset_20ep"]
+        self.assertEqual(up["bc_gait_raw"]["episodes_starting_in_band"], 20)
+        self.assertGreater(up["bc_gait_raw"]["median_return"], 13000.0)
+        self.assertGreater(up["bc_gait_band"]["closing_while_standing_m"], 4.0)
+        sup_settled = stage_d["hybrid_supervisor_mixed_reset_20ep"]["settled_z115_up085"]["arms"]
+        self.assertEqual(sup_settled["bc_gait_raw"]["episodes_never_in_band"], 8)
+        self.assertGreater(sup_settled["bc_gait_raw"]["mean_pct_steps_in_band"], 14.0)
+        self.assertGreaterEqual(sup_settled["bc_gait_band"]["max_longest_band_run_s"], 2.2)
+
+        gen_cc = os.path.join(ROOT, "mujoco_mpc_walker", "generate_data.cc")
+        cmake_txt = os.path.join(ROOT, "mujoco_mpc_walker", "CMakeLists.txt")
+        self.assertTrue(os.path.exists(gen_cc), "missing restored mujoco_mpc_walker/generate_data.cc")
+        with open(cmake_txt, encoding="utf-8") as handle:
+            self.assertIn("add_executable(mjpc_dataset_tool", handle.read())
+        import verify as phase2_verify
+        self.assertEqual(phase2_verify.verify_gait_mpc(), 0)
+
         # 5. Verify the rendered Gait-MPC teacher and student clip sidecars, mp4 hashes, and README GIFs
         import hashlib
         sidecars = (

@@ -626,7 +626,19 @@ runs with the strict band gate break the floor paralysis (median return `+5113` 
 `13/20` and `14/20` episodes never in band) but need multi-million-step budgets to sustain standing
 locomotion. The warm-start's 100k checkpoint (`sac_warmstart_gait_100k`) is the only student arm that
 reaches a target - `1/20`, not upright - with a `0.74 s` longest band run and `18/20` episodes never in
-band.
+band. Decoupling stand-up recovery from in-band walking on the same 20 seeds
+(`benchmarks/gait_standing_and_supervisor_eval.json`) separates the two bottlenecks: starting every
+episode in the standing band (`reset_mode="upright"`) lifts BC median returns 10x (`+13440` for
+`bc_gait_raw`, `+12674` for `bc_gait_band`) and standing distance closed to `3.01 m` (`20.1%` share)
+and `4.39 m` (`27.1%` share), but open-loop covariate shift inside the gait cycle still topples both
+students after `0.81 s` and `0.85 s` (`4.89%` and `4.72%` of steps in band, `0/20` reaches vs `8.07 s`
+and `12.98 m` standing for `walker_target_v1`). On `reset_mode="mixed"`, routing out-of-band states to
+the 20M-step recovery expert (`walker_recovery_v1`) before handing off to the student cuts
+never-in-band episodes from `18/20` to `8/20`, raises in-band time up to `14.88%` (`rec+bc_gait_raw`
+at `z > 1.15 m`, `upright > 0.85`) and `12.86%` with a `2.25 s` continuous standing run
+(`rec+bc_gait_band`), and closes up to `2.22 m` while standing (`rec+bc_gait_raw` at `z > 1.1 m`,
+`upright > 0.8`), yet boundary chattering between the 49-D student and the 46-D target-blind recovery
+policy keeps target reaches at `0/20`.
 
 ![Gait-MPC teacher walking upright to the target: seed 14 (v_ref=1.1 m/s) and seed 20 (v_ref=0.8 m/s), side by side](docs/media/gait_mpc_upright_arrivals_seed14_seed20.gif)
 
@@ -746,37 +758,31 @@ Phase 2 used the official DeepMind C++ MuJoCo MPC (Model Predictive Control) pla
   supervise-cloned onto the MPC's torques from frame-stacked states, caching the planner's
   computation into a fast neural policy. It writes `teacher_model.pt` and `scaler.pkl`, which
   `mujoco_mpc_walker/play_mpc.py` and `scripts/eval_headless.py` load. The script was born as
-  `mujoco_mpc_walker/train.py` and was moved into `openai_walker/` on 2026-06-07 (`f95bf90`), where
-  its `build/dataset.csv` path no longer points at the MPC build folder; it is not part of the
-  Phase-4 pipeline and does not run as checked in.
+  `mujoco_mpc_walker/train.py` and was moved into `openai_walker/` on 2026-06-07 (`f95bf90`);
+  its default `--dataset` and `--out-dir` now resolve back to `mujoco_mpc_walker/build/dataset.csv`
+  and `mujoco_mpc_walker/`.
 
-⚠️ **Not reproducible as committed, and the blocker was two layers deeper than it looked.**
-`dataset.csv` is nowhere in the tree or in git history. The obvious cause is real:
-`mujoco_mpc_walker/main.cc` contains a complete transition writer (`my_step_callback`, writing
-`target_x,target_y,qpos_*,qvel_*,ctrl_*,reward,done`) but the lines that installed it were
-commented out, so the June binary in `build/walker_mpc.exe` opens the GUI and writes nothing.
-Those lines are now flags: `--dataset_path=dataset.csv --transitions=15000` records, and with
-no flag the binary behaves exactly as it always did.
+⚠️ **Requires a C++ toolchain to rebuild the C++ collector.**
+`dataset.csv` was never committed to git history. Both C++ collectors are present in the source tree:
+- `mujoco_mpc_walker/main.cc` contains the interactive transition writer (`my_step_callback`, writing
+  `target_x,target_y,qpos_*,qvel_*,ctrl_*,reward,done`) behind `--dataset_path=dataset.csv --transitions=15000`
+  (with no flag, `walker_mpc` opens the interactive viewer as before).
+- `mujoco_mpc_walker/generate_data.cc` (committed in `1fb8c2a`, deleted in `f95bf90`, and restored in
+   the working tree alongside its `mjpc_dataset_tool` target in `mujoco_mpc_walker/CMakeLists.txt`) is
+  the headless C++ collector that wires `mjpc::Agent` directly (`Initialize` → `Allocate` → `Reset` →
+  `state.Set` → `PlanIteration` → `ActionFromPolicy`) over a `ThreadPool` to write 15,000 transitions
+  without a GUI.
+- `mujoco_mpc_walker/build.bat` resolves Visual Studio Build Tools and CMake dynamically via `vswhere`.
 
-Underneath that, **the CMake project could not configure at all.** `CMakeLists.txt` declared
-`add_executable(mjpc_dataset_tool generate_data.cc walker_task.cc)`, and `generate_data.cc` is
-not in the working tree, so `cmake ..` aborts with "Cannot find source file: generate_data.cc"
-whatever compiler is installed. The file was committed on 2026-05-25 (`1fb8c2a`) and deleted on
-2026-06-07 (`f95bf90`), so it is recoverable with
-`git show f95bf90^:mujoco_mpc_walker/generate_data.cc`; the stale target is gone either way, and
-`build/` still holds its `mjpc_dataset_tool.dir` object folder. `build.bat` then hardcoded `C:\Program Files (x86)\Microsoft
-Visual Studio\18\...` and `C:\Program Files\CMake`, neither of which exists on this machine, so
-it now resolves the toolchain through `vswhere`.
-
-What remains is a system install, not a code fix: no MSVC, no CMake, no compiler of any kind is
-present here (`where cl / gcc / cmake` all empty), so none of the above has been compiled, and
-collection is still a manual GUI session. A headless collector would need `mjpc::Agent` wired
-by hand - `Initialize` → `Allocate` → `Reset` → `SetState` → `PlanIteration` →
-`ActionFromPolicy` - which cannot be built or tested on this machine. Installing *Desktop
-development with C++* makes `build.bat` runnable; the versioned, measured alternative remains
-Phase 4's `openai_walker/dataset_openai.csv` (100k SAC-teacher transitions), which every table
-in this file that quotes a number actually measured against. `scripts/verify.py` prints the same steps
-and exits 2 until the artifacts exist.
+What remains for the C++ binary path is a system install, not a code fix: no MSVC or CMake compiler is
+installed on this machine (`where cl / gcc / cmake` all empty), so the June binary in `build/walker_mpc.exe`
+predates the `--dataset_path` flag and `mjpc_dataset_tool` awaits compilation. Installing *Desktop
+development with C++* makes `build.bat` runnable. Without a C++ compiler, two versioned, measured
+imitation pipelines are already in the repository: the Python Gait-MPC teacher and BC students on the
+49-D `WalkerRagdoll-v0` humanoid (`python scripts/verify.py --gait-mpc`, verified against
+`benchmarks/gait_bc_teacher_benchmark.json`), and Phase 4's `openai_walker/dataset_openai.csv`
+(100k SAC-teacher transitions on `Walker2d-v4`). Default `python scripts/verify.py` prints the C++
+reproduction steps and exits 2 until `mujoco_mpc_walker/build/dataset.csv` is generated.
 
 ### 🟠 Phase 3: Transfer Learning, Model Merging & Mixture of Experts (Root Directory)
 How do we combine a "Walking Policy" with a "Fall Recovery Policy" without catastrophic forgetting? To achieve this, we utilized a strict **Transfer Learning Curriculum** and advanced Model Merging techniques.

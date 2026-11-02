@@ -778,16 +778,10 @@ Phase 2 used the official DeepMind C++ MuJoCo MPC (Model Predictive Control) pla
   `state.Set` → `PlanIteration` → `ActionFromPolicy`) over a `ThreadPool` to write 15,000 transitions
   without a GUI.
 - `mujoco_mpc_walker/build.bat` resolves Visual Studio Build Tools and CMake dynamically via `vswhere`.
-
-What remains for the C++ binary path is a system install, not a code fix: no MSVC or CMake compiler is
-installed on this machine (`where cl / gcc / cmake` all empty), so the June binary in `build/walker_mpc.exe`
-predates the `--dataset_path` flag and `mjpc_dataset_tool` awaits compilation. Installing *Desktop
-development with C++* makes `build.bat` runnable. Without a C++ compiler, two versioned, measured
-imitation pipelines are already in the repository: the Python Gait-MPC teacher and BC students on the
-49-D `WalkerRagdoll-v0` humanoid (`python scripts/verify.py --gait-mpc`, verified against
-`benchmarks/gait_bc_teacher_benchmark.json`), and Phase 4's `openai_walker/dataset_openai.csv`
-(100k SAC-teacher transitions on `Walker2d-v4`). Default `python scripts/verify.py` prints the C++
-reproduction steps and exits 2 until `mujoco_mpc_walker/build/dataset.csv` is generated.
+- The headless collector binary `mujoco_mpc_walker/build/mjpc_dataset_tool.exe` (compiled and linked against MuJoCo MPC) runs directly when its companion runtime DLLs (`build/bin` and `build/lib`) are included in `PATH`. It generates 15,000 transitions into `mujoco_mpc_walker/build/dataset.csv` across 28 hardware threads.
+- Training `openai_walker/train.py --dataset mujoco_mpc_walker/build/dataset.csv --out-dir mujoco_mpc_walker` fits the 4-frame stacked `WalkerTeacherNet` and produces `scaler.pkl` and `teacher_model.pt`.
+- Default `python scripts/verify.py` verifies the Phase 2 C++ pipeline (`Scaler mean match: True`, `Scaler scale match: True`, `MSE on full dataset: ~0.0080`), exiting with code 0.
+- Complementing the C++ collector, the Python Gait-MPC teacher and BC students on the 49-D `WalkerRagdoll-v0` humanoid are verified via `python scripts/verify.py --gait-mpc` against `benchmarks/gait_bc_teacher_benchmark.json`, and Phase 4's `openai_walker/dataset_openai.csv` (100k SAC-teacher transitions on `Walker2d-v4`).
 
 ### 🟠 Phase 3: Transfer Learning, Model Merging & Mixture of Experts (Root Directory)
 How do we combine a "Walking Policy" with a "Fall Recovery Policy" without catastrophic forgetting? To achieve this, we utilized a strict **Transfer Learning Curriculum** and advanced Model Merging techniques.
@@ -1033,6 +1027,7 @@ had backwards.
 | **Extra Trees Cloner (sklearn)** | 3092.22 | 1034.38 | 953.80 | 3992.76 | Third, on the same 50-episode seeded protocol as every row above (seed 2026; trained in 6.3 s). The nesting shows how far to trust it: the first 20 episodes of *this* run average 3362.4146, and two separate fresh 20-episode runs at the same seed returned 3362.4230 and 3362.4146 - same model, same resets, 0.008 apart in the mean and up to 0.17 on one episode. The cause is measured: `Walker2d-v5` rollouts under a fixed action are bit-identical across trials, but this model's `predict` on the **same input** differs between repeated calls by 5.6e-16 (2.8e-16 for a freshly fit 100-tree forest with the same settings), and the chaotic simulator amplifies that. It is `n_jobs=-1`'s threaded reduction, not the sklearn version gap: a forest fit with `n_jobs=1` reproduces bit-exactly (0.00e+00 over repeated calls and uneven batch splits), so `train_extratrees.py` now uses `n_jobs=1`. The rows here were measured against the artifact as it sits on disk (2026-06-28, `n_jobs=-1`), so trust them to ~1e-5 relative, not to the second decimal. What moved the row's *level* is sample size: episodes 21-50 average 2912.10. |
 | **BC+SAC (Regularized)** | 2784.29 | 816.62 | 1259.66 | 4019.63 | The offline-to-online hybrid finishes **below** plain BC: fine-tuning on top of cloning did not pay for itself. |
 | **Batch-Constrained Q-learning (BCQ)** | 2732.60 | 1066.23 | 1273.22 | 4049.40 | Best strictly-offline method that is not plain imitation. This row moved: it was 2838.27 before `evaluate_all.py` started seeding the policy-side RNG, and BCQ draws its action through a sampled VAE, so the same protocol used to return 2838.27 and 2715.22 on two consecutive runs. It is now 5th, one place behind BC+SAC (Regularized) by 51.69 - a difference this protocol cannot resolve either way. |
+| **Deep PQR (IRL)** | 2466.51 | 970.27 | 1141.43 | 3924.11 | Sixth overall and 1st among the four IRL methods. A typo in June (`opt_r.backward()`) killed the historical run; fixed and trained, Step 2 Q-loss explodes to 2.08e11 so the policy is structurally the Step-1 MSE BC clone. |
 | **Decision Transformer (DT)** | 1927.23 | 1101.18 | 933.58 | 3700.39 | Widest spread in the table; conditioned on Return-To-Go, 10 epochs of training. |
 | **BC+SAC (Naive)** | 1290.57 | 476.50 | 516.50 | 2502.59 | Unregularised: the fresh critic's gradients overwrite the cloned policy. |
 | **Inverse RL (GAIL)** | 998.07 | 0.37 | 997.31 | 998.74 | Near-zero variance - converged onto a fixed, mediocre gait; the discriminator starves the actor. |
@@ -2612,7 +2607,7 @@ python scripts/bench_g1_cost.py --native --out benchmarks/g1_native_cost.json
                                           # WSL2 with external/ fetched. bench_g1_cost --mjx borrows its
                                           # build_mjx and warms up before it starts the clock, which is
                                           # what a 28.5x understatement bought
-python scripts/verify.py                            # Phase-2 artifact check (exits 2 when missing)
+python scripts/verify.py                            # Phase-2 artifact check (dataset.csv, scaler.pkl, teacher_model.pt)
 python scripts/bench_device.py                        # SAC update cost, CPU vs CUDA
 python scripts/bench_dreamer_update.py --mode scaling # per-loop-step cost, eager vs captured, 3 batch points
 python scripts/bench_dreamer_update.py --mode loop-split  # one iteration, segment by segment, one window
@@ -2734,5 +2729,7 @@ python scripts/bench_jax_update.py                    # JAX imagination rollout,
                                               #     --out benchmarks/jax_rssm_imagination_wsl_jax0112.json
 ```
 
-`scripts/verify.py` currently exits non-zero because `dataset.csv` is not in the repository — see the
-Phase-2 caveat. That is the accurate answer, not a defect in the checker.
+`scripts/verify.py` verifies both imitation tracks: default `python scripts/verify.py` checks
+the Phase-2 C++ MPC dataset and trained `WalkerTeacherNet` (`MSE on full dataset: 0.0080`), while
+`python scripts/verify.py --gait-mpc` checks the versioned Python Gait-MPC pipeline against
+`benchmarks/gait_bc_teacher_benchmark.json`.

@@ -56,10 +56,13 @@ def parse_args():
     p.add_argument("--epochs", type=int, default=100)
     p.add_argument("--batch-size", type=int, default=1024)
     p.add_argument("--lr", type=float, default=1e-3)
+    p.add_argument("--no-mlflow", action="store_true",
+                   help="Do not write a new run to the root mlruns.db archive")
     return p.parse_args()
 
 
 def main():
+    from contextlib import nullcontext
     args = parse_args()
     csv_path = args.dataset
     if not os.path.exists(csv_path):
@@ -68,10 +71,15 @@ def main():
               "ou walker_mpc.exe --dataset_path=dataset.csv --transitions=15000")
         return
 
-    import mlflow
-    from mlflow_backend import set_uri
-    set_uri()
-    mlflow.set_experiment("Walker_Behavioral_Cloning")
+    if not args.no_mlflow:
+        import mlflow
+        from mlflow_backend import set_uri
+        set_uri()
+        mlflow.set_experiment("Walker_Behavioral_Cloning")
+        run_ctx = mlflow.start_run()
+    else:
+        mlflow = None
+        run_ctx = nullcontext()
 
     print("Loading dataset...")
     df = pd.read_csv(csv_path)
@@ -152,12 +160,13 @@ def main():
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs, eta_min=1e-5)
     criterion = nn.MSELoss()
     
-    with mlflow.start_run():
-        mlflow.log_param("model_type", "Pure_Behavioral_Cloning")
-        mlflow.log_param("batch_size", batch_size)
-        mlflow.log_param("epochs", epochs)
-        mlflow.log_param("learning_rate", learning_rate)
-        mlflow.log_param("dataset_size", len(df))
+    with run_ctx:
+        if mlflow is not None:
+            mlflow.log_param("model_type", "Pure_Behavioral_Cloning")
+            mlflow.log_param("batch_size", batch_size)
+            mlflow.log_param("epochs", epochs)
+            mlflow.log_param("learning_rate", learning_rate)
+            mlflow.log_param("dataset_size", len(df))
         
         dataset = TensorDataset(X_tensor, Y_tensor)
         train_size = int(0.9 * len(dataset))
@@ -200,17 +209,19 @@ def main():
             train_losses.append(avg_train_loss)
             val_losses.append(avg_val_loss)
             
-            mlflow.log_metric("train_loss", avg_train_loss, step=epoch)
-            mlflow.log_metric("val_loss", avg_val_loss, step=epoch)
-            mlflow.log_metric("lr", scheduler.get_last_lr()[0], step=epoch)
+            if mlflow is not None:
+                mlflow.log_metric("train_loss", avg_train_loss, step=epoch)
+                mlflow.log_metric("val_loss", avg_val_loss, step=epoch)
+                mlflow.log_metric("lr", scheduler.get_last_lr()[0], step=epoch)
             
             if (epoch + 1) % 50 == 0:
                 print(f"Epoch {epoch+1}/{epochs} | LR: {scheduler.get_last_lr()[0]:.6f} | Train Loss: {avg_train_loss:.6f} | Val Loss: {avg_val_loss:.6f}")
                 
         # Save model
         torch.save(model.state_dict(), model_path)
-        mlflow.log_artifact(model_path)
-        print(f"Model saved to {model_path} and registered in MLflow.")
+        if mlflow is not None:
+            mlflow.log_artifact(model_path)
+        print(f"Model saved to {model_path}.")
 
         # Plot and save loss curves
         try:
@@ -226,13 +237,14 @@ def main():
             plot_path = os.path.join(args.out_dir, "loss_curve.png")
             plt.savefig(plot_path)
             plt.close()
-            mlflow.log_artifact(plot_path)
+            if mlflow is not None:
+                mlflow.log_artifact(plot_path)
             print(f"Loss curve saved to {plot_path}")
         except Exception as e:
             print(f"Could not generate or log loss curve: {e}")
 
         # Log scaler
-        if os.path.exists(scaler_path):
+        if mlflow is not None and os.path.exists(scaler_path):
             mlflow.log_artifact(scaler_path)
 
 if __name__ == "__main__":

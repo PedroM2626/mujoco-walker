@@ -104,29 +104,38 @@ def phase4(path=os.path.join("openai_walker", "eval_phase4_20ep.log"), seed=None
 
 
 def phase4_with_extratrees(data):
-    """Fold the Extra Trees row into the Phase-4 table.
+    """Fold the Extra Trees and PQR rows into the Phase-4 table.
 
     It is trained by `train_extratrees.py` and scored by `eval_extratrees.py` rather than by
     `evaluate_all.py`, so it never appeared in that log - which is how a competitive model
     ended up in a footnote. The protocol matches: same environment, same seed+i per episode.
+    PQR is folded from benchmarks/phase4_pqr_eval.json under the same protocol.
     """
     path = os.path.join(ROOT, "openai_walker", "eval_extratrees_50ep.log")
-    if not os.path.exists(path):
-        return data
-    text = open(path, encoding="utf-8", errors="replace").read()
-    m = re.search(r"Extra Trees: (-?[\d.]+) avg over (\d+) ep \(std ([\d.]+), "
-                  r"min (-?[\d.]+), max (-?[\d.]+)\)", text)
-    if not m:
-        return data
-    mean, episodes, std, mn, mx = m.groups()
-    if int(episodes) != next(iter(data["models"].values()))["episodes"]:
-        raise SystemExit(f"Extra Trees ran {episodes} episodes, the race ran "
-                         f"{next(iter(data['models'].values()))['episodes']}: not comparable")
-    data["models"]["Extra Trees Cloner (sklearn)"] = {
-        "mean": float(mean), "std": float(std), "min": float(mn), "max": float(mx),
-        "episodes": int(episodes),
-    }
-    data["protocol"] += " + eval_extratrees_50ep.log (same seeded protocol)"
+    if os.path.exists(path):
+        text = open(path, encoding="utf-8", errors="replace").read()
+        m = re.search(r"Extra Trees: (-?[\d.]+) avg over (\d+) ep \(std ([\d.]+), "
+                      r"min (-?[\d.]+), max (-?[\d.]+)\)", text)
+        if m:
+            mean, episodes, std, mn, mx = m.groups()
+            if int(episodes) == next(iter(data["models"].values()))["episodes"]:
+                data["models"]["Extra Trees Cloner (sklearn)"] = {
+                    "mean": float(mean), "std": float(std), "min": float(mn), "max": float(mx),
+                    "episodes": int(episodes),
+                }
+                data["protocol"] += " + eval_extratrees_50ep.log (same seeded protocol)"
+    pqr_path = os.path.join(ROOT, "benchmarks", "phase4_pqr_eval.json")
+    if os.path.exists(pqr_path):
+        pqr_eval = json.load(open(pqr_path, encoding="utf-8"))
+        pqr_stats = pqr_eval.get("evaluation_50ep_seed2026", {}).get("PQR")
+        if pqr_stats:
+            data["models"]["PQR"] = {
+                "mean": float(pqr_stats["mean"]),
+                "std": float(pqr_stats["std"]),
+                "min": float(pqr_stats["min"]),
+                "max": float(pqr_stats["max"]),
+                "episodes": int(pqr_stats["episodes"]),
+            }
     return data
 
 

@@ -58,6 +58,7 @@ RACE_ROWS = {
     "**Extra Trees Cloner (sklearn)**": "Extra Trees Cloner (sklearn)",
     "**BC+SAC (Regularized)**": "BC+SAC (Regularized)",
     "**Batch-Constrained Q-learning (BCQ)**": "BCQ",
+    "**Deep PQR (IRL)**": "PQR",
     "**Decision Transformer (DT)**": "DT",
     "**BC+SAC (Naive)**": "BC+SAC (Naive)",
     "**Inverse RL (GAIL)**": "GAIL",
@@ -68,9 +69,9 @@ RACE_ROWS = {
     "**IQL Offline**": "IQL",
     "**Inverse RL (AIRL)**": "AIRL",
 }
-# The retired table carries the same rows except Extra Trees, which was never in that race and so
-# has no single-episode score in any artifact.
-N1_ROWS = {k: v for k, v in RACE_ROWS.items() if "Extra Trees" not in k}
+# The retired table carries the same rows except Extra Trees and Deep PQR, which were never in that
+# race and so have no single-episode score in any artifact.
+N1_ROWS = {k: v for k, v in RACE_ROWS.items() if "Extra Trees" not in k and "Deep PQR" not in k}
 
 MINUS = "\u2212"  # the README writes these gaps with a real minus sign
 

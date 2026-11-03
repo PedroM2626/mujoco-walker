@@ -1,15 +1,18 @@
+import argparse
+from contextlib import nullcontext
+import os
+import sys
+
 import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 import numpy as np
 import gymnasium as gym
-import mlflow
-from mlflow_backend import set_uri
-import os
 
-set_uri()
-mlflow.set_experiment("Walker_Offline_To_Online")
+HERE = os.path.dirname(os.path.abspath(__file__))
+if HERE not in sys.path:
+    sys.path.insert(0, HERE)
 
 class PolicyNet(nn.Module):
     def __init__(self, input_dim, output_dim, max_action=1.0):
@@ -90,13 +93,39 @@ class ReplayBuffer:
             torch.FloatTensor(self.done[ind])
         )
 
+def parse_args():
+    p = argparse.ArgumentParser(description="SAC Offline-to-Online Fine-Tuning from IQL (Walker2d-v5)")
+    p.add_argument("--ckpt", default=os.path.join(HERE, "iql_full_ckpt.pt"), help="Path to pretrained IQL checkpoint")
+    p.add_argument("--out", default=os.path.join(HERE, "iql_sac_model.pt"), help="Output model path")
+    p.add_argument("--max-timesteps", type=int, default=100000, help="Total online interaction steps")
+    p.add_argument("--seed", type=int, default=2026, help="Random seed")
+    p.add_argument("--lr", type=float, default=3e-5, help="Learning rate")
+    p.add_argument("--batch-size", type=int, default=256, help="Batch size")
+    p.add_argument("--no-mlflow", action="store_true", help="Disable MLflow tracking")
+    return p.parse_args()
+
 def main():
+    args = parse_args()
+    torch.manual_seed(args.seed)
+    np.random.seed(args.seed)
+    
+    if not args.no_mlflow:
+        import mlflow
+        from mlflow_backend import set_uri
+        set_uri()
+        mlflow.set_experiment("Walker_Offline_To_Online")
+        run_ctx = mlflow.start_run(run_name="IQL_SAC_FineTuning_Walker2d")
+    else:
+        mlflow = None
+        run_ctx = nullcontext()
+
     env = gym.make("Walker2d-v5")
     state_dim = env.observation_space.shape[0]
     action_dim = env.action_space.shape[0]
     max_action = float(env.action_space.high[0])
     
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Using device: {device}")
     
     actor = PolicyNet(state_dim, action_dim, max_action).to(device)
     q1 = QNetwork(state_dim, action_dim).to(device)
@@ -104,10 +133,10 @@ def main():
     target_q1 = QNetwork(state_dim, action_dim).to(device)
     target_q2 = QNetwork(state_dim, action_dim).to(device)
     
-    model_path = "iql_full_ckpt.pt"
+    model_path = args.ckpt
     if os.path.exists(model_path):
         print(f"Loading pretrained IQL weights from {model_path} into SAC...")
-        checkpoint = torch.load(model_path, map_location=device)
+        checkpoint = torch.load(model_path, map_location=device, weights_only=False)
         actor.load_state_dict(checkpoint['policy'])
         q1.load_state_dict(checkpoint['q1'])
         q2.load_state_dict(checkpoint['q2'])
@@ -118,23 +147,23 @@ def main():
     target_q2.load_state_dict(q2.state_dict())
     
     # We use a much smaller learning rate to not destroy the pre-trained weights
-    actor_opt = optim.Adam(actor.parameters(), lr=3e-5)
-    q_opt = optim.Adam(list(q1.parameters()) + list(q2.parameters()), lr=3e-5)
+    actor_opt = optim.Adam(actor.parameters(), lr=args.lr)
+    q_opt = optim.Adam(list(q1.parameters()) + list(q2.parameters()), lr=args.lr)
     
     alpha = 0.2
     gamma = 0.99
     tau = 0.005
-    batch_size = 256
+    batch_size = args.batch_size
+    max_timesteps = args.max_timesteps
     
     replay_buffer = ReplayBuffer(state_dim, action_dim)
     
-    max_timesteps = 100000 # Fine-tuning for 100k steps
     episode_reward = 0
     episode_timesteps = 0
     
-    state, _ = env.reset()
+    state, _ = env.reset(seed=args.seed)
     
-    with mlflow.start_run(run_name="IQL_SAC_FineTuning_Walker2d"):
+    with run_ctx:
         print("Starting SAC Offline-to-Online Fine-Tuning from IQL...")
         for t in range(max_timesteps):
             if t < 1000:
@@ -157,8 +186,10 @@ def main():
             episode_timesteps += 1
             
             if done:
-                mlflow.log_metric("rollout/ep_rew_mean", episode_reward, step=t)
-                print(f"Step {t+1} | Episode Reward: {episode_reward:.2f}")
+                if mlflow is not None:
+                    mlflow.log_metric("rollout/ep_rew_mean", episode_reward, step=t)
+                if (t + 1) % 5000 == 0 or t < 3000:
+                    print(f"Step {t+1}/{max_timesteps} | Episode Reward: {episode_reward:.2f}")
                 state, _ = env.reset()
                 episode_reward = 0
                 episode_timesteps = 0
@@ -193,13 +224,16 @@ def main():
                 for param, target_param in zip(q2.parameters(), target_q2.parameters()):
                     target_param.data.copy_(tau * param.data + (1 - tau) * target_param.data)
                     
-                if t % 5000 == 0:
-                    mlflow.log_metric("train/actor_loss", pi_loss.item(), step=t)
-                    mlflow.log_metric("train/critic_loss", q_loss.item(), step=t)
+                if (t + 1) % 5000 == 0:
+                    if mlflow is not None:
+                        mlflow.log_metric("train/actor_loss", pi_loss.item(), step=t)
+                        mlflow.log_metric("train/critic_loss", q_loss.item(), step=t)
+                    print(f"Step {t+1}/{max_timesteps} | Q-Loss: {q_loss.item():.4f} | Pi-Loss: {pi_loss.item():.4f}")
 
-        torch.save(actor.state_dict(), "iql_sac_model.pt")
-        mlflow.log_artifact("iql_sac_model.pt")
-        print("Training Complete.")
+        torch.save(actor.state_dict(), args.out)
+        if mlflow is not None:
+            mlflow.log_artifact(args.out)
+        print(f"Training Complete. Model saved to {args.out}")
 
 if __name__ == "__main__":
     main()

@@ -1119,6 +1119,15 @@ What this measurement changes, stated plainly:
    too: those are the teacher's numbers, and nothing in the repository logged a score for any of the
    13 offline policies before 2026-06-26.
 
+10. **IQL+SAC completed and reproduced.** In June 2026, the `IQL_SAC_FineTuning_Walker2d` run had
+    been interrupted after 653 steps without saving weights (closed as stale in `mlruns.db`), leaving
+    `iql_sac` as the sole absent model in `test_phase4_behaviour.py`. Modernizing `train_iql_sac.py`
+    (`--max-timesteps 100000 --seed 2026 --no-mlflow`) and training for the full 100k timesteps on GPU
+    produces `openai_walker/iql_sac_model.pt` (3.26 MB) and brings the Phase 4 registry to all 15/15
+    artifacts present. Evaluated over 50 seeded episodes (`seed=2026`), it achieves **mean 388.27, std
+    10.33, min 367.83, max 410.81**, rescuing the collapsed offline IQL baseline (4.44) and matching
+    `CQL+SAC` (407.99).
+
 ### Historical record: one unseeded episode per model (`final_results.txt`)
 
 Kept for the numbers themselves - this is the file the earlier version of this README
